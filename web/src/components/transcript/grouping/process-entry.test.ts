@@ -57,9 +57,9 @@ describe('processEntry - Stop hook feedback', () => {
   })
 })
 
-// The Skill tool produces two consecutive user entries: a tool_result carrying
-// `toolUseResult.commandName`, then the big markdown dump. The broker strips
-// CC's `isMeta` / `sourceToolUseID` fields, so detection keys on content shape.
+// The Skill tool produces a tool_result carrying `toolUseResult.commandName`,
+// then the big markdown dump. The agent host marks the dump `isMeta` -- native
+// in CC's JSONL (PTY), normalized from stream-json `isSynthetic` (headless).
 const SKILL_BODY = `Base directory for this skill: /Users/jonas/.claude/skills/minimalist-skill\n\n# Protocol\n${'x'.repeat(400)}`
 
 function skillToolResult(commandName: string): TranscriptEntry {
@@ -71,16 +71,30 @@ function skillToolResult(commandName: string): TranscriptEntry {
   } as unknown as TranscriptEntry
 }
 
+function skillContent(body: string): TranscriptEntry {
+  return {
+    type: 'user',
+    timestamp: '2026-05-18T17:21:00.000Z',
+    isMeta: true,
+    message: { role: 'user', content: [{ type: 'text', text: body }] },
+  } as unknown as TranscriptEntry
+}
+
 describe('processEntry - Skill content', () => {
-  it('collapses skill content into a skill group (broker-stored shape, no isMeta)', () => {
-    const { groups } = group([skillToolResult('minimalist-skill'), userEntry(textBlocks(SKILL_BODY))])
+  it('collapses skill content into a skill group', () => {
+    const { groups } = group([skillToolResult('minimalist-skill'), skillContent(SKILL_BODY)])
     expect(groups).toHaveLength(1)
     expect(groups[0].type).toBe('skill')
     expect(groups[0].skillName).toBe('minimalist-skill')
   })
 
-  it('leaves a big markdown user message alone when no skill was just invoked', () => {
-    const { groups } = group([userEntry(textBlocks(SKILL_BODY))])
+  it('does not collapse a meta dump with no preceding Skill tool call', () => {
+    const { groups } = group([skillContent(SKILL_BODY)])
+    expect(groups[0]?.type).toBe('user')
+  })
+
+  it('leaves a non-meta markdown message as a normal user group', () => {
+    const { groups } = group([skillToolResult('minimalist-skill'), userEntry(textBlocks(SKILL_BODY))])
     expect(groups[0]?.type).toBe('user')
   })
 })

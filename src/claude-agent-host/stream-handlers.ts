@@ -394,6 +394,16 @@ function handleUser(hctx: HandlerContext, msg: Record<string, unknown>) {
     ;(entry as Record<string, unknown>).toolUseResult = msg.tool_use_result
   }
 
+  // Normalize CC's meta-entry marker onto our canonical `isMeta`. CC's two
+  // transcript dialects name it differently: the JSONL (PTY path) uses
+  // `isMeta`, the stdout stream-json (headless path) uses `isSynthetic`. Both
+  // mark the same thing -- an injected, non-user-turn entry (skill content,
+  // injected context). Without this, headless transcripts drop the marker
+  // entirely and every downstream `isMeta` consumer silently breaks.
+  if (msg.isMeta === true || msg.isSynthetic === true) {
+    ;(entry as Record<string, unknown>).isMeta = true
+  }
+
   routeEntry(replay, callbacks, msg, parentToolUseId, entry)
 }
 

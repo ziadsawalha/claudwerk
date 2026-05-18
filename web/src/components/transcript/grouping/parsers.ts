@@ -62,19 +62,18 @@ export function extractSkillName(entry: TranscriptUserEntry): string | undefined
 // Detect if a user entry is a skill content injection (the big markdown dump
 // after a Skill tool call or /slash command).
 //
-// The broker does NOT persist CC's per-entry `isMeta` / `sourceToolUseID`
-// fields -- it stores a whitelist (message/seq/timestamp/type/uuid plus
-// toolUseResult), so detection cannot rely on them and must key on the content
-// shape instead. The Skill tool always injects content opening with the exact
-// marker below; the /slash path opens with a markdown heading. Both stay gated
-// by `pendingSkillName` at the call site, so a stray markdown paste can't match.
+// `isMeta` marks an injected, non-user-turn entry. The agent host populates it
+// in both transports -- natively from CC's JSONL (PTY) and normalized from
+// stream-json `isSynthetic` (headless) -- so detection can rely on it. The
+// content marker then distinguishes skill content from other meta entries.
+// Gated by `pendingSkillName` at the call site, so a stray paste can't match.
 export function isSkillContent(entry: TranscriptUserEntry): boolean {
+  if (entry.isMeta !== true) return false
   const content = entry.message?.content
   if (!Array.isArray(content)) return false
   const text = content
     .filter(c => c.type === 'text')
     .map(c => c.text)
     .join('')
-  if (text.length <= 300) return false
-  return text.startsWith('Base directory for this skill:') || text.startsWith('#')
+  return text.length > 300 && (text.startsWith('Base directory for this skill:') || text.startsWith('#'))
 }
