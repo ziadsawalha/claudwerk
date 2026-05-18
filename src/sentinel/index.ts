@@ -319,6 +319,20 @@ function findAcpHostBinary(): string | null {
   return null
 }
 
+/** Locate the daemon-host binary (attaches to a Claude Code daemon worker).
+ *  Same lookup strategy as opencode-host / acp-host. */
+function findDaemonHostBinary(): string | null {
+  const fromPath = Bun.which('daemon-host')
+  if (fromPath) return fromPath
+  const binDir = dirname(resolve(process.argv[0]))
+  const homeLocalBin = join(process.env.HOME || '/root', '.local', 'bin')
+  const candidates = [resolve(binDir, 'daemon-host'), resolve(homeLocalBin, 'daemon-host')]
+  for (const path of candidates) {
+    if (existsSync(path)) return path
+  }
+  return null
+}
+
 // ─── Env Sanitization ──────────────────────────────────────────────
 
 /** Conversation-scoped RCLAUDE_* vars that must NOT leak from the sentinel's own
@@ -786,6 +800,136 @@ function spawnAcpHostDirect(opts: {
   })
 
   launchLog(opts.jobId, `acp-host process started (${recipe.label})`, 'ok', `PID ${pid}`)
+  return { success: true, pid }
+}
+
+/** Match ANSI SGR sequences without the literal ESC control char (which
+ *  trips biome's noControlCharactersInRegex). The stray ESC left behind is
+ *  harmless -- the consumer matches across it with `\W`. */
+const DAEMON_ANSI_RE = /\[[0-9;]*m/g
+
+/**
+ * Dispatch a Claude Code daemon worker via `claude --bg` and capture its
+ * 8-hex job short id from the `backgrounded - <id>` line. This is the Phase 2
+ * dispatch path; Phase 3 will use the daemon socket `dispatch` op for full
+ * DispatchSpec control. The captured short is handed to bin/daemon-host via
+ * CLAUDWERK_DAEMON_SHORT so it can attach to the worker's PTY.
+ */
+async function dispatchDaemonWorker(opts: {
+  cwd: string
+  prompt: string
+  model?: string
+  name?: string
+  jobId?: string
+}): Promise<{ short: string | null; output: string }> {
+  const args = ['claude', '--bg']
+  if (opts.model) args.push('--model', opts.model)
+  if (opts.name) {
+    const jobName = `cw-${opts.name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40)}`
+    args.push('--name', jobName)
+  }
+  args.push(opts.prompt)
+  launchLog(opts.jobId, 'Dispatching claude --bg worker', 'info', `model=${opts.model ?? 'default'}`)
+  let proc: Subprocess
+  try {
+    proc = Bun.spawn(args, { cwd: opts.cwd, env: cleanSentinelEnv(), stdout: 'pipe', stderr: 'pipe' })
+  } catch (e: unknown) {
+    return { short: null, output: `claude --bg spawn failed: ${(e as Error).message}` }
+  }
+  const [out, err] = await Promise.all([
+    new Response(proc.stdout as ReadableStream).text(),
+    new Response(proc.stderr as ReadableStream).text(),
+  ])
+  await proc.exited
+  const output = `${out}${err}`.trim()
+  const match = output.replace(DAEMON_ANSI_RE, '').match(/backgrounded\s+\W+\s*([0-9a-f]{8})/)
+  return { short: match ? match[1] : null, output }
+}
+
+/**
+ * Spawn a daemon-host subprocess for a conversation. Mirrors
+ * spawnOpenCodeHostDirect / spawnAcpHostDirect but launches `bin/daemon-host`,
+ * which attaches to the already-dispatched daemon worker `daemonShort` rather
+ * than spawning `claude` itself.
+ */
+function spawnDaemonHostDirect(opts: {
+  bin: string
+  cwd: string
+  conversationId: string
+  daemonShort: string
+  secret: string
+  jobId?: string
+  conversationName?: string
+  conversationDescription?: string
+  env?: Record<string, string>
+}): { success: boolean; error?: string; pid?: number } {
+  const startTime = Date.now()
+  launchLog(opts.jobId, 'Spawning daemon-host (direct)', 'info', `${opts.bin} short=${opts.daemonShort}`)
+
+  const env: Record<string, string | undefined> = cleanSentinelEnv()
+  env.RCLAUDE_SECRET = opts.secret
+  env.RCLAUDE_CONVERSATION_ID = opts.conversationId
+  env.RCLAUDE_HEADLESS = '1'
+  env.RCLAUDE_CWD = opts.cwd
+  env.CLAUDWERK_DAEMON_SHORT = opts.daemonShort
+  if (opts.conversationName) env.CLAUDWERK_CONVERSATION_NAME = opts.conversationName
+  if (opts.conversationDescription) env.CLAUDWERK_CONVERSATION_DESCRIPTION = opts.conversationDescription
+  if (opts.env) Object.assign(env, opts.env)
+
+  let proc: Subprocess
+  try {
+    proc = Bun.spawn([opts.bin], { cwd: opts.cwd, env, stdout: 'ignore', stderr: 'pipe' })
+  } catch (e: unknown) {
+    const err = `Bun.spawn failed: ${(e as Error).message}`
+    launchLog(opts.jobId, 'Spawn failed', 'error', err)
+    return { success: false, error: err }
+  }
+  const pid = proc.pid
+  log(`daemon-host spawn: PID ${pid} conv=${opts.conversationId.slice(0, 8)} short=${opts.daemonShort} cwd=${opts.cwd}`)
+
+  const child: TrackedChild = {
+    proc,
+    conversationId: opts.conversationId,
+    pid,
+    cwd: opts.cwd,
+    startedAt: new Date().toISOString(),
+  }
+  trackedChildren.set(opts.conversationId, child)
+  writePidRegistry()
+  captureChildStderr(proc, opts.conversationId)
+
+  proc.exited.then(exitCode => {
+    const elapsedMs = Date.now() - startTime
+    trackedChildren.delete(opts.conversationId)
+    writePidRegistry()
+    if (exitCode === 0) {
+      log(`daemon-host exited normally: PID ${pid} conv=${opts.conversationId.slice(0, 8)} (${elapsedMs}ms)`)
+    } else {
+      const earlyFailure = elapsedMs < 5000
+      log(
+        `daemon-host FAILED: PID ${pid} exit=${exitCode} elapsed=${elapsedMs}ms conv=${opts.conversationId.slice(0, 8)}${earlyFailure ? ' (EARLY)' : ''}`,
+      )
+      if (activeWs?.readyState === WebSocket.OPEN) {
+        const detail = earlyFailure
+          ? `daemon-host exited in ${elapsedMs}ms (exit ${exitCode}) -- check the Claude Code daemon is running`
+          : `daemon-host exited with code ${exitCode} after ${Math.round(elapsedMs / 1000)}s`
+        const msg: SpawnFailed = {
+          type: 'spawn_failed',
+          conversationId: opts.conversationId,
+          project: cwdToProjectUri(opts.cwd, 'daemon'),
+          pid,
+          exitCode,
+          elapsedMs,
+          error: detail,
+        }
+        try {
+          activeWs.send(JSON.stringify(msg))
+        } catch {}
+      }
+    }
+  })
+
+  launchLog(opts.jobId, 'daemon-host process started', 'ok', `PID ${pid}`)
   return { success: true, pid }
 }
 
@@ -2210,6 +2354,96 @@ function connect(
             }
             ws.send(JSON.stringify(ocResp))
             if (ocRes.success) launchLog(spawnMsg.jobId, 'Waiting for conversation to connect', 'info')
+            break
+          }
+
+          // ─── daemon-host spawn path ──────────────────────────────
+          // Routed when the broker's daemon backend tags a spawn with
+          // agentHostType: 'daemon'. The sentinel dispatches a `claude --bg`
+          // worker, captures its 8-hex short id, then launches bin/daemon-host
+          // which attaches to that worker's PTY over the daemon control socket.
+          if (spawnMsg.agentHostType === 'daemon') {
+            const sendDaemonFail = (error: string): void => {
+              launchLog(spawnMsg.jobId, 'daemon spawn rejected', 'error', error)
+              ws.send(
+                JSON.stringify({
+                  type: 'spawn_result',
+                  requestId: spawnMsg.requestId,
+                  jobId: spawnMsg.jobId,
+                  success: false,
+                  error,
+                  project: resolvedProject,
+                  conversationId: spawnMsg.conversationId,
+                } satisfies SpawnResult),
+              )
+            }
+
+            const daemonBin = findDaemonHostBinary()
+            if (!daemonBin) {
+              sendDaemonFail(
+                'daemon-host binary not found in PATH or known locations. Install with: bun install -g @claudewerk/daemon-host',
+              )
+              break
+            }
+            if (!spawnMsg.prompt?.trim()) {
+              sendDaemonFail('daemon spawn requires an initial prompt (claude --bg dispatches a job with a prompt)')
+              break
+            }
+            // Validate cwd (create on mkdir) + spawn-approval marker -- same
+            // gate as the rclaude / opencode / acp paths.
+            if (!existsSync(expandedCwd)) {
+              if (spawnMsg.mkdir) {
+                try {
+                  mkdirSync(expandedCwd, { recursive: true })
+                } catch (e: unknown) {
+                  sendDaemonFail(`Failed to create directory: ${(e as Error).message}`)
+                  break
+                }
+              } else {
+                sendDaemonFail(`Directory not found: ${expandedCwd}`)
+                break
+              }
+            }
+            if (!isSpawnApproved(expandedCwd)) {
+              sendDaemonFail(`Spawn not allowed: no .rclaude-spawn marker at or above ${expandedCwd}`)
+              break
+            }
+            // Dispatch the claude --bg worker and capture its short id.
+            const dispatched = await dispatchDaemonWorker({
+              cwd: expandedCwd,
+              prompt: spawnMsg.prompt,
+              model: spawnMsg.model,
+              name: spawnMsg.conversationName,
+              jobId: spawnMsg.jobId,
+            })
+            if (!dispatched.short) {
+              sendDaemonFail(`claude --bg returned no job id -- ${dispatched.output.slice(0, 300) || 'no output'}`)
+              break
+            }
+            launchLog(spawnMsg.jobId, 'daemon worker dispatched', 'ok', `short=${dispatched.short}`)
+            const daemonRes = spawnDaemonHostDirect({
+              bin: daemonBin,
+              cwd: expandedCwd,
+              conversationId: spawnMsg.conversationId,
+              daemonShort: dispatched.short,
+              secret,
+              jobId: spawnMsg.jobId,
+              conversationName: spawnMsg.conversationName,
+              conversationDescription: spawnMsg.conversationDescription,
+              env: spawnMsg.env,
+            })
+            ws.send(
+              JSON.stringify({
+                type: 'spawn_result',
+                requestId: spawnMsg.requestId,
+                jobId: spawnMsg.jobId,
+                success: daemonRes.success,
+                error: daemonRes.error,
+                project: resolvedProject,
+                conversationId: spawnMsg.conversationId,
+              } satisfies SpawnResult),
+            )
+            if (daemonRes.success) launchLog(spawnMsg.jobId, 'Waiting for conversation to connect', 'info')
             break
           }
 
