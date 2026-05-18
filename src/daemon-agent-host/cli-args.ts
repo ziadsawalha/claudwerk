@@ -19,7 +19,9 @@
 
 import { DEFAULT_BROKER_URL } from '../shared/protocol'
 
-const log = (msg: string): void => { process.stderr.write(`[daemon-host] ${msg}\n`) }
+const log = (msg: string): void => {
+  process.stderr.write(`[daemon-host] ${msg}\n`)
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -38,8 +40,7 @@ export interface DaemonHostConfig {
 // ---------------------------------------------------------------------------
 
 export function parseDaemonHostConfig(): DaemonHostConfig {
-  const brokerUrl =
-    process.env.CLAUDWERK_BROKER || process.env.RCLAUDE_BROKER || DEFAULT_BROKER_URL
+  const brokerUrl = process.env.CLAUDWERK_BROKER || process.env.RCLAUDE_BROKER || DEFAULT_BROKER_URL
 
   const brokerSecret = process.env.CLAUDWERK_SECRET || process.env.RCLAUDE_SECRET
 
