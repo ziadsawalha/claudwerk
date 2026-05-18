@@ -46,6 +46,7 @@ export function ConversationRow({
   return (
     <button
       type="button"
+      data-active={active}
       onClick={onSelect}
       onMouseEnter={onMouseEnter}
       className={cn(

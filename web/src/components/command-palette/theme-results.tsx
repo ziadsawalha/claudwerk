@@ -22,6 +22,7 @@ function ThemeRow({
   return (
     <button
       type="button"
+      data-active={active}
       className={cn(
         'w-full flex items-center gap-3 px-4 py-2 text-left transition-colors',
         active ? 'bg-primary/20 text-foreground' : 'text-foreground hover:bg-primary/6',

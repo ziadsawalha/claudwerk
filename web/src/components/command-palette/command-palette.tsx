@@ -9,9 +9,11 @@ import { SpawnResults } from './spawn-results'
 import { ThemeResults } from './theme-results'
 import type { CommandPaletteProps } from './types'
 import { useCommandPalette } from './use-command-palette'
+import { useScrollActiveIntoView } from './use-scroll-active-into-view'
 
 export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPaletteProps) {
   const palette = useCommandPalette(onClose)
+  const resultsRef = useScrollActiveIntoView(palette.activeIndex, palette.mode)
 
   useKeyLayer(
     {
@@ -74,7 +76,7 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
         </div>
 
         {/* Results */}
-        <div className="max-h-[40vh] overflow-y-auto">
+        <div ref={resultsRef} className="max-h-[40vh] overflow-y-auto">
           {palette.mode === 'theme' ? (
             <ThemeResults
               themes={palette.themes}
@@ -121,6 +123,7 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
                   <button
                     key={task.slug}
                     type="button"
+                    data-active={i === palette.activeIndex}
                     className={`w-full flex items-center gap-2 px-4 py-2 text-left text-xs transition-colors ${
                       i === palette.activeIndex
                         ? 'bg-primary/20 text-foreground'

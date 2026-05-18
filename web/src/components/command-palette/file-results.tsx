@@ -25,6 +25,7 @@ export function FileResults({
         <button
           key={file.path}
           type="button"
+          data-active={i === activeIndex}
           onClick={() => selectedConversationId && onFileSelect(selectedConversationId, file.path)}
           onMouseEnter={() => setActiveIndex(i)}
           className={cn(

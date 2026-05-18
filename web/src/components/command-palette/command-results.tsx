@@ -15,6 +15,7 @@ export function CommandRow({ command, active, onMouseEnter, onClick, dim }: Comm
   return (
     <button
       type="button"
+      data-active={active}
       onClick={onClick || command.action}
       onMouseEnter={onMouseEnter}
       className={cn(

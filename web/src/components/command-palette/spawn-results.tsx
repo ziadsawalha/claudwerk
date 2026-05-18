@@ -34,6 +34,7 @@ export function SpawnResults({
           <button
             key={s.alias}
             type="button"
+            data-active={i === activeIndex}
             onClick={() => onSentinelSelect(s.alias)}
             onMouseEnter={() => setActiveIndex(i)}
             className={cn(
@@ -92,6 +93,7 @@ export function SpawnResults({
         <button
           key={dir}
           type="button"
+          data-active={i === activeIndex}
           onClick={() => onDirSelect(dir)}
           onMouseEnter={() => setActiveIndex(i)}
           className={cn(
