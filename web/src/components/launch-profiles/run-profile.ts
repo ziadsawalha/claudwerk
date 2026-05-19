@@ -74,9 +74,21 @@ export async function runProfile(
     return
   }
 
-  const immediate = profile.immediate ?? true
+  // Daemon launches always need per-launch input a profile cannot carry
+  // (NEW needs a prompt, RESUME a session id to fork from), so they open the
+  // spawn dialog pre-filled rather than firing straight to the broker --
+  // regardless of the profile's `immediate` flag.
+  const isDaemon = profile.spawn.backend === 'daemon'
+  const immediate = (profile.immediate ?? true) && !isDaemon
   if (!immediate) {
-    openSpawnDialog({ path: cwd, sentinel: pin.sentinel, projectUri: profile.project })
+    openSpawnDialog({
+      path: cwd,
+      sentinel: pin.sentinel,
+      projectUri: profile.project,
+      // Daemon: pre-fill the dialog with this profile's config. Non-daemon
+      // non-immediate keeps its historical "open blank dialog" behavior.
+      profileId: isDaemon ? profile.id : undefined,
+    })
     return
   }
 

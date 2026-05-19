@@ -2139,20 +2139,12 @@
       }
     },
     "web/src/components/launch-profiles/editor-mapping.ts": {
-      "complexity_critical": {
+      "complexity_moderate": {
         "count": 1
-      },
-      "crap_critical": {
-        "count": 2
       }
     },
     "web/src/components/launch-profiles/launch-profile-commands.tsx": {
       "crap_high": {
-        "count": 1
-      }
-    },
-    "web/src/components/launch-profiles/manager-editor.tsx": {
-      "crap_moderate": {
         "count": 1
       }
     },
@@ -2167,6 +2159,11 @@
       },
       "crap_moderate": {
         "count": 1
+      }
+    },
+    "web/src/components/launch-profiles/spawn-dialog-apply.ts": {
+      "complexity_moderate": {
+        "count": 2
       }
     },
     "web/src/components/markdown-input.tsx": {
@@ -2869,7 +2866,6 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "web/src/components/launch-profiles/editor-mapping.ts:untested risk",
     "src/broker/backends/index.ts:dead code",
     "web/src/components/revive-dialog.tsx:high impact",
     "src/broker/conversation-store/transcript-handlers/assistant-entry.ts:untested risk",
@@ -2881,9 +2877,9 @@
     "web/src/components/markdown-input/use-autocomplete.ts:high impact",
     "web/src/components/launch-profiles/profile-dropdown.tsx:dead code",
     "src/shared/spawn-defaults.ts:high impact",
+    "web/src/components/spawn-dialog.tsx:complexity",
     "src/acp-agent-host/dialect/from-acp-generic.ts:high impact",
     "src/broker/routes/conversations.ts:complexity",
-    "web/src/components/spawn-dialog.tsx:complexity",
     "web/src/components/launch-config-fields.tsx:complexity",
     "web/src/hooks/use-launch-progress.ts:high impact",
     "web/src/components/transcript/agent-views.tsx:complexity",

@@ -7,6 +7,8 @@
  */
 
 import type { LaunchProfile } from '@shared/launch-profile'
+import { blankDaemonForm, type DaemonMode, type DaemonModeFormValue } from '@/components/spawn-dialog/daemon-launch'
+import { parseEnvText } from '@/lib/env-parse'
 
 // Single source of truth for the backend union -- includes 'daemon'.
 export type { BackendKind } from '@/components/spawn-dialog/backend-select'
@@ -28,10 +30,19 @@ export interface SpawnFormSetters {
   setEnvText: (v: string) => void
   setOpenCodeModel?: (v: string) => void
   setOpenCodeToolPermission?: (v: 'none' | 'safe' | 'full') => void
+  /** Daemon launch state -- only invoked when the profile's backend is daemon. */
+  setDaemonMode?: (v: DaemonMode) => void
+  setDaemonForm?: (v: DaemonModeFormValue) => void
 }
 
 export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSetters): void {
   const s = profile.spawn
+  // Daemon profiles drive a separate config form (mode + DaemonModeFormValue),
+  // not the generic per-field state -- restore that and stop.
+  if (s.backend === 'daemon') {
+    applyDaemonProfileToForm(s, setters)
+    return
+  }
   if (s.headless !== undefined) setters.setHeadless(s.headless)
   setters.setModel(s.model ?? '')
   setters.setEffort(s.effort ?? '')
@@ -55,6 +66,50 @@ function envObjectToText(env: Record<string, string> | undefined): string {
     .join('\n')
 }
 
+/**
+ * Restore a daemon launch profile into the spawn dialog's daemon state.
+ * `prompt` / `resumeSessionId` are intentionally left blank -- they are
+ * per-launch input the user supplies in the dialog (a profile never carries
+ * them, see `profileSpawnSchema`).
+ */
+function applyDaemonProfileToForm(s: LaunchProfile['spawn'], setters: SpawnFormSetters): void {
+  setters.setBackend('daemon')
+  setters.setDaemonMode?.(s.daemonMode === 'resume' ? 'resume' : 'new')
+  setters.setDaemonForm?.({
+    ...blankDaemonForm(),
+    model: s.model ?? '',
+    appendSystemPrompt: s.appendSystemPrompt ?? '',
+    envText: envObjectToText(s.env),
+    settingsPath: s.daemonSettingsPath ?? '',
+    mcpConfigPath: s.daemonMcpConfigPath ?? '',
+    worktreeName: s.worktree ?? '',
+  })
+}
+
+/**
+ * Capture the daemon config form as a profile spawn slice. `attach` collapses
+ * to `new` (a profile cannot pin an ephemeral attach target); `prompt` and
+ * `resumeSessionId` are dropped -- they are per-launch only.
+ */
+function daemonFormToProfileSpawn(mode: DaemonMode, form: DaemonModeFormValue): LaunchProfile['spawn'] {
+  const out: LaunchProfile['spawn'] = {
+    backend: 'daemon',
+    daemonMode: mode === 'resume' ? 'resume' : 'new',
+  }
+  const model = form.model.trim()
+  if (model) out.model = model as LaunchProfile['spawn']['model']
+  if (form.appendSystemPrompt.trim()) out.appendSystemPrompt = form.appendSystemPrompt
+  const settings = form.settingsPath.trim()
+  if (settings) out.daemonSettingsPath = settings
+  const mcp = form.mcpConfigPath.trim()
+  if (mcp) out.daemonMcpConfigPath = mcp
+  const worktree = form.worktreeName.trim()
+  if (worktree) out.worktree = worktree
+  const [env] = parseEnvText(form.envText)
+  if (env && Object.keys(env).length) out.env = env
+  return out
+}
+
 export interface FormSnapshotInput {
   model: string
   effort: string
@@ -70,6 +125,9 @@ export interface FormSnapshotInput {
   envText: string
   openCodeModel?: string
   toolPermission?: 'none' | 'safe' | 'full'
+  /** Daemon launch state -- read only when `backend === 'daemon'`. */
+  daemonMode?: DaemonMode
+  daemonForm?: DaemonModeFormValue
 }
 
 /**
@@ -77,6 +135,12 @@ export interface FormSnapshotInput {
  * user can hit "Save as profile..." without retyping anything.
  */
 export function formSnapshotToProfileSpawn(snap: FormSnapshotInput): LaunchProfile['spawn'] {
+  // The daemon backend owns a separate config form -- snapshot it instead of
+  // the generic per-field state (the generic fields are not daemon launch
+  // params and would just bloat the profile).
+  if (snap.backend === 'daemon') {
+    return daemonFormToProfileSpawn(snap.daemonMode ?? 'new', snap.daemonForm ?? blankDaemonForm())
+  }
   const out: LaunchProfile['spawn'] = {}
   if (snap.model) out.model = snap.model as LaunchProfile['spawn']['model']
   if (snap.effort) out.effort = snap.effort as LaunchProfile['spawn']['effort']

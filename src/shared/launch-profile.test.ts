@@ -51,9 +51,11 @@ describe('isLaunchProfileId', () => {
 })
 
 describe('backendSupportsAppendSystemPrompt', () => {
-  it('returns true for claude and chat-api', () => {
+  it('returns true for claude, chat-api and daemon', () => {
     expect(backendSupportsAppendSystemPrompt('claude')).toBe(true)
     expect(backendSupportsAppendSystemPrompt('chat-api')).toBe(true)
+    // spike 2: `claude --bg --append-system-prompt` is honored by daemon workers.
+    expect(backendSupportsAppendSystemPrompt('daemon')).toBe(true)
   })
 
   it('returns false for hermes and opencode', () => {
@@ -69,6 +71,11 @@ describe('backendSupportsAppendSystemPrompt', () => {
     const list: readonly string[] = BACKENDS_WITH_APPEND_SYSTEM_PROMPT
     expect(list).not.toContain('hermes')
     expect(list).not.toContain('opencode')
+  })
+
+  it('matrix sanity: list includes daemon', () => {
+    const list: readonly string[] = BACKENDS_WITH_APPEND_SYSTEM_PROMPT
+    expect(list).toContain('daemon')
   })
 })
 
@@ -114,6 +121,59 @@ describe('launchProfileSchema', () => {
   it('rejects an invalid chord type', () => {
     const bad = { ...baseProfile(), chord: 42 }
     expect(launchProfileSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('launchProfileSchema -- daemon profiles', () => {
+  it('accepts a daemon profile with new mode + config injection fields', () => {
+    const ok = {
+      ...baseProfile(),
+      spawn: {
+        backend: 'daemon' as const,
+        daemonMode: 'new' as const,
+        model: 'claude-haiku-4-5',
+        daemonSettingsPath: '/etc/claude/settings.json',
+        daemonMcpConfigPath: '/etc/claude/mcp.json',
+        appendSystemPrompt: 'Be terse.',
+      },
+    }
+    const parsed = launchProfileSchema.safeParse(ok)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      expect(parsed.data.spawn.daemonMode).toBe('new')
+      expect(parsed.data.spawn.daemonSettingsPath).toBe('/etc/claude/settings.json')
+      expect(parsed.data.spawn.daemonMcpConfigPath).toBe('/etc/claude/mcp.json')
+    }
+  })
+
+  it('accepts a daemon profile with resume mode', () => {
+    const ok = { ...baseProfile(), spawn: { backend: 'daemon' as const, daemonMode: 'resume' as const } }
+    expect(launchProfileSchema.safeParse(ok).success).toBe(true)
+  })
+
+  it('rejects daemonMode=attach -- attach is a per-launch mode, never a profile', () => {
+    const bad = { ...baseProfile(), spawn: { backend: 'daemon', daemonMode: 'attach' } }
+    expect(launchProfileSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('strips per-launch-only daemon fields (daemonResumeSessionId, daemonAttachShort)', () => {
+    const input = {
+      ...baseProfile(),
+      spawn: {
+        backend: 'daemon' as const,
+        daemonMode: 'resume' as const,
+        daemonResumeSessionId: 'ccs_should_be_stripped',
+        daemonAttachShort: 'aeb185f9',
+      },
+    }
+    const parsed = launchProfileSchema.safeParse(input)
+    expect(parsed.success).toBe(true)
+    if (parsed.success) {
+      // .omit()'d from profileSpawnSchema -- zod drops the unknown keys.
+      expect((parsed.data.spawn as Record<string, unknown>).daemonResumeSessionId).toBeUndefined()
+      expect((parsed.data.spawn as Record<string, unknown>).daemonAttachShort).toBeUndefined()
+      expect(parsed.data.spawn.daemonMode).toBe('resume')
+    }
   })
 })
 

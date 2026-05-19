@@ -148,6 +148,65 @@ export function HiddenAppendPromptNotice({ backend, hasValue }: { backend: Backe
   )
 }
 
+// A daemon launch profile only ever persists `new` / `resume` -- `attach`
+// targets an ephemeral roster worker and is a per-launch-only choice.
+const DAEMON_PROFILE_MODES: Array<{ value: 'new' | 'resume'; label: string; hint: string }> = [
+  { value: 'new', label: 'New', hint: 'claude --bg with a fresh prompt (entered at launch)' },
+  { value: 'resume', label: 'Resume', hint: 'claude --bg --resume -- the session id is entered at launch' },
+]
+
+/**
+ * Daemon-specific launch config for a profile: the launch mode (new/resume)
+ * plus the sentinel-host config paths injected into `claude --bg`. Rendered
+ * only when the profile's backend is `daemon`. The per-launch-only
+ * `daemonResumeSessionId` / `daemonAttachShort` are deliberately absent --
+ * they are stripped by `profileSpawnSchema` and supplied in the spawn dialog.
+ */
+export function DaemonConfigSection({
+  spawn,
+  onPatch,
+}: {
+  spawn: LaunchProfile['spawn']
+  onPatch: (next: Partial<LaunchProfile['spawn']>) => void
+}) {
+  const mode = spawn.daemonMode === 'resume' ? 'resume' : 'new'
+  const modeHint = DAEMON_PROFILE_MODES.find(m => m.value === mode)?.hint
+  return (
+    <Section title="Daemon launch" subtitle="Attach mode is per-launch only and is never saved to a profile.">
+      <LabeledRow label="Mode" subtitle={modeHint}>
+        <div className="flex gap-1.5">
+          {DAEMON_PROFILE_MODES.map(m => (
+            <TogglePill
+              key={m.value}
+              small
+              label={m.label}
+              title={m.hint}
+              active={mode === m.value}
+              onClick={() => onPatch({ daemonMode: m.value })}
+            />
+          ))}
+        </div>
+      </LabeledRow>
+      <LabeledRow label="Settings path" subtitle="Absolute path on the sentinel host. claude --bg --settings">
+        <TextInput
+          value={spawn.daemonSettingsPath ?? ''}
+          onChange={v => onPatch({ daemonSettingsPath: v || undefined })}
+          placeholder="/abs/path/to/settings.json"
+          maxWidth={260}
+        />
+      </LabeledRow>
+      <LabeledRow label="MCP config path" subtitle="Absolute path on the sentinel host. claude --bg --mcp-config">
+        <TextInput
+          value={spawn.daemonMcpConfigPath ?? ''}
+          onChange={v => onPatch({ daemonMcpConfigPath: v || undefined })}
+          placeholder="/abs/path/to/mcp.json"
+          maxWidth={260}
+        />
+      </LabeledRow>
+    </Section>
+  )
+}
+
 export function PinningSection({ profile, onPatch }: { profile: LaunchProfile; onPatch: PatchProfile }) {
   return (
     <Section title="Pinning" subtitle="Optional. Empty = pick at launch time. The URI authority is the sentinel.">

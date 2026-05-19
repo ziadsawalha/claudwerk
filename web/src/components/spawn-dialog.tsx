@@ -248,6 +248,8 @@ export function SpawnDialog() {
           setEnvText,
           setOpenCodeModel,
           setOpenCodeToolPermission,
+          setDaemonMode,
+          setDaemonForm,
         })
       }
       // Fetch chat connections + gateway availability
@@ -702,6 +704,8 @@ export function SpawnDialog() {
                       setEnvText,
                       setOpenCodeModel,
                       setOpenCodeToolPermission,
+                      setDaemonMode,
+                      setDaemonForm,
                     })
                   }}
                   onPickCustom={() => setProfileId(undefined)}
@@ -723,6 +727,8 @@ export function SpawnDialog() {
                       envText,
                       openCodeModel: openCodeModel || undefined,
                       toolPermission: openCodeToolPermission,
+                      daemonMode,
+                      daemonForm,
                     })
                     await putLaunchProfiles([...launchProfilesRef.current, draft])
                     handleClose()

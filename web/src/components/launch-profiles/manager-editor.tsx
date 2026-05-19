@@ -6,6 +6,7 @@ import {
   AppendSystemPromptSection,
   BackendSection,
   BehaviorSection,
+  DaemonConfigSection,
   HiddenAppendPromptNotice,
   IdentitySection,
   LaunchFieldsSection,
@@ -19,6 +20,7 @@ interface Props {
 
 export function ManagerEditor({ profile, onChange }: Props) {
   const backend = (profile.spawn.backend ?? 'claude') as BackendKind
+  const isDaemon = backend === 'daemon'
   const showAppendSp = backendSupportsAppendSystemPrompt(backend)
   const hasIncompatibleFields = !showAppendSp ? false : hasBackendIncompatibleFields(profile, backend)
 
@@ -37,6 +39,15 @@ export function ManagerEditor({ profile, onChange }: Props) {
       cleared.openCodeModel = undefined
       cleared.toolPermission = undefined
     }
+    // Daemon launch config is daemon-only: seed `daemonMode` when entering the
+    // daemon backend, drop it (and the injected paths) when leaving.
+    if (next === 'daemon') {
+      cleared.daemonMode = profile.spawn.daemonMode ?? 'new'
+    } else {
+      cleared.daemonMode = undefined
+      cleared.daemonSettingsPath = undefined
+      cleared.daemonMcpConfigPath = undefined
+    }
     patchSpawn(cleared)
   }
 
@@ -45,21 +56,11 @@ export function ManagerEditor({ profile, onChange }: Props) {
       <IdentitySection profile={profile} onPatch={patch} />
       <BehaviorSection profile={profile} onPatch={patch} />
       <BackendSection backend={backend} onChange={switchBackend} hasIncompatibleFields={hasIncompatibleFields} />
+      {isDaemon && <DaemonConfigSection spawn={profile.spawn} onPatch={patchSpawn} />}
       <LaunchFieldsSection
         value={launchFieldsFromProfile(profile)}
         onPatch={p => patchSpawn(spawnPatchFromLaunchFields(p))}
-        show={{
-          model: true,
-          effort: true,
-          permissionMode: true,
-          agent: true,
-          autocompactPct: true,
-          maxBudgetUsd: true,
-          headless: backend === 'claude',
-          repl: backend === 'claude',
-          bare: backend === 'claude',
-          includePartialMessages: backend === 'claude',
-        }}
+        show={launchFieldsShowFor(backend)}
       />
       {showAppendSp ? (
         <AppendSystemPromptSection
@@ -74,7 +75,34 @@ export function ManagerEditor({ profile, onChange }: Props) {
   )
 }
 
+/**
+ * Which `LaunchConfigFields` rows a profile editor shows per backend. Daemon
+ * `claude --bg` dispatch only takes `--model`; effort / permission mode /
+ * agent / budgets are claude/headless concepts. headless / repl / bare /
+ * partial-messages are claude-agent-host runtime flags.
+ */
+function launchFieldsShowFor(backend: BackendKind) {
+  const isClaude = backend === 'claude'
+  const isDaemon = backend === 'daemon'
+  return {
+    model: true,
+    effort: !isDaemon,
+    permissionMode: !isDaemon,
+    agent: !isDaemon,
+    autocompactPct: !isDaemon,
+    maxBudgetUsd: !isDaemon,
+    headless: isClaude,
+    repl: isClaude,
+    bare: isClaude,
+    includePartialMessages: isClaude,
+  }
+}
+
 function hasBackendIncompatibleFields(profile: LaunchProfile, backend: BackendKind): boolean {
+  const s = profile.spawn
+  // Daemon-only injected paths are dropped by `switchBackend` on any move off
+  // the daemon backend -- warn so the user does not lose them silently.
+  if (backend === 'daemon') return !!(s.daemonSettingsPath || s.daemonMcpConfigPath)
   if (backend === 'opencode') return false
-  return !!(profile.spawn.appendSystemPrompt || profile.spawn.openCodeModel || profile.spawn.toolPermission)
+  return !!(s.appendSystemPrompt || s.openCodeModel || s.toolPermission)
 }

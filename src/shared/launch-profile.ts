@@ -19,7 +19,10 @@ export const LAUNCH_PROFILE_MAX_COUNT = 50
 const MAX_NAME = 64
 const MAX_SHORT_LABEL = 24
 
-export const BACKENDS_WITH_APPEND_SYSTEM_PROMPT = ['claude', 'chat-api'] as const
+// Backends whose spawn path honors `--append-system-prompt`. `daemon` is in
+// the set: spike 2 (plan Section 8) live-verified `claude --bg
+// --append-system-prompt` is functionally applied by the daemon worker.
+export const BACKENDS_WITH_APPEND_SYSTEM_PROMPT = ['claude', 'chat-api', 'daemon'] as const
 
 export function backendSupportsAppendSystemPrompt(backend: string | undefined): boolean {
   if (!backend) return true
@@ -28,12 +31,23 @@ export function backendSupportsAppendSystemPrompt(backend: string | undefined): 
 
 const PROFILE_COLOR_OPTIONS = ['primary', 'success', 'warning', 'destructive', 'info', 'muted'] as const
 
+// A profile carries reusable spawn DEFAULTS, never per-launch identifiers.
+// `cwd` / `jobId` are resolved at launch; `daemonResumeSessionId` (the daemon
+// session to fork from) and `daemonAttachShort` (a roster worker's id) are
+// ephemeral targets that only make sense for one specific launch -- omitting
+// them means a stale value can never be persisted into a profile, and zod
+// strips the keys on parse if an old profile carried them.
 const profileSpawnSchema = spawnRequestSchema
-  .omit({ cwd: true, jobId: true })
+  .omit({ cwd: true, jobId: true, daemonResumeSessionId: true, daemonAttachShort: true })
   .extend({
     appendSystemPrompt: z.string().max(LAUNCH_PROFILE_MAX_APPEND_SP, 'appendSystemPrompt exceeds 16 KB cap').optional(),
   })
   .partial()
+  .extend({
+    // `attach` is a per-launch mode (the attach target is an ephemeral roster
+    // worker) -- a daemon profile only ever persists `new` or `resume`.
+    daemonMode: z.enum(['new', 'resume']).optional(),
+  })
 
 export const launchProfileSchema = z.object({
   id: z.string().startsWith(LAUNCH_PROFILE_ID_PREFIX),
