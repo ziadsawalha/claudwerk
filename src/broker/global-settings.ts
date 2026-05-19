@@ -20,6 +20,16 @@ const GlobalSettingsSchema = z.object({
   voiceRefinementPrompt: z.string().max(2000).default(''),
   carriageReturnDelay: z.number().min(0).max(2000).default(0),
   defaultLaunchMode: z.enum(['headless', 'pty']).default('headless'),
+  // Phase I cutover flag -- the default backend for AGENT-SPAWNED conversations
+  // (MCP spawn_conversation, inter-conversation channel_spawn) that do not name
+  // a backend explicitly. 'daemon' routes them to a claude --bg NEW-mode worker
+  // (subscription-billed); 'pty'/'headless' keep the claude backend at that
+  // launch mode. Supersedes defaultLaunchMode at the GLOBAL tier for agent-spawn
+  // resolution (profile/project launch modes still override). The control panel
+  // spawn dialog is unaffected -- it always names a backend explicitly.
+  // Default 'pty': the conservative pre-cutover value. Flip to 'daemon' once the
+  // Tier-2 live smoke is green and the post-June-15 billing pool is reconfirmed.
+  defaultBackend: z.enum(['daemon', 'pty', 'headless']).default('pty'),
   defaultEffort: z.enum(['default', 'low', 'medium', 'high', 'max']).default('default'),
   defaultModel: z.string().max(50).default(''),
   // Spawn dialog defaults

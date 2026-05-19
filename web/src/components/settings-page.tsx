@@ -660,6 +660,25 @@ const SETTINGS: SettingItem[] = [
   {
     tab: 'sessions',
     group: 'Conversations',
+    label: 'Default backend (agent spawns)',
+    description:
+      'Backend for conversations spawned by agents (MCP / inter-conversation) that name no backend. Daemon = a subscription-billed claude --bg worker. The control panel spawn dialog is unaffected -- it always picks a backend.',
+    keywords: 'daemon backend pty headless agent spawn mcp default cutover',
+    render: ctx => (
+      <select
+        value={(ctx.server.defaultBackend as string) || 'pty'}
+        onChange={e => ctx.setServer('defaultBackend', e.target.value)}
+        className="bg-muted border border-border px-2 py-1 text-xs font-mono text-foreground"
+      >
+        <option value="daemon">Daemon (claude --bg)</option>
+        <option value="pty">PTY (terminal)</option>
+        <option value="headless">Headless</option>
+      </select>
+    ),
+  },
+  {
+    tab: 'sessions',
+    group: 'Conversations',
     label: 'Default launch mode',
     description: 'Default mode when spawning/reviving conversations (per-project overrides this)',
     keywords: 'headless pty terminal launch mode spawn',

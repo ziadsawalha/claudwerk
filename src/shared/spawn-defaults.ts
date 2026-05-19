@@ -24,10 +24,78 @@ export type DefaultsSource = {
   defaultBare?: boolean
   defaultRepl?: boolean
   defaultIncludePartialMessages?: boolean
+  /**
+   * Phase I cutover flag. Only the GLOBAL tier ever carries this -- it is the
+   * default backend for agent-spawned conversations that name none explicitly.
+   * 'daemon' -> daemon backend (NEW mode); 'pty'/'headless' -> claude backend
+   * at that launch mode. Supersedes `defaultLaunchMode` at the global tier.
+   */
+  defaultBackend?: 'daemon' | 'pty' | 'headless'
 }
 
 /** Shape returned by resolveSpawnConfig -- `headless` is always concrete. */
 export type ResolvedSpawnConfig = Partial<SpawnRequest> & { headless: boolean }
+
+/**
+ * The backend a spawn resolves to, plus a human-readable reason. The `reason`
+ * exists for the LOG EVERYTHING covenant -- the dispatch site logs it so the
+ * backend fork is never a silent decision.
+ */
+export type BackendDecision = {
+  backend: SpawnRequest['backend']
+  daemonMode: SpawnRequest['daemonMode']
+  reason: string
+}
+
+/**
+ * Decide the backend for a spawn request. Precedence:
+ *   1. an explicit `partial.backend` always wins (control panel, launch
+ *      profiles, an MCP caller that named one);
+ *   2. adHoc spawns always stay the claude headless path -- never daemon;
+ *   3. otherwise the global `defaultBackend` flag drives it -- 'daemon' adopts
+ *      the daemon backend (NEW mode unless the caller set `daemonMode`);
+ *      'pty' / 'headless' / unset leave the backend unset (claude).
+ *
+ * This is the Phase I cutover knob. Agent-spawned conversations (MCP
+ * spawn_conversation, inter-conversation channel_spawn) carry no explicit
+ * backend, so the flag governs them; user launches from the control panel
+ * always name a backend and are unaffected.
+ */
+export function resolveDefaultBackend(partial: Partial<SpawnRequest>, global?: DefaultsSource | null): BackendDecision {
+  if (partial.backend) {
+    return {
+      backend: partial.backend,
+      daemonMode: partial.backend === 'daemon' ? (partial.daemonMode ?? 'new') : partial.daemonMode,
+      reason: `explicit backend=${partial.backend}`,
+    }
+  }
+  if (partial.adHoc) {
+    return { backend: undefined, daemonMode: undefined, reason: 'adHoc spawn -> claude headless path' }
+  }
+  const flag = global?.defaultBackend
+  if (flag === 'daemon') {
+    const daemonMode = partial.daemonMode ?? 'new'
+    return { backend: 'daemon', daemonMode, reason: `defaultBackend=daemon -> daemon ${daemonMode}` }
+  }
+  return { backend: undefined, daemonMode: undefined, reason: `defaultBackend=${flag ?? 'unset'} -> claude` }
+}
+
+/**
+ * The global-tier launch mode. The Phase I `defaultBackend` flag supersedes the
+ * legacy `defaultLaunchMode` at the global tier; `defaultLaunchMode` is the
+ * fallback only when `defaultBackend` is absent (e.g. a null global source).
+ */
+function globalLaunchMode(global?: DefaultsSource | null): 'headless' | 'pty' | undefined {
+  switch (global?.defaultBackend) {
+    case 'headless':
+      return 'headless'
+    case 'pty':
+    case 'daemon':
+      return 'pty'
+    default:
+      return global?.defaultLaunchMode
+  }
+}
 
 /**
  * Merge spawn request defaults: explicit > profile > project > global > undefined.
@@ -52,10 +120,15 @@ export function resolveSpawnConfig(
     global?.defaultPermissionMode,
   ) as SpawnRequest['permissionMode'] | undefined
 
-  const launchMode = profile?.defaultLaunchMode || project?.defaultLaunchMode || global?.defaultLaunchMode
+  // Phase I cutover: the backend an agent-spawned conversation adopts. Carried
+  // through ResolvedSpawnConfig so callers see the resolved choice; the dispatch
+  // site (src/broker/spawn-dispatch.ts) is the one that logs the decision.
+  const backendDecision = resolveDefaultBackend(partial, global)
+
+  const launchMode = profile?.defaultLaunchMode || project?.defaultLaunchMode || globalLaunchMode(global)
   // Default to PTY. PTY conversations bill against the Anthropic subscription;
   // headless (--print) bills at API rate from 2026-06-15. adHoc spawns, an
-  // explicit `headless` flag, and defaultLaunchMode='headless' still opt back in.
+  // explicit `headless` flag, and a 'headless' launch mode still opt back in.
   const headless = partial.adHoc ? true : partial.headless !== undefined ? partial.headless : launchMode === 'headless'
 
   const autocompactPct = pickNumber(
@@ -87,6 +160,8 @@ export function resolveSpawnConfig(
     model,
     effort,
     permissionMode: partial.adHoc ? 'bypassPermissions' : permissionModeResolved,
+    backend: backendDecision.backend,
+    daemonMode: backendDecision.daemonMode,
     headless,
     autocompactPct,
     maxBudgetUsd,

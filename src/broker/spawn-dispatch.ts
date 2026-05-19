@@ -21,7 +21,7 @@ import { generateConversationName } from '../shared/conversation-names'
 import { validateModel } from '../shared/models'
 import { cwdToProjectUri, validateProjectUri } from '../shared/project-uri'
 import type { Conversation, LaunchProgressEvent, LaunchStep, ProjectSettings, SpawnResult } from '../shared/protocol'
-import { resolveSpawnConfig } from '../shared/spawn-defaults'
+import { resolveDefaultBackend, resolveSpawnConfig } from '../shared/spawn-defaults'
 import { deriveConversationName, validateConversationName } from '../shared/spawn-naming'
 import { evaluateSpawnPermission, type SpawnCallerContext } from '../shared/spawn-permissions'
 import type { SpawnRequest } from '../shared/spawn-schema'
@@ -125,6 +125,24 @@ export type SpawnDispatchResult =
     }
 
 /**
+ * Resolve the backend for a spawn request before it is dispatched. Agent-spawned
+ * conversations (MCP `spawn_conversation`, inter-conversation `channel_spawn`)
+ * carry no explicit backend -- the global `defaultBackend` flag routes them. The
+ * decision is logged with full context here because the backend fork is
+ * otherwise a silent branch in the dispatch path (LOG EVERYTHING covenant).
+ */
+function applyDefaultBackend(req: SpawnRequest, global: GlobalSettings): SpawnRequest {
+  const decision = resolveDefaultBackend(req, global)
+  console.log(
+    `[spawn-backend] cwd=${req.cwd ?? '?'} explicitBackend=${req.backend ?? 'none'} ` +
+      `adHoc=${req.adHoc ? 'y' : 'n'} defaultBackend=${global.defaultBackend} => ` +
+      `backend=${decision.backend ?? 'claude'} daemonMode=${decision.daemonMode ?? '-'} (${decision.reason})`,
+  )
+  if (decision.backend === req.backend && decision.daemonMode === req.daemonMode) return req
+  return { ...req, backend: decision.backend, daemonMode: decision.daemonMode }
+}
+
+/**
  * Send a spawn request to the right backend. Resolves via the registry; falls
  * back to the legacy inline Claude path if the resolved backend has no
  * `spawn()` method (only true for the Claude backend today).
@@ -133,7 +151,12 @@ export type SpawnDispatchResult =
  * the SpawnRequest - callers should have parsed it via spawnRequestSchema
  * already.
  */
-export async function dispatchSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): Promise<SpawnDispatchResult> {
+export async function dispatchSpawn(rawReq: SpawnRequest, deps: SpawnDispatchDeps): Promise<SpawnDispatchResult> {
+  // Phase I cutover: resolve the backend up front so the permission gate, the
+  // approval-queue stash, and the registry dispatch below all act on the
+  // resolved request (an agent-spawned conversation adopts the global
+  // `defaultBackend` when it named none explicitly).
+  const req = applyDefaultBackend(rawReq, deps.getGlobalSettings())
   const evalResult = evaluateSpawnPermission(deps.callerContext, req)
   if (!evalResult.ok) {
     if (evalResult.kind === 'reject') {

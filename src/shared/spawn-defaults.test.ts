@@ -4,6 +4,7 @@ import {
   type DefaultsSource,
   profileToDefaultsSource,
   profileToSpawnPartial,
+  resolveDefaultBackend,
   resolveSpawnConfig,
 } from './spawn-defaults'
 import type { SpawnRequest } from './spawn-schema'
@@ -111,6 +112,105 @@ describe('resolveSpawnConfig', () => {
 
     it('global defaultLaunchMode=headless opts back into headless', () => {
       expect(resolveSpawnConfig({}, null, { defaultLaunchMode: 'headless' }).headless).toBe(true)
+    })
+
+    it('defaultBackend=headless opts into headless', () => {
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'headless' }).headless).toBe(true)
+    })
+
+    it('defaultBackend=pty yields PTY', () => {
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'pty' }).headless).toBe(false)
+    })
+
+    it('defaultBackend supersedes defaultLaunchMode at the global tier', () => {
+      // both global -- the Phase I flag wins over the legacy launch mode.
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'headless', defaultLaunchMode: 'pty' }).headless).toBe(true)
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'pty', defaultLaunchMode: 'headless' }).headless).toBe(
+        false,
+      )
+    })
+
+    it('project defaultLaunchMode still overrides defaultBackend', () => {
+      expect(resolveSpawnConfig({}, { defaultLaunchMode: 'pty' }, { defaultBackend: 'headless' }).headless).toBe(false)
+    })
+
+    it('defaultBackend=daemon resolves to a non-headless (PTY-ish) launch mode', () => {
+      // headless is moot for the daemon backend, but must not be left true.
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'daemon' }).headless).toBe(false)
+    })
+  })
+
+  describe('defaultBackend (Phase I cutover)', () => {
+    it('defaultBackend=daemon makes an agent spawn resolve to the daemon backend, NEW mode', () => {
+      const out = resolveSpawnConfig({}, null, { defaultBackend: 'daemon' })
+      expect(out.backend).toBe('daemon')
+      expect(out.daemonMode).toBe('new')
+    })
+
+    it('defaultBackend=pty leaves the backend unset (claude)', () => {
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'pty' }).backend).toBeUndefined()
+    })
+
+    it('defaultBackend=headless leaves the backend unset (claude)', () => {
+      expect(resolveSpawnConfig({}, null, { defaultBackend: 'headless' }).backend).toBeUndefined()
+    })
+
+    it('unset defaultBackend leaves the backend unset (claude)', () => {
+      expect(resolveSpawnConfig({}, null, null).backend).toBeUndefined()
+      expect(resolveSpawnConfig({}, null, {}).backend).toBeUndefined()
+    })
+
+    it('an explicit backend always wins over defaultBackend=daemon', () => {
+      expect(resolveSpawnConfig({ backend: 'opencode' }, null, { defaultBackend: 'daemon' }).backend).toBe('opencode')
+    })
+
+    it('adHoc spawns never adopt the daemon backend', () => {
+      const out = resolveSpawnConfig({ adHoc: true }, null, { defaultBackend: 'daemon' })
+      expect(out.backend).toBeUndefined()
+      expect(out.daemonMode).toBeUndefined()
+    })
+
+    it('an explicit daemon backend keeps its daemonMode', () => {
+      expect(resolveSpawnConfig({ backend: 'daemon', daemonMode: 'attach' }, null, null).daemonMode).toBe('attach')
+    })
+
+    it('an explicit daemon backend with no daemonMode defaults to new', () => {
+      expect(resolveSpawnConfig({ backend: 'daemon' }, null, null).daemonMode).toBe('new')
+    })
+  })
+
+  describe('resolveDefaultBackend', () => {
+    it('an explicit backend always wins', () => {
+      const d = resolveDefaultBackend({ backend: 'hermes' }, { defaultBackend: 'daemon' })
+      expect(d.backend).toBe('hermes')
+      expect(d.reason).toContain('explicit')
+    })
+
+    it('a non-daemon explicit backend is not stamped with a daemonMode', () => {
+      expect(resolveDefaultBackend({ backend: 'opencode' }, null).daemonMode).toBeUndefined()
+    })
+
+    it('adHoc resolves to the claude path regardless of defaultBackend', () => {
+      const d = resolveDefaultBackend({ adHoc: true }, { defaultBackend: 'daemon' })
+      expect(d.backend).toBeUndefined()
+      expect(d.reason).toContain('adHoc')
+    })
+
+    it('defaultBackend=daemon resolves to daemon NEW with a descriptive reason', () => {
+      const d = resolveDefaultBackend({}, { defaultBackend: 'daemon' })
+      expect(d.backend).toBe('daemon')
+      expect(d.daemonMode).toBe('new')
+      expect(d.reason).toContain('defaultBackend=daemon')
+    })
+
+    it('defaultBackend=daemon honors a caller-supplied daemonMode', () => {
+      expect(resolveDefaultBackend({ daemonMode: 'resume' }, { defaultBackend: 'daemon' }).daemonMode).toBe('resume')
+    })
+
+    it('defaultBackend pty / headless / unset all resolve to the claude path', () => {
+      expect(resolveDefaultBackend({}, { defaultBackend: 'pty' }).backend).toBeUndefined()
+      expect(resolveDefaultBackend({}, { defaultBackend: 'headless' }).backend).toBeUndefined()
+      expect(resolveDefaultBackend({}, null).backend).toBeUndefined()
     })
   })
 
