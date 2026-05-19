@@ -277,6 +277,15 @@ const reviveConversation: MessageHandler = (ctx, data) => {
   const effort = effortRaw && effortRaw !== 'default' ? effortRaw : undefined
   const model = modelOverride || lc?.model || projSettings?.defaultModel || globalSettings.defaultModel || undefined
 
+  // Keep launchConfig.model in sync with the model this revive actually uses.
+  // launchConfig is frozen at the original spawn; without this, reviving with
+  // a different model than the original spawn leaves it stale and the mismatch
+  // check in transcript.ts fires a false model_mismatch warning on next init.
+  if (model && conversation.launchConfig && conversation.launchConfig.model !== model) {
+    conversation.launchConfig.model = model
+    conversation.modelMismatch = undefined
+  }
+
   // Reuse the original conversation ID so transcript + sidebar entry persist
   ctx.conversations.resumeConversation(conversationId)
 
