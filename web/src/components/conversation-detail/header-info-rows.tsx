@@ -1,5 +1,6 @@
 import type { ProjectSettings } from '@shared/protocol'
-import { Copy } from 'lucide-react'
+import { ChevronRight, Copy } from 'lucide-react'
+import { useState } from 'react'
 import { wsSend } from '@/hooks/use-conversations'
 import type { Conversation } from '@/lib/types'
 import { projectPath } from '@/lib/types'
@@ -111,6 +112,55 @@ export function TrustLevelBadge({ projectSettings }: { projectSettings: ProjectS
       >
         {projectSettings.trustLevel === 'open' ? '🔓 Open' : '🤝 Benevolent'}
       </span>
+    </div>
+  )
+}
+
+/**
+ * Read-only "Launch config" disclosure for a daemon-backed conversation --
+ * how the worker was launched (mode + injected config). Renders nothing for
+ * non-daemon conversations (no `daemonMode` on their launchConfig). The
+ * conversation's live ccSessionId is never shown -- this is launch INPUT only.
+ */
+export function LaunchConfigRow({ conversation }: { conversation: Conversation }) {
+  const [open, setOpen] = useState(false)
+  const lc = conversation.launchConfig
+  if (!lc || !lc.daemonMode) return null
+
+  const rows: Array<{ k: string; v: string; mono?: boolean }> = [{ k: 'mode', v: lc.daemonMode }]
+  if (lc.model) rows.push({ k: 'model', v: lc.model, mono: true })
+  if (lc.daemonSettingsPath) rows.push({ k: 'settings', v: lc.daemonSettingsPath, mono: true })
+  if (lc.daemonMcpConfigPath) rows.push({ k: 'mcp config', v: lc.daemonMcpConfigPath, mono: true })
+  if (lc.appendSystemPrompt) rows.push({ k: 'system prompt suffix', v: lc.appendSystemPrompt })
+  const envKeys = lc.env ? Object.keys(lc.env) : []
+  if (envKeys.length) rows.push({ k: 'env', v: envKeys.join(', '), mono: true })
+
+  return (
+    <div className="border border-border/60 rounded">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(o => !o)
+          haptic('tap')
+        }}
+        className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronRight className={cn('w-3 h-3 transition-transform', open && 'rotate-90')} />
+        <span className="uppercase tracking-wide">Launch config</span>
+        <span className="ml-auto text-comment">daemon · {lc.daemonMode}</span>
+      </button>
+      {open && (
+        <div className="px-2 pb-1.5 pt-0.5 space-y-0.5">
+          {rows.map(row => (
+            <div key={row.k} className="flex items-start gap-2 text-[10px]">
+              <span className="text-muted-foreground/70 w-32 shrink-0">{row.k}</span>
+              <span className={cn('text-foreground/90 truncate', row.mono && 'font-mono')} title={row.v}>
+                {row.v}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

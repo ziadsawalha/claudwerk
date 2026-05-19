@@ -25,6 +25,7 @@ import { generateConversationName } from '../../shared/conversation-names'
 import { cwdToProjectUri } from '../../shared/project-uri'
 import type {
   Conversation,
+  LaunchConfig,
   LaunchProgressEvent,
   LaunchStep,
   SpawnResult as SentinelSpawnResult,
@@ -145,6 +146,25 @@ export function buildDaemonLaunchMeta(
   return meta
 }
 
+/**
+ * Build the typed `LaunchConfig` for a daemon conversation. This is the
+ * control-panel-facing "how was this launched" record (the read-only Launch
+ * config block); `buildDaemonLaunchMeta` is the opaque revive bag. ATTACH
+ * injected no config -- it records only the mode. The resume-from session id
+ * is deliberately NOT surfaced here (session-shaped; boundary rule).
+ */
+export function buildDaemonLaunchConfig(req: SpawnRequest, mode: DaemonMode): LaunchConfig {
+  const config: LaunchConfig = { headless: false, agentHostType: 'daemon', daemonMode: mode }
+  if (req.model) config.model = req.model
+  if (mode !== 'attach') {
+    if (req.daemonSettingsPath) config.daemonSettingsPath = req.daemonSettingsPath
+    if (req.daemonMcpConfigPath) config.daemonMcpConfigPath = req.daemonMcpConfigPath
+    if (req.appendSystemPrompt) config.appendSystemPrompt = req.appendSystemPrompt
+    if (req.env) config.env = req.env
+  }
+  return config
+}
+
 /** One-line summary of the config flags a NEW/RESUME spawn injects. */
 function describeDaemonConfig(req: SpawnRequest): string {
   return (
@@ -233,6 +253,9 @@ async function spawnDaemon(req: SpawnRequest, deps: SpawnDeps): Promise<SpawnRes
   const statusBefore = conv.status
   conv.agentHostType = 'daemon'
   conv.agentHostMeta = buildDaemonLaunchMeta(req, daemonMode, conv.agentHostMeta)
+  // The typed, control-panel-facing launch record (read-only Launch config
+  // block). Separate from the opaque agentHostMeta revive bag above.
+  conv.launchConfig = buildDaemonLaunchConfig(req, daemonMode)
   conv.project = project
   conv.title = req.name || conversationName
   if (req.description) conv.description = req.description

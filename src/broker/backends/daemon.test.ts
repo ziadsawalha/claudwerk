@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
+import type { LaunchConfig } from '../../shared/protocol'
 import type { SpawnRequest } from '../../shared/spawn-schema'
 import {
+  buildDaemonLaunchConfig,
   buildDaemonLaunchMeta,
   buildSentinelSpawnMessage,
   DAEMON_META,
@@ -121,6 +123,52 @@ describe('buildDaemonLaunchMeta', () => {
   })
 })
 
+describe('buildDaemonLaunchConfig', () => {
+  it('NEW: records mode + injected config as a daemon LaunchConfig', () => {
+    const config = buildDaemonLaunchConfig(
+      req({
+        model: 'claude-haiku-4-5',
+        daemonSettingsPath: '/s.json',
+        daemonMcpConfigPath: '/m.json',
+        appendSystemPrompt: 'SP',
+        env: { FOO: 'bar' },
+      }),
+      'new',
+    )
+    expect(config.agentHostType).toBe('daemon')
+    expect(config.headless).toBe(false)
+    expect(config.daemonMode).toBe('new')
+    expect(config.model).toBe('claude-haiku-4-5')
+    expect(config.daemonSettingsPath).toBe('/s.json')
+    expect(config.daemonMcpConfigPath).toBe('/m.json')
+    expect(config.appendSystemPrompt).toBe('SP')
+    expect(config.env).toEqual({ FOO: 'bar' })
+  })
+
+  it('RESUME: records the config but never the fork-from session id', () => {
+    const config = buildDaemonLaunchConfig(
+      req({ daemonResumeSessionId: 'ccs_fork_from', daemonSettingsPath: '/s.json' }),
+      'resume',
+    )
+    expect(config.daemonMode).toBe('resume')
+    expect(config.daemonSettingsPath).toBe('/s.json')
+    // The fork-from session id is session-shaped -- the boundary rule keeps it
+    // out of the typed, control-panel-facing launch config.
+    expect((config as unknown as Record<string, unknown>).daemonResumeSessionId).toBeUndefined()
+  })
+
+  it('ATTACH: records only the mode -- the worker was already configured', () => {
+    const config = buildDaemonLaunchConfig(
+      req({ daemonAttachShort: 'aeb185f9', daemonSettingsPath: '/s.json', appendSystemPrompt: 'SP' }),
+      'attach',
+    )
+    expect(config.daemonMode).toBe('attach')
+    expect(config.daemonSettingsPath).toBeUndefined()
+    expect(config.appendSystemPrompt).toBeUndefined()
+    expect(config.env).toBeUndefined()
+  })
+})
+
 describe('findDaemonConversationByShort', () => {
   const depsWith = (convs: unknown[]): SpawnDeps =>
     ({ conversationStore: { getAllConversations: () => convs } }) as unknown as SpawnDeps
@@ -152,6 +200,7 @@ interface FakeConv {
   status: string
   agentHostType?: string
   agentHostMeta?: Record<string, unknown>
+  launchConfig?: LaunchConfig
   title?: string
   description?: string
   endedBy?: unknown
@@ -238,6 +287,10 @@ describe('daemonBackend.spawn -- NEW mode', () => {
     expect(conv?.agentHostType).toBe('daemon')
     expect(conv?.agentHostMeta?.[DAEMON_META.mode]).toBe('new')
     expect(conv?.agentHostMeta?.[DAEMON_META.settings]).toBe('/s.json')
+    // The typed launch config is persisted for the read-only Launch config block.
+    expect(conv?.launchConfig?.agentHostType).toBe('daemon')
+    expect(conv?.launchConfig?.daemonMode).toBe('new')
+    expect(conv?.launchConfig?.daemonSettingsPath).toBe('/s.json')
   })
 
   it('returns a failure when the sentinel reports spawn failure', async () => {

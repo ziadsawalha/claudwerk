@@ -1954,6 +1954,14 @@ export interface LaunchConfig {
   openCodeModel?: string
   acpAgent?: string
   toolPermission?: 'none' | 'safe' | 'full'
+  // Daemon backend (agentHostType === 'daemon'): how the worker was launched.
+  // NOT the conversation's ccSessionId -- these are launch INPUTS the daemon
+  // backend recorded so the control panel can show how a daemon conversation
+  // was started. `daemonResumeSessionId` (the fork-from id) is deliberately
+  // absent -- it is session-shaped and never surfaced.
+  daemonMode?: 'new' | 'resume' | 'attach'
+  daemonSettingsPath?: string
+  daemonMcpConfigPath?: string
 }
 
 // ─── Launch Jobs (request-scoped event channels for spawn/revive) ────

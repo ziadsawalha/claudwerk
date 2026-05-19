@@ -7,6 +7,7 @@ import type { ConversationTarget } from './conversation-header'
 import { HeaderDescription } from './header-description'
 import {
   ErrorBanner,
+  LaunchConfigRow,
   LinkedProjects,
   PrLinksRow,
   ProjectPathRow,
@@ -61,6 +62,7 @@ export function HeaderExpandedPanel({
       <ErrorBanner lastError={conversation.lastError} />
       <RateLimitBanner rateLimit={conversation.rateLimit} />
       <ProjectPathRow project={conversation.project} />
+      <LaunchConfigRow conversation={conversation} />
       <HeaderDescription conversation={conversation} />
       <SummaryRow summary={conversation.summary} />
       <RecapRow recap={conversation.recap} recapFresh={conversation.recapFresh} />
