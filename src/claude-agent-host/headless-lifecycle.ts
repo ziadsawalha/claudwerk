@@ -440,7 +440,10 @@ export function buildHeadlessSpawnOptions(deps: HeadlessCallbackDeps): StreamBac
           toolUseId,
           questions,
         } as unknown as AgentHostMessage)
-        ctx.diag('headless', `AskUserQuestion: ${toolUseId.slice(0, 12)} ${questions.length}q (timeout ${timeoutSecs}s)`)
+        ctx.diag(
+          'headless',
+          `AskUserQuestion: ${toolUseId.slice(0, 12)} ${questions.length}q (timeout ${timeoutSecs}s)`,
+        )
         return
       }
 
