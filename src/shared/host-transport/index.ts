@@ -85,8 +85,9 @@ export interface HostTransportOptions {
    *  is silent. Hosts wire this to their debug logger when needed. */
   trace?: (direction: 'in' | 'out', message: unknown) => void
 
-  /** Reconnect tuning. Defaults: 50 attempts, 60s cap, exponential 2^n. */
+  /** Reconnect tuning. Default: 20s cap, exponential 2^n, no attempt limit. */
   reconnect?: {
+    /** @deprecated No longer used -- reconnect attempts are unlimited. */
     maxAttempts?: number
     capMs?: number
   }
@@ -149,8 +150,7 @@ export function createHostTransport(opts: HostTransportOptions): HostTransport {
   const heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 30_000
   const queueSize = opts.queueSize ?? 5_000
   const transcriptRingSize = opts.transcriptRingSize ?? 50
-  const reconnectMax = opts.reconnect?.maxAttempts ?? 50
-  const reconnectCapMs = opts.reconnect?.capMs ?? 60_000
+  const reconnectCapMs = opts.reconnect?.capMs ?? 20_000
   const upgradeBehaviour = opts.onProtocolUpgradeRequired ?? 'exit'
 
   const wsUrl = opts.brokerSecret
@@ -417,10 +417,6 @@ export function createHostTransport(opts: HostTransportOptions): HostTransport {
       if (wasConnected) opts.onDisconnected?.()
       if (!shouldReconnect) return
       reconnectAttempts++
-      if (reconnectAttempts > reconnectMax) {
-        opts.onError?.(new Error(`WebSocket reconnection gave up after ${reconnectMax} attempts`))
-        return
-      }
       const delay = Math.min(1000 * 2 ** Math.min(reconnectAttempts, 6), reconnectCapMs)
       setTimeout(connect, delay)
     }
