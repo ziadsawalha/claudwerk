@@ -6,7 +6,11 @@
  *
  * JSONL path rule:
  *   ~/.claude/projects/<slug>/<ccSessionId>.jsonl
- *   where slug = cwd with all '/', '.', and '_' replaced by '-'.
+ *   where slug = the REAL path of cwd (symlinks resolved) with all '/', '.',
+ *   and '_' replaced by '-'. CC slugs the resolved path -- e.g. on macOS a
+ *   cwd under /var/folders/... lands under -private-var-folders-... because
+ *   /var is a symlink to /private/var. Deriving the slug from the raw cwd
+ *   would miss the JSONL entirely whenever cwd has a symlinked component.
  *
  * Example: cwd = /Users/jonas/.claude
  *   slug  = -Users-jonas--claude   (leading '-' is kept -- CC keeps it too)
@@ -17,6 +21,7 @@
  * tool-name map, and starts fresh on the new file.
  */
 
+import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { translateClaudeToolResult, translateClaudeToolUse } from '../claude-agent-host/dialect/from-claude'
@@ -94,7 +99,15 @@ export function createTranscriptBridge(opts: TranscriptBridgeOptions): Transcrip
     }
     toolNameByUseId.clear()
 
-    const slug = cwd.replace(/[/._]/g, '-')
+    // CC slugs the REAL path of cwd (symlinks resolved). Match it, or the
+    // JSONL path misses whenever cwd has a symlinked component.
+    let realCwd = cwd
+    try {
+      realCwd = realpathSync(cwd)
+    } catch {
+      // cwd does not exist on this host -- fall back to the path as given.
+    }
+    const slug = realCwd.replace(/[/._]/g, '-')
     const path = join(homedir(), '.claude', 'projects', slug, `${ccSessionId}.jsonl`)
     debug?.(`watch: pointing at ${path}`)
 
