@@ -32,6 +32,7 @@ import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { BackendIcon } from './backend-icon'
 import { ConversationContextMenu } from './conversation-context-menu'
 import { InlineConfirmButton } from './inline-confirm-button'
+import { SentinelProfileBadge } from './sentinel-profile-badge'
 
 // ─── Shared visual components ──────────────────────────────────────
 
@@ -837,6 +838,11 @@ const ConversationItemFull = memo(function ConversationItemFull({ conversation }
             {conversation.hostSentinelAlias}
           </span>
         )}
+        <SentinelProfileBadge
+          project={conversation.project}
+          hostSentinelAlias={conversation.hostSentinelAlias}
+          launchConfig={conversation.launchConfig}
+        />
         <ConversationInfoButton conversation={conversation} visible={isSelected} />
         <ShareIndicator conversationProject={conversation.project} conversationId={conversation.id} />
         {conversation.resultText && conversation.capabilities?.includes('ad-hoc') && (
@@ -1147,6 +1153,11 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
             {conversation.hostSentinelAlias}
           </span>
         )}
+        <SentinelProfileBadge
+          project={conversation.project}
+          hostSentinelAlias={conversation.hostSentinelAlias}
+          launchConfig={conversation.launchConfig}
+        />
         <ConversationInfoButton conversation={conversation} visible={isSelected} />
         {conversation.status === 'ended' && <DismissButton conversationId={conversation.id} />}
       </div>

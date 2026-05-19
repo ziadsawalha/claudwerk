@@ -1,12 +1,88 @@
-import { FolderPlus, Server } from 'lucide-react'
+import { FolderPlus, Server, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SpawnResultsProps } from './types'
+import type { ProfileSuggestion } from './use-spawn-mode'
+
+function ProfileEntryRow({
+  profile,
+  active,
+  onSelect,
+  onHover,
+}: {
+  profile: ProfileSuggestion
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+}) {
+  const colorStyle = profile.color ? { color: profile.color } : undefined
+  return (
+    <button
+      type="button"
+      data-active={active}
+      onClick={onSelect}
+      onMouseEnter={onHover}
+      className={cn(
+        'w-full px-3 py-2 flex items-center gap-3 text-left transition-colors',
+        active ? 'bg-primary/20' : 'hover:bg-primary/10',
+      )}
+    >
+      <User
+        className={cn('w-3.5 h-3.5 shrink-0', profile.authed ? 'text-active' : 'text-destructive/60')}
+        style={colorStyle}
+      />
+      <span className="text-xs text-foreground" style={colorStyle}>
+        {profile.name}
+      </span>
+      {profile.label && <span className="text-[9px] text-comment">{profile.label}</span>}
+      {profile.pooled === false && <span className="text-[9px] text-comment uppercase">pinned</span>}
+      {profile.authed === false && <span className="text-[9px] text-destructive/70 uppercase">not authed</span>}
+    </button>
+  )
+}
+
+function ProfileEntryList({
+  profiles,
+  resolvedSentinel,
+  activeIndex,
+  setActiveIndex,
+  onProfileSelect,
+}: {
+  profiles: ProfileSuggestion[]
+  resolvedSentinel: string
+  activeIndex: number
+  setActiveIndex: (i: number) => void
+  onProfileSelect: (name: string) => void
+}) {
+  if (profiles.length === 0) {
+    return (
+      <div className="px-3 py-4 text-center text-[10px] text-comment">
+        No matching profile on <span className="text-foreground">@{resolvedSentinel}</span>
+      </div>
+    )
+  }
+  return (
+    <>
+      {profiles.map((p, i) => (
+        <ProfileEntryRow
+          key={p.name}
+          profile={p}
+          active={i === activeIndex}
+          onSelect={() => onProfileSelect(p.name)}
+          onHover={() => setActiveIndex(i)}
+        />
+      ))}
+    </>
+  )
+}
 
 export function SpawnResults({
   dirs,
   sentinels,
+  profiles,
   isSentinelEntry,
+  isProfileEntry,
   resolvedSentinel,
+  resolvedProfile,
   loading,
   error,
   path,
@@ -17,10 +93,25 @@ export function SpawnResults({
   setActiveIndex,
   onDirSelect,
   onSentinelSelect,
+  onProfileSelect,
   onSpawn,
 }: SpawnResultsProps) {
   if (!sentinelConnected) {
     return <div className="px-3 py-4 text-center text-[10px] text-red-400">No sentinel connected</div>
+  }
+
+  // Profile autocomplete: user has typed `@sentinel:` and is filling in the
+  // profile-name suffix. Sourced from the sentinel's reported profile list.
+  if (isProfileEntry) {
+    return (
+      <ProfileEntryList
+        profiles={profiles}
+        resolvedSentinel={resolvedSentinel}
+        activeIndex={activeIndex}
+        setActiveIndex={setActiveIndex}
+        onProfileSelect={onProfileSelect}
+      />
+    )
   }
 
   // Sentinel autocomplete: user is typing the @<alias> token.
@@ -64,6 +155,12 @@ export function SpawnResults({
     return (
       <div className="px-3 py-4 text-center text-[10px] text-comment">
         Type a path (e.g. ~/projects/my-app) -- routing to <span className="text-foreground">@{resolvedSentinel}</span>
+        {resolvedProfile && (
+          <>
+            {' '}
+            with profile <span className="text-foreground">{resolvedProfile}</span>
+          </>
+        )}
       </div>
     )
   }

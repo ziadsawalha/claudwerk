@@ -71,19 +71,33 @@ function handleArrowUp(e: React.KeyboardEvent, ctx: KeyHandlerContext): void {
 }
 
 function handleTab(e: React.KeyboardEvent, ctx: KeyHandlerContext): void {
-  // Tab autocompletes in spawn mode (sentinel alias, then path).
+  // Tab autocompletes in spawn mode (sentinel alias, profile name, then path).
   if (!ctx.isSpawnMode) return
-  if (ctx.spawn.isSentinelEntry && ctx.spawn.filteredSentinels.length > 0) {
-    e.preventDefault()
-    const sel = ctx.spawn.filteredSentinels[ctx.activeIndex] || ctx.spawn.filteredSentinels[0]
-    if (sel) ctx.spawn.handleSentinelSelect(sel.alias)
-    return
-  }
+  if (tryCompleteSentinel(e, ctx)) return
+  if (tryCompleteProfile(e, ctx)) return
   if (ctx.spawn.filteredSpawnDirs.length > 0) {
     e.preventDefault()
     const selected = ctx.spawn.filteredSpawnDirs[ctx.activeIndex]
     if (selected) ctx.spawn.handleDirSelect(selected)
   }
+}
+
+// fallow-ignore-next-line complexity
+function tryCompleteSentinel(e: React.KeyboardEvent, ctx: KeyHandlerContext): boolean {
+  if (!ctx.spawn.isSentinelEntry || ctx.spawn.filteredSentinels.length === 0) return false
+  e.preventDefault()
+  const sel = ctx.spawn.filteredSentinels[ctx.activeIndex] || ctx.spawn.filteredSentinels[0]
+  if (sel) ctx.spawn.handleSentinelSelect(sel.alias)
+  return true
+}
+
+// fallow-ignore-next-line complexity
+function tryCompleteProfile(e: React.KeyboardEvent, ctx: KeyHandlerContext): boolean {
+  if (!ctx.spawn.isProfileEntry || ctx.spawn.filteredProfiles.length === 0) return false
+  e.preventDefault()
+  const sel = ctx.spawn.filteredProfiles[ctx.activeIndex] || ctx.spawn.filteredProfiles[0]
+  if (sel) ctx.spawn.handleProfileSelect(sel.name)
+  return true
 }
 
 function handleEnter(e: React.KeyboardEvent, ctx: KeyHandlerContext, callbacks: KeyHandlerCallbacks): void {
@@ -119,6 +133,17 @@ function submitSpawn(ctx: KeyHandlerContext): void {
     if (sel) spawn.handleSentinelSelect(sel.alias)
     return
   }
+  if (spawn.isProfileEntry) {
+    const sel = spawn.filteredProfiles[ctx.activeIndex] || spawn.filteredProfiles[0]
+    if (sel) spawn.handleProfileSelect(sel.name)
+    return
+  }
+  submitSpawnPath(ctx)
+}
+
+// fallow-ignore-next-line complexity
+function submitSpawnPath(ctx: KeyHandlerContext): void {
+  const spawn = ctx.spawn
   if (spawn.filteredSpawnDirs.length > 0 && !spawn.spawnPath.endsWith('/')) {
     const selected = spawn.filteredSpawnDirs[ctx.activeIndex]
     if (selected) spawn.handleDirSelect(selected)

@@ -58,6 +58,7 @@ function setterSpies() {
     setOpenCodeToolPermission: vi.fn(),
     setDaemonMode: vi.fn(),
     setDaemonForm: vi.fn(),
+    setSentinelProfile: vi.fn(),
   } satisfies Required<SpawnFormSetters>
 }
 
@@ -226,5 +227,47 @@ describe('formSnapshotToProfileSpawn -- non-daemon unaffected', () => {
     expect(spawn.model).toBe('claude-haiku-4-5')
     expect(spawn.effort).toBe('low')
     expect(spawn.daemonMode).toBeUndefined()
+  })
+})
+
+describe('sentinel-profile intent round-trip (Phase 6)', () => {
+  test('claude backend persists a Fixed profile name and restores it', () => {
+    const spawn = formSnapshotToProfileSpawn(snap({ backend: 'claude', sentinelProfile: 'work' }))
+    expect(spawn.profile).toBe('work')
+
+    const setters = setterSpies()
+    applyProfileToForm(profile(spawn), setters)
+    expect(setters.setSentinelProfile).toHaveBeenCalledWith('work')
+  })
+
+  test('claude backend persists a SelectionMode token (balanced) and restores it', () => {
+    const spawn = formSnapshotToProfileSpawn(snap({ backend: 'claude', sentinelProfile: 'balanced' }))
+    expect(spawn.profile).toBe('balanced')
+
+    const setters = setterSpies()
+    applyProfileToForm(profile(spawn), setters)
+    expect(setters.setSentinelProfile).toHaveBeenCalledWith('balanced')
+  })
+
+  test('empty sentinel-profile is omitted from the saved profile', () => {
+    const spawn = formSnapshotToProfileSpawn(snap({ backend: 'claude', sentinelProfile: '' }))
+    expect(spawn.profile).toBeUndefined()
+
+    const setters = setterSpies()
+    applyProfileToForm(profile(spawn), setters)
+    // Missing field restores as empty string so the dialog falls back to the
+    // sentinel's defaultSelection.
+    expect(setters.setSentinelProfile).toHaveBeenCalledWith('')
+  })
+
+  test('daemon backend also round-trips the sentinel-profile intent', () => {
+    const spawn = formSnapshotToProfileSpawn(
+      snap({ backend: 'daemon', daemonMode: 'new', daemonForm: daemonForm(), sentinelProfile: 'work' }),
+    )
+    expect(spawn.profile).toBe('work')
+
+    const setters = setterSpies()
+    applyProfileToForm(profile(spawn), setters)
+    expect(setters.setSentinelProfile).toHaveBeenCalledWith('work')
   })
 })

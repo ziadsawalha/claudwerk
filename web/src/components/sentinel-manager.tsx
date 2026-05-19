@@ -167,6 +167,12 @@ function SentinelRow({
 }) {
   const profiles = sentinel.profiles ?? []
   const orphanUsage = computeOrphans(profiles, usage, sentinel.connected)
+  // Show the configure-via-CLI hint when the sentinel reports profiles. Phase
+  // 7 covers broker-managed mutation of `defaultSelection` and per-profile
+  // `pooled`; for now those are configured by editing the sentinel's
+  // `sentinel.json` or invoking `sentinel profile pool`. Surfacing the hint
+  // tells the user how to change what the UI shows read-only.
+  const showCliHint = sentinel.connected && profiles.length > 0
   return (
     <div className="border border-border rounded text-xs font-mono">
       <SentinelHeader sentinel={sentinel} onSetDefault={onSetDefault} onRevoke={onRevoke} />
@@ -178,6 +184,13 @@ function SentinelRow({
           {orphanUsage.map(row => (
             <OrphanProfileLine key={`orphan-${row.profile}`} row={row} />
           ))}
+          {showCliHint && (
+            <div className="pl-6 pr-2 pt-1 text-[9px] text-muted-foreground/50 leading-snug">
+              Pool / default-selection are sentinel-local. Configure via{' '}
+              <code className="text-foreground/70">sentinel profile pool</code> or by editing{' '}
+              <code className="text-foreground/70">~/.config/rclaude/sentinel.json</code> on the host.
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -33,6 +33,10 @@ export interface SpawnFormSetters {
   /** Daemon launch state -- only invoked when the profile's backend is daemon. */
   setDaemonMode?: (v: DaemonMode) => void
   setDaemonForm?: (v: DaemonModeFormValue) => void
+  /** Sentinel-profile INTENT (Phase 6) -- either a literal profile name or
+   *  a SelectionMode token (`default` | `balanced` | `random`). Optional so
+   *  callers that don't yet wire the radio can stay agnostic. */
+  setSentinelProfile?: (v: string) => void
 }
 
 export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSetters): void {
@@ -41,6 +45,9 @@ export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSet
   // not the generic per-field state -- restore that and stop.
   if (s.backend === 'daemon') {
     applyDaemonProfileToForm(s, setters)
+    // Daemon launches also honor the sentinel-profile pick (the daemon worker
+    // runs under the resolved profile's `CLAUDE_CONFIG_DIR`).
+    if (setters.setSentinelProfile) setters.setSentinelProfile(s.profile ?? '')
     return
   }
   if (s.headless !== undefined) setters.setHeadless(s.headless)
@@ -57,6 +64,8 @@ export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSet
   setters.setEnvText(envObjectToText(s.env))
   if (s.openCodeModel && setters.setOpenCodeModel) setters.setOpenCodeModel(s.openCodeModel)
   if (s.toolPermission && setters.setOpenCodeToolPermission) setters.setOpenCodeToolPermission(s.toolPermission)
+  // Sentinel-profile intent (Phase 6) -- empty string = follow sentinel default.
+  if (setters.setSentinelProfile) setters.setSentinelProfile(s.profile ?? '')
 }
 
 function envObjectToText(env: Record<string, string> | undefined): string {
@@ -128,6 +137,10 @@ export interface FormSnapshotInput {
   /** Daemon launch state -- read only when `backend === 'daemon'`. */
   daemonMode?: DaemonMode
   daemonForm?: DaemonModeFormValue
+  /** Sentinel-profile INTENT (Phase 6) -- empty string omits the field
+   *  (sentinel applies its `defaultSelection`). Stored verbatim on the
+   *  launch profile's `spawn.profile`. */
+  sentinelProfile?: string
 }
 
 /**
@@ -139,7 +152,9 @@ export function formSnapshotToProfileSpawn(snap: FormSnapshotInput): LaunchProfi
   // the generic per-field state (the generic fields are not daemon launch
   // params and would just bloat the profile).
   if (snap.backend === 'daemon') {
-    return daemonFormToProfileSpawn(snap.daemonMode ?? 'new', snap.daemonForm ?? blankDaemonForm())
+    const out = daemonFormToProfileSpawn(snap.daemonMode ?? 'new', snap.daemonForm ?? blankDaemonForm())
+    if (snap.sentinelProfile) out.profile = snap.sentinelProfile
+    return out
   }
   const out: LaunchProfile['spawn'] = {}
   if (snap.model) out.model = snap.model as LaunchProfile['spawn']['model']
@@ -160,6 +175,7 @@ export function formSnapshotToProfileSpawn(snap: FormSnapshotInput): LaunchProfi
   if (env && Object.keys(env).length) out.env = env
   if (snap.openCodeModel) out.openCodeModel = snap.openCodeModel
   if (snap.toolPermission) out.toolPermission = snap.toolPermission
+  if (snap.sentinelProfile) out.profile = snap.sentinelProfile
   return out
 }
 

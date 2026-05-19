@@ -1,5 +1,11 @@
 import type { DialogLayout, DialogResult } from '@shared/dialog-schema'
-import type { DaemonRosterForward, RclaudePermissionConfig, TerminationSource } from '@shared/protocol'
+import type {
+  DaemonRosterForward,
+  RclaudePermissionConfig,
+  SelectionMode,
+  SentinelProfileInfo,
+  TerminationSource,
+} from '@shared/protocol'
 import { useRef } from 'react'
 import { create } from 'zustand'
 import {
@@ -87,6 +93,11 @@ export interface SentinelStatusInfo {
   connected: boolean
   isDefault?: boolean
   color?: string
+  /** Sentinel-reported profile NAMES + display only (Profile-Env Boundary).
+   *  Only present when the sentinel reported a non-empty profiles list. */
+  profiles?: SentinelProfileInfo[]
+  /** What the sentinel does on a no-profile spawn. */
+  defaultSelection?: SelectionMode
 }
 
 interface ConversationsState {

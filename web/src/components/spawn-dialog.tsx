@@ -52,6 +52,7 @@ import {
 } from './spawn-dialog/daemon-launch'
 import { DaemonModePanel } from './spawn-dialog/daemon-mode-panel'
 import { DaemonRosterBrowser } from './spawn-dialog/daemon-roster-browser'
+import { SentinelProfileRadio } from './spawn-dialog/sentinel-profile-radio'
 
 /** Mirrors src/broker/backends/opencode.ts deriveOpenCodeSlug -- needed
  *  client-side so the dialog can look up project settings under the same
@@ -78,6 +79,11 @@ interface SpawnDialogOptions {
   projectUri?: string
   /** Launch profile to pre-apply on open. The dropdown reflects this selection. */
   profileId?: string
+  /** Sentinel-profile NAME or selection-mode token (`default` | `balanced` |
+   *  `random`). Parsed from the `@sentinel:profile` shorthand or a
+   *  `claude://profile@sentinel/...` URI. Pre-selects the Sentinel-profile
+   *  radio in the launch modal. */
+  profile?: string
 }
 
 interface HermesGateway {
@@ -144,6 +150,11 @@ export function SpawnDialog() {
   // OpenCode tab next to the model field.
   const [openCodeToolPermission, setOpenCodeToolPermission] = useState<OpenCodeToolPermission>('safe')
   const [profileId, setProfileId] = useState<string | undefined>()
+  /** Sentinel-profile selection -- either a literal profile NAME (Fixed mode)
+   *  or a SelectionMode token (`default` | `balanced` | `random`). Empty
+   *  string falls back to the sentinel's `defaultSelection`. Wire field name:
+   *  `SpawnRequest.profile`. */
+  const [sentinelProfile, setSentinelProfile] = useState<string>('')
   const [phase, setPhase] = useState<'config' | 'launching'>('config')
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -154,6 +165,10 @@ export function SpawnDialog() {
 
   const projectSettings = useConversationsStore((s: { projectSettings: ProjectSettingsMap }) => s.projectSettings)
   const globalSettings = useConversationsStore((s: { globalSettings: Record<string, unknown> }) => s.globalSettings)
+  // Connected sentinels with their reported profiles + defaultSelection.
+  // Used by the Sentinel-profile radio (Phase 6) to know which profiles to
+  // offer for the target sentinel. NAMES + display only (Profile-Env Boundary).
+  const sentinelStatuses = useConversationsStore(s => s.sentinels)
   const { profiles: launchProfiles } = useLaunchProfiles()
   const launchProfilesRef = useRef(launchProfiles)
   launchProfilesRef.current = launchProfiles
@@ -232,6 +247,10 @@ export function SpawnDialog() {
         ? launchProfilesRef.current.find(p => p.id === options.profileId)
         : undefined
       setProfileId(initialProfile?.id)
+      // Sentinel-profile pre-selection from URI / shorthand. The launch
+      // profile's saved sentinel-profile (if any) takes precedence and is
+      // applied by `applyProfileToForm` below.
+      setSentinelProfile(options.profile ?? '')
       if (initialProfile) {
         applyProfileToForm(initialProfile, {
           setHeadless,
@@ -250,6 +269,7 @@ export function SpawnDialog() {
           setOpenCodeToolPermission,
           setDaemonMode,
           setDaemonForm,
+          setSentinelProfile,
         })
       }
       // Fetch chat connections + gateway availability
@@ -362,6 +382,7 @@ export function SpawnDialog() {
         name: name.trim() || undefined,
         description: description.trim() || undefined,
         sentinel: (isAttach ? daemonAttach?.sentinelAlias : undefined) || state.options.sentinel || undefined,
+        profile: sentinelProfile || undefined,
         jobId: newJobId,
         ...buildDaemonSpawnFields({ mode: daemonMode, form: daemonForm, attachShort: daemonAttach?.short }),
       }
@@ -394,6 +415,7 @@ export function SpawnDialog() {
         worktree: useWorktree && worktreeName.trim() ? worktreeName.trim() : undefined,
         includePartialMessages: includePartialMessages || undefined,
         sentinel: state.options.sentinel || undefined,
+        profile: sentinelProfile || undefined,
         env: parsedEnv || undefined,
         jobId: newJobId,
         backend: backend !== 'claude' ? backend : undefined,
@@ -455,6 +477,7 @@ export function SpawnDialog() {
     daemonMode,
     daemonForm,
     daemonAttach,
+    sentinelProfile,
     progress,
     description.trim,
   ])
@@ -636,6 +659,15 @@ export function SpawnDialog() {
     if (daemonErrors.length) setDaemonErrors([])
   }
 
+  // Look up the target sentinel's reported profiles + defaultSelection so the
+  // Sentinel-profile radio knows what to offer. Falls back to no profiles
+  // (radio hides) when the sentinel is unknown / disconnected. The dialog
+  // routes to `options.sentinel` (or the default sentinel if absent).
+  const targetSentinelAlias = (state.options?.sentinel || 'default').toLowerCase()
+  const targetSentinel = sentinelStatuses.find(s => s.alias.toLowerCase() === targetSentinelAlias)
+  const targetProfiles = targetSentinel?.profiles ?? []
+  const targetDefaultSelection = targetSentinel?.defaultSelection
+
   const fieldsValue: LaunchFieldsValue = {
     model,
     effort,
@@ -706,6 +738,7 @@ export function SpawnDialog() {
                       setOpenCodeToolPermission,
                       setDaemonMode,
                       setDaemonForm,
+                      setSentinelProfile,
                     })
                   }}
                   onPickCustom={() => setProfileId(undefined)}
@@ -729,6 +762,7 @@ export function SpawnDialog() {
                       toolPermission: openCodeToolPermission,
                       daemonMode,
                       daemonForm,
+                      sentinelProfile: sentinelProfile || undefined,
                     })
                     await putLaunchProfiles([...launchProfilesRef.current, draft])
                     handleClose()
@@ -748,6 +782,25 @@ export function SpawnDialog() {
                   hermesAvailable={hermesGateways.some(g => g.connected)}
                 />
               </div>
+
+              {/* Sentinel-profile selector -- only rendered when the target
+                  sentinel reports >1 profile (single-profile sentinels have
+                  nothing to choose between). The radio holds INTENT; the
+                  sentinel resolves it at spawn time. Profile-Env Boundary:
+                  this only consumes NAMES + display from `targetProfiles`. */}
+              {targetProfiles.length > 1 && (
+                <div className="shrink-0 px-1.5">
+                  <SentinelProfileRadio
+                    profiles={targetProfiles}
+                    defaultSelection={targetDefaultSelection}
+                    value={sentinelProfile}
+                    onChange={v => {
+                      setSentinelProfile(v)
+                      haptic('tick')
+                    }}
+                  />
+                </div>
+              )}
 
               {/* -- Daemon config (New / Resume / Attach) -- */}
               {backend === 'daemon' ? (

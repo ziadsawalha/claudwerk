@@ -20,6 +20,8 @@ function buildSentinelList(state: SentinelState): SentinelStatusInfo[] {
       alias: conn.alias,
       hostname: conn.hostname,
       connected: true,
+      profiles: conn.profiles,
+      defaultSelection: conn.defaultSelection,
     })
   }
   return list

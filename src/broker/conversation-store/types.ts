@@ -3,6 +3,8 @@ import type {
   ClaudeHealthUpdate,
   ConversationSummary,
   LaunchProfile,
+  SelectionMode,
+  SentinelProfileInfo,
   TerminationDetail,
   TerminationSource,
 } from '../../shared/protocol'
@@ -16,6 +18,14 @@ export interface SentinelStatusInfo {
   connected: boolean
   isDefault?: boolean
   color?: string
+  /** Sentinel-reported profile NAMES + display only (Profile-Env Boundary).
+   *  Only present when the sentinel is connected AND reported a non-empty
+   *  profiles list. Consumed by the control panel for profile pickers /
+   *  badges. NEVER contains `configDir` or `env`. */
+  profiles?: SentinelProfileInfo[]
+  /** What this sentinel does on a no-profile spawn (`default` | `balanced` |
+   *  `random`). Read-only display; configured via the sentinel CLI. */
+  defaultSelection?: SelectionMode
 }
 
 export interface ControlPanelMessage {

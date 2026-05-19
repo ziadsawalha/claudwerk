@@ -62,7 +62,9 @@ export function useCommandPalette(onClose: () => void) {
       : isSpawnMode
         ? spawn.isSentinelEntry
           ? spawn.filteredSentinels.length
-          : spawn.filteredSpawnDirs.length
+          : spawn.isProfileEntry
+            ? spawn.filteredProfiles.length
+            : spawn.filteredSpawnDirs.length
         : isFileMode
           ? file.filteredFiles.length
           : isTaskMode
@@ -139,10 +141,13 @@ export function useCommandPalette(onClose: () => void) {
     // Spawn mode
     filteredSpawnDirs: spawn.filteredSpawnDirs,
     filteredSentinels: spawn.filteredSentinels,
+    filteredProfiles: spawn.filteredProfiles,
     isSentinelEntry: spawn.isSentinelEntry,
+    isProfileEntry: spawn.isProfileEntry,
     spawnPath: spawn.spawnPath,
     spawnParentDir: spawn.spawnParentDir,
     spawnSentinel: spawn.spawnSentinel,
+    spawnProfile: spawn.spawnProfile,
     spawnLoading: spawn.spawnLoading,
     spawnError: spawn.spawnError,
     spawning: spawn.spawning,
@@ -162,6 +167,7 @@ export function useCommandPalette(onClose: () => void) {
     handleSpawn: spawn.handleSpawn,
     handleDirSelect: spawn.handleDirSelect,
     handleSentinelSelect: spawn.handleSentinelSelect,
+    handleProfileSelect: spawn.handleProfileSelect,
     selectConversationWithTracking,
   }
 }
