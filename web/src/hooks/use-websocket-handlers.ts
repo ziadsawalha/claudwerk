@@ -511,6 +511,24 @@ function handleSentinelStatus(msg: DashboardMessage) {
   }
 }
 
+/**
+ * `daemon_roster` -- a sentinel's live daemon worker roster, forwarded by the
+ * broker (ccSessionId stripped). Stored per sentinel; drives the spawn dialog's
+ * ATTACH mode roster browser via use-daemon-roster.
+ */
+function handleDaemonRoster(msg: DashboardMessage) {
+  if (!Array.isArray(msg.jobs)) return
+  useConversationsStore.getState().setDaemonRoster({
+    type: 'daemon_roster',
+    sentinelId: typeof msg.sentinelId === 'string' ? msg.sentinelId : undefined,
+    sentinelAlias: typeof msg.sentinelAlias === 'string' ? msg.sentinelAlias : undefined,
+    daemonPresent: msg.daemonPresent === true,
+    daemonProto: typeof msg.daemonProto === 'number' ? msg.daemonProto : undefined,
+    jobs: msg.jobs,
+    observedAt: typeof msg.observedAt === 'number' ? msg.observedAt : Date.now(),
+  })
+}
+
 function handleUsageUpdate(msg: DashboardMessage) {
   if (msg.usage) {
     useConversationsStore.getState().setPlanUsage(msg.usage)
@@ -995,6 +1013,7 @@ export const handlers: Record<string, MessageHandler> = {
   // tasks / sentinel / settings
   tasks_update: handleTasksUpdate,
   sentinel_status: handleSentinelStatus,
+  daemon_roster: handleDaemonRoster,
   usage_update: handleUsageUpdate,
   claude_health_update: handleClaudeHealthUpdate,
   claude_efficiency_update: handleClaudeEfficiencyUpdate,

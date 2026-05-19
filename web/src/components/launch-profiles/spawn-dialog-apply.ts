@@ -8,7 +8,10 @@
 
 import type { LaunchProfile } from '@shared/launch-profile'
 
-export type BackendKind = 'claude' | 'chat-api' | 'hermes' | 'opencode'
+// Single source of truth for the backend union -- includes 'daemon'.
+export type { BackendKind } from '@/components/spawn-dialog/backend-select'
+
+import type { BackendKind } from '@/components/spawn-dialog/backend-select'
 
 export interface SpawnFormSetters {
   setHeadless: (v: boolean) => void

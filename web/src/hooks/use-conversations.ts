@@ -1,5 +1,5 @@
 import type { DialogLayout, DialogResult } from '@shared/dialog-schema'
-import type { RclaudePermissionConfig, TerminationSource } from '@shared/protocol'
+import type { DaemonRosterForward, RclaudePermissionConfig, TerminationSource } from '@shared/protocol'
 import { useRef } from 'react'
 import { create } from 'zustand'
 import {
@@ -143,6 +143,11 @@ interface ConversationsState {
   syncSeq: number // last received sequence number
   sentinelConnected: boolean
   sentinels: SentinelStatusInfo[]
+  /** Live daemon worker rosters, keyed by sentinelId ('default' when the
+   *  sentinel has no id). Fed by `daemon_roster` broker broadcasts; consumed
+   *  by the spawn dialog's ATTACH mode via use-daemon-roster. */
+  daemonRosters: Record<string, DaemonRosterForward>
+  setDaemonRoster: (roster: DaemonRosterForward) => void
   planUsage: UsageUpdate | null
   claudeHealth: ClaudeHealthUpdate | null
   claudeEfficiency: ClaudeEfficiencyUpdate | null
@@ -569,6 +574,11 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   syncSeq: 0,
   sentinelConnected: false,
   sentinels: [],
+  daemonRosters: {},
+  setDaemonRoster: roster =>
+    set(state => ({
+      daemonRosters: { ...state.daemonRosters, [roster.sentinelId ?? 'default']: roster },
+    })),
   planUsage: null,
   claudeHealth: null,
   claudeEfficiency: null,

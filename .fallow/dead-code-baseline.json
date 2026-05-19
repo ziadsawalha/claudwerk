@@ -64,6 +64,7 @@
     "src/shared/protocol.ts:ConversationControlResult",
     "src/shared/protocol.ts:JobComplete",
     "src/shared/protocol.ts:JobFailed",
+    "src/shared/protocol.ts:DaemonRosterRequest",
     "src/shared/protocol.ts:DaemonRespawnStaleRequest",
     "src/shared/protocol.ts:DaemonPermissionResponse",
     "src/shared/protocol.ts:SentinelMessage",
@@ -142,7 +143,6 @@
   "unlisted_dependencies": [],
   "duplicate_exports": [
     "AcpToolPermissionTier|src/acp-agent-host/agent-callbacks.ts|src/acp-agent-host/recipe.ts|src/sentinel/acp-recipes.ts",
-    "BackendKind|web/src/components/launch-profiles/spawn-dialog-apply.ts|web/src/components/spawn-dialog/backend-select.tsx",
     "ClipboardCapture|src/claude-agent-host/osc52-parser.ts|src/shared/protocol.ts",
     "ConversationStore|src/broker/conversation-store.ts|src/broker/store/types.ts",
     "LaunchStep|src/shared/protocol.ts|web/src/hooks/use-launch-progress.ts",

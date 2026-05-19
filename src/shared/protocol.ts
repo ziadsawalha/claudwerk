@@ -1141,6 +1141,7 @@ export type BrokerMessage =
   | SocketReplaced
   | PhantomReapCandidate
   | DaemonControlResult
+  | DaemonRosterForward
 
 export interface NotifyConfigUpdated {
   type: 'notify_config_updated'
@@ -2176,6 +2177,47 @@ export interface DaemonJobState {
   job: DaemonJobInfo
   /** Epoch ms when the sentinel observed this state. */
   observedAt: number
+}
+
+/**
+ * A daemon roster job as the CONTROL PANEL receives it: `DaemonJobInfo` with
+ * `sessionId` stripped. `sessionId` is a ccSessionId (CC's concept); the broker
+ * never forwards it to the control panel (boundary rule). The ATTACH spawn
+ * routes by the stable `short`, never by `sessionId`, so nothing is lost.
+ */
+export type DaemonRosterJob = Omit<DaemonJobInfo, 'sessionId'>
+
+/**
+ * Broker -> control panel: the live daemon worker roster, forwarded from the
+ * sentinel's `DaemonRosterUpdate` with every ccSessionId removed. Drives the
+ * spawn dialog's ATTACH mode roster browser. Distinct `type` from the
+ * sentinel-sourced `daemon_roster_update` so the two directions never collide
+ * in a handler table.
+ */
+export interface DaemonRosterForward {
+  type: 'daemon_roster'
+  /** Sentinel that owns this roster -- the ATTACH spawn targets it. */
+  sentinelId?: string
+  /** Human-readable sentinel alias, for display + spawn routing. */
+  sentinelAlias?: string
+  /** Whether a `claude daemon` is currently reachable on the sentinel host. */
+  daemonPresent: boolean
+  /** Daemon control-protocol version (the cc-daemon `proto`), when known. */
+  daemonProto?: number
+  /** Every job the daemon currently knows about, ccSessionId stripped. */
+  jobs: DaemonRosterJob[]
+  /** Epoch ms when the sentinel observed this roster. */
+  observedAt: number
+}
+
+/**
+ * Control panel -> broker: request a replay of the cached daemon roster(s).
+ * Sent when the spawn dialog opens its ATTACH panel so a freshly-loaded
+ * dashboard does not wait for the next sentinel push. The broker answers with
+ * one `daemon_roster` per cached sentinel roster (to the caller only).
+ */
+export interface DaemonRosterRequest {
+  type: 'daemon_roster_request'
 }
 
 // ─── Daemon launch lifecycle + remote control (Phase D / Phase G) ──────────

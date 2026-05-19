@@ -26,6 +26,7 @@ import {
   useConversationsStore,
   wsSend,
 } from '@/hooks/use-conversations'
+import type { DaemonRosterEntry } from '@/hooks/use-daemon-roster'
 import { useLaunchProgress } from '@/hooks/use-launch-progress'
 import { sendSpawnRequest } from '@/hooks/use-spawn'
 import { parseEnvText } from '@/lib/env-parse'
@@ -40,7 +41,17 @@ import { openLaunchProfileManager } from './launch-profiles/manager-state'
 import { ProfileDropdown } from './launch-profiles/profile-dropdown'
 import { applyProfileToForm, formSnapshotToProfileSpawn } from './launch-profiles/spawn-dialog-apply'
 import { useLaunchProfiles } from './launch-profiles/use-launch-profiles'
-import { BackendSelect } from './spawn-dialog/backend-select'
+import { type BackendKind, BackendSelect } from './spawn-dialog/backend-select'
+import {
+  blankDaemonForm,
+  buildDaemonSpawnFields,
+  type DaemonMode,
+  type DaemonModeFormValue,
+  validateDaemonAttach,
+  validateDaemonModeForm,
+} from './spawn-dialog/daemon-launch'
+import { DaemonModePanel } from './spawn-dialog/daemon-mode-panel'
+import { DaemonRosterBrowser } from './spawn-dialog/daemon-roster-browser'
 
 /** Mirrors src/broker/backends/opencode.ts deriveOpenCodeSlug -- needed
  *  client-side so the dialog can look up project settings under the same
@@ -109,7 +120,12 @@ export function SpawnDialog() {
   const [configTab, setConfigTab] = useState<'basic' | 'advanced'>('basic')
   const [resumeId, setResumeId] = useState('')
   const [envText, setEnvText] = useState('')
-  const [backend, setBackend] = useState<'claude' | 'chat-api' | 'hermes' | 'opencode'>('claude')
+  const [backend, setBackend] = useState<BackendKind>('claude')
+  // Daemon backend launch state (only meaningful when backend === 'daemon').
+  const [daemonMode, setDaemonMode] = useState<DaemonMode>('new')
+  const [daemonForm, setDaemonForm] = useState<DaemonModeFormValue>(blankDaemonForm)
+  const [daemonAttach, setDaemonAttach] = useState<DaemonRosterEntry | null>(null)
+  const [daemonErrors, setDaemonErrors] = useState<string[]>([])
   const [chatConnectionId, setChatConnectionId] = useState('')
   const [chatConnections, setChatConnections] = useState<ChatApiConnection[]>([])
   const [hermesGateways, setHermesGateways] = useState<HermesGateway[]>([])
@@ -184,6 +200,10 @@ export function SpawnDialog() {
       // projects open with the OpenCode backend pre-selected. Other schemes
       // (claude://, hermes://, etc.) start on Claude and let the user pick.
       setBackend(options.projectUri?.startsWith('opencode://') ? 'opencode' : 'claude')
+      setDaemonMode('new')
+      setDaemonForm(blankDaemonForm())
+      setDaemonAttach(null)
+      setDaemonErrors([])
       setChatConnectionId('')
       setHermesGateways([])
       setHermesGatewayId('')
@@ -312,54 +332,84 @@ export function SpawnDialog() {
   const handleSpawn = useCallback(async () => {
     if (!state.options || phase !== 'config') return
 
-    // Validate env before spawning. Errors render inline in LaunchConfigFields
-    // as the user types, so we just block submit here.
-    const [parsedEnv, errors] = parseEnvText(envText)
-    if (errors.length) {
-      setConfigTab('advanced')
-      haptic('error')
-      return
+    // Generate jobId up front -- it correlates the request, the ack and the
+    // per-launch progress events.
+    const newJobId = crypto.randomUUID()
+    let spawnReq: SpawnRequest
+
+    if (backend === 'daemon') {
+      // Daemon launch: validate the active mode, then shape the request.
+      // NEW/RESUME validate the config form; ATTACH validates the picked
+      // roster worker.
+      const daemonValidation =
+        daemonMode === 'attach'
+          ? validateDaemonAttach(daemonAttach?.short)
+          : validateDaemonModeForm(daemonMode, daemonForm)
+      if (daemonValidation.length) {
+        setDaemonErrors(daemonValidation)
+        haptic('error')
+        return
+      }
+      setDaemonErrors([])
+      const isAttach = daemonMode === 'attach'
+      spawnReq = {
+        // ATTACH takes over an existing worker -- cwd comes from its roster
+        // job; NEW/RESUME use the dialog's target directory.
+        cwd: isAttach && daemonAttach ? daemonAttach.cwd : state.options.path,
+        mkdir: isAttach ? false : state.options.mkdir || false,
+        name: name.trim() || undefined,
+        description: description.trim() || undefined,
+        sentinel: (isAttach ? daemonAttach?.sentinelAlias : undefined) || state.options.sentinel || undefined,
+        jobId: newJobId,
+        ...buildDaemonSpawnFields({ mode: daemonMode, form: daemonForm, attachShort: daemonAttach?.short }),
+      }
+    } else {
+      // Validate env before spawning. Errors render inline in LaunchConfigFields
+      // as the user types, so we just block submit here.
+      const [parsedEnv, errors] = parseEnvText(envText)
+      if (errors.length) {
+        setConfigTab('advanced')
+        haptic('error')
+        return
+      }
+      const trimmedResumeId = resumeId.trim()
+      spawnReq = {
+        cwd: state.options.path,
+        mkdir: state.options.mkdir || false,
+        mode: trimmedResumeId ? 'resume' : undefined,
+        resumeId: trimmedResumeId || undefined,
+        headless,
+        bare: bare || undefined,
+        repl: repl || undefined,
+        name: name.trim() || undefined,
+        description: description.trim() || undefined,
+        model: (model || undefined) as SpawnRequest['model'],
+        effort: (effort || undefined) as SpawnRequest['effort'],
+        agent: agent.trim() || undefined,
+        permissionMode: (permissionMode || undefined) as SpawnRequest['permissionMode'],
+        autocompactPct: autocompactPct === '' ? undefined : autocompactPct,
+        maxBudgetUsd: maxBudgetUsd ? Number(maxBudgetUsd) : undefined,
+        worktree: useWorktree && worktreeName.trim() ? worktreeName.trim() : undefined,
+        includePartialMessages: includePartialMessages || undefined,
+        sentinel: state.options.sentinel || undefined,
+        env: parsedEnv || undefined,
+        jobId: newJobId,
+        backend: backend !== 'claude' ? backend : undefined,
+        chatConnectionId: backend === 'chat-api' ? chatConnectionId || undefined : undefined,
+        chatConnectionName:
+          backend === 'chat-api' ? chatConnections.find(a => a.id === chatConnectionId)?.name : undefined,
+        openCodeModel: backend === 'opencode' ? openCodeModel.trim() || undefined : undefined,
+        toolPermission: backend === 'opencode' ? openCodeToolPermission : undefined,
+        gatewayId: backend === 'hermes' ? hermesGatewayId || undefined : undefined,
+      }
     }
 
     setPhase('launching')
     conversationAtSpawnRef.current = useConversationsStore.getState().selectedConversationId
     haptic('tap')
-
-    // Generate jobId and subscribe BEFORE making the HTTP request
-    const newJobId = crypto.randomUUID()
     setJobId(newJobId)
     progress.start([{ label: 'Sending spawn request', status: 'active', ts: Date.now() }])
 
-    const trimmedResumeId = resumeId.trim()
-    const spawnReq: SpawnRequest = {
-      cwd: state.options.path,
-      mkdir: state.options.mkdir || false,
-      mode: trimmedResumeId ? 'resume' : undefined,
-      resumeId: trimmedResumeId || undefined,
-      headless,
-      bare: bare || undefined,
-      repl: repl || undefined,
-      name: name.trim() || undefined,
-      description: description.trim() || undefined,
-      model: (model || undefined) as SpawnRequest['model'],
-      effort: (effort || undefined) as SpawnRequest['effort'],
-      agent: agent.trim() || undefined,
-      permissionMode: (permissionMode || undefined) as SpawnRequest['permissionMode'],
-      autocompactPct: autocompactPct === '' ? undefined : autocompactPct,
-      maxBudgetUsd: maxBudgetUsd ? Number(maxBudgetUsd) : undefined,
-      worktree: useWorktree && worktreeName.trim() ? worktreeName.trim() : undefined,
-      includePartialMessages: includePartialMessages || undefined,
-      sentinel: state.options.sentinel || undefined,
-      env: parsedEnv || undefined,
-      jobId: newJobId,
-      backend: backend !== 'claude' ? backend : undefined,
-      chatConnectionId: backend === 'chat-api' ? chatConnectionId || undefined : undefined,
-      chatConnectionName:
-        backend === 'chat-api' ? chatConnections.find(a => a.id === chatConnectionId)?.name : undefined,
-      openCodeModel: backend === 'opencode' ? openCodeModel.trim() || undefined : undefined,
-      toolPermission: backend === 'opencode' ? openCodeToolPermission : undefined,
-      gatewayId: backend === 'hermes' ? hermesGatewayId || undefined : undefined,
-    }
     const result = await sendSpawnRequest(spawnReq)
     if (result.ok) {
       haptic('success')
@@ -400,6 +450,9 @@ export function SpawnDialog() {
     openCodeModel,
     openCodeToolPermission,
     hermesGatewayId,
+    daemonMode,
+    daemonForm,
+    daemonAttach,
     progress,
     description.trim,
   ])
@@ -456,6 +509,11 @@ export function SpawnDialog() {
       'alt+4': () => {
         if (phase !== 'config') return
         setBackend('opencode')
+        haptic('tap')
+      },
+      'alt+5': () => {
+        if (phase !== 'config') return
+        setBackend('daemon')
         haptic('tap')
       },
     },
@@ -571,6 +629,11 @@ export function SpawnDialog() {
     if ('repl' in patch) setRepl(!!patch.repl)
   }
 
+  function patchDaemonForm(patch: Partial<DaemonModeFormValue>) {
+    setDaemonForm(prev => ({ ...prev, ...patch }))
+    if (daemonErrors.length) setDaemonErrors([])
+  }
+
   const fieldsValue: LaunchFieldsValue = {
     model,
     effort,
@@ -680,8 +743,42 @@ export function SpawnDialog() {
                 />
               </div>
 
-              {/* -- Hermes config -- */}
-              {backend === 'hermes' ? (
+              {/* -- Daemon config (New / Resume / Attach) -- */}
+              {backend === 'daemon' ? (
+                <div className="flex flex-col gap-3 px-1.5 py-1 overflow-y-auto flex-1 min-h-0">
+                  <DaemonModeSegmented
+                    mode={daemonMode}
+                    onChange={m => {
+                      setDaemonMode(m)
+                      setDaemonErrors([])
+                    }}
+                  />
+                  {daemonMode === 'attach' ? (
+                    <DaemonRosterBrowser
+                      selectedShort={daemonAttach?.short}
+                      onSelect={entry => {
+                        setDaemonAttach(entry)
+                        setDaemonErrors([])
+                      }}
+                    />
+                  ) : (
+                    <DaemonModePanel mode={daemonMode} value={daemonForm} onChange={patchDaemonForm} />
+                  )}
+                  <LaunchConfigFields
+                    value={fieldsValue}
+                    onChange={applyFieldsPatch}
+                    show={{ name: true, description: true }}
+                  />
+                  {daemonErrors.length > 0 && (
+                    <div className="text-[10px] font-mono text-red-400 space-y-0.5 border border-red-500/30 bg-red-950/20 rounded px-2 py-1.5">
+                      {daemonErrors.map(e => (
+                        <div key={e}>{e}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : /* -- Hermes config -- */
+              backend === 'hermes' ? (
                 <div className="space-y-3 px-1.5 py-1">
                   <HermesGatewayPicker
                     gateways={hermesGateways}
@@ -1138,6 +1235,45 @@ function HermesGatewayPicker({
           </option>
         ))}
       </select>
+    </div>
+  )
+}
+
+// ─── Daemon Mode Segmented Control ────────────────────────────────────
+// New / Resume / Attach selector for the daemon backend. New + Resume run
+// `claude --bg`; Attach takes over an already-running daemon worker.
+
+const DAEMON_MODE_OPTIONS: Array<{ value: DaemonMode; label: string; hint: string }> = [
+  { value: 'new', label: 'New', hint: 'claude --bg a fresh worker' },
+  { value: 'resume', label: 'Resume', hint: 'claude --bg --resume a session' },
+  { value: 'attach', label: 'Attach', hint: 'take over a running worker' },
+]
+
+function DaemonModeSegmented({ mode, onChange }: { mode: DaemonMode; onChange: (m: DaemonMode) => void }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex gap-1.5">
+        {DAEMON_MODE_OPTIONS.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            title={opt.hint}
+            onClick={() => {
+              onChange(opt.value)
+              haptic('tick')
+            }}
+            className={cn(
+              'flex-1 px-2 py-1 text-[11px] font-mono rounded transition-colors border',
+              mode === opt.value
+                ? 'bg-primary/15 text-primary border-primary/30'
+                : 'text-comment border-transparent hover:text-muted-foreground',
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <div className="text-[9px] text-comment pl-0.5">{DAEMON_MODE_OPTIONS.find(o => o.value === mode)?.hint}</div>
     </div>
   )
 }

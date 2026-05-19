@@ -13,10 +13,17 @@
  * boundary path, so `lint:boundary` stays green with no whitelist entry.
  */
 import { cwdToProjectUri } from '../../shared/project-uri'
-import type { Conversation, DaemonJobInfo, DaemonLaunchEvent, DaemonLaunchStep } from '../../shared/protocol'
+import type {
+  Conversation,
+  DaemonJobInfo,
+  DaemonLaunchEvent,
+  DaemonLaunchStep,
+  DaemonRosterForward,
+  DaemonRosterJob,
+} from '../../shared/protocol'
 import { DAEMON_META } from '../backends/daemon'
 import type { HandlerContext, MessageHandler } from '../handler-context'
-import { AGENT_HOST_ONLY, registerHandlers, SENTINEL_ONLY } from '../message-router'
+import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers, SENTINEL_ONLY } from '../message-router'
 
 /** Daemon job states that mean the session has finished for good. */
 const ENDED_STATES = new Set(['done', 'failed', 'stopped', 'crashed'])
@@ -153,6 +160,63 @@ function reconcileVanishedDaemonConversations(
   }
 }
 
+/**
+ * Project one daemon roster job down to the control-panel-facing view. This is
+ * a deliberate ALLOWLIST: it copies only the fields the spawn dialog's ATTACH
+ * browser needs and never names `sessionId` (a ccSessionId -- the broker never
+ * forwards CC concepts; boundary rule). A new JobRecord field is omitted by
+ * default until it is explicitly added here.
+ */
+export function toRosterJob(job: DaemonJobInfo): DaemonRosterJob {
+  return {
+    conversationId: job.conversationId,
+    short: job.short,
+    cwd: job.cwd,
+    state: job.state,
+    name: job.name,
+    cliVersion: job.cliVersion,
+    backend: job.backend,
+    tempo: job.tempo,
+    detail: job.detail,
+    intent: job.intent,
+    pid: job.pid,
+    attempt: job.attempt,
+    startedAt: job.startedAt,
+    nonce: job.nonce,
+    source: job.source,
+    needs: job.needs,
+  }
+}
+
+/**
+ * Last daemon roster forwarded per sentinel, keyed by sentinelId (or 'default'
+ * for a sentinel that connected without an id). Replayed verbatim to a
+ * dashboard that asks via `daemon_roster_request` so a freshly-loaded control
+ * panel does not wait up to one sentinel poll for the ATTACH browser to fill.
+ */
+const cachedRosters = new Map<string, DaemonRosterForward>()
+
+/**
+ * Build the control-panel-facing roster forward from a raw sentinel
+ * `daemon_roster_update`. ccSessionId-stripped (see `toRosterJob`).
+ */
+export function buildRosterForward(
+  jobs: DaemonJobInfo[],
+  sentinelId: string | undefined,
+  alias: string | undefined,
+  data: Record<string, unknown>,
+): DaemonRosterForward {
+  return {
+    type: 'daemon_roster',
+    sentinelId,
+    sentinelAlias: alias,
+    daemonPresent: data.daemonPresent === true,
+    daemonProto: typeof data.daemonProto === 'number' ? data.daemonProto : undefined,
+    jobs: jobs.map(toRosterJob),
+    observedAt: typeof data.observedAt === 'number' ? data.observedAt : Date.now(),
+  }
+}
+
 const daemonRosterUpdate: MessageHandler = (ctx, data) => {
   const jobs = parseDaemonJobs(data.jobs)
   const sentinelId = ctx.ws.data.sentinelId
@@ -165,7 +229,30 @@ const daemonRosterUpdate: MessageHandler = (ctx, data) => {
     }
   }
   reconcileVanishedDaemonConversations(ctx, jobs, sentinelId)
-  ctx.log.debug(`[daemon] roster: ${jobs.length} job(s) present=${data.daemonPresent === true}`)
+  // Forward a ccSessionId-stripped roster to dashboard subscribers so the spawn
+  // dialog's ATTACH mode can browse live daemon workers, and cache it for
+  // replay to dashboards that connect later (EVERYTHING IS A STRUCTURED
+  // MESSAGE -- the roster reaches the user as a typed wire message).
+  const forward = buildRosterForward(jobs, sentinelId, alias, data)
+  cachedRosters.set(sentinelId ?? 'default', forward)
+  ctx.broadcast({ ...forward })
+  ctx.log.info(
+    `[daemon] roster forwarded: sentinel=${sentinelId ?? 'default'}` +
+      ` alias=${alias ?? '-'} jobs=${forward.jobs.length} present=${forward.daemonPresent}` +
+      ` proto=${forward.daemonProto ?? '-'} cachedSentinels=${cachedRosters.size}`,
+  )
+}
+
+/**
+ * Control panel -> broker: replay the cached daemon roster(s) to the requester
+ * only. Drives the ATTACH browser on a freshly-loaded dashboard before the
+ * next sentinel push lands.
+ */
+const daemonRosterRequest: MessageHandler = (ctx, _data) => {
+  ctx.log.info(`[daemon] roster replay requested -- ${cachedRosters.size} cached sentinel roster(s)`)
+  for (const roster of cachedRosters.values()) {
+    ctx.reply({ ...roster })
+  }
 }
 
 const daemonJobState: MessageHandler = (ctx, data) => {
@@ -241,7 +328,9 @@ const daemonLaunchEvent: MessageHandler = (ctx, data) => {
 }
 
 export function registerDaemonHandlers(): void {
-  // Roster ingest is sentinel-sourced; launch events are agent-host-sourced.
+  // Roster ingest is sentinel-sourced; launch events are agent-host-sourced;
+  // the roster replay request is dashboard-sourced.
   registerHandlers({ daemon_roster_update: daemonRosterUpdate, daemon_job_state: daemonJobState }, SENTINEL_ONLY)
   registerHandlers({ daemon_launch_event: daemonLaunchEvent }, AGENT_HOST_ONLY)
+  registerHandlers({ daemon_roster_request: daemonRosterRequest }, DASHBOARD_ROLES)
 }

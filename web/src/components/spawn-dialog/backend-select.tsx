@@ -3,7 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { haptic } from '@/lib/utils'
 import { getBackendIconElement } from '../project-list/backend-icon'
 
-export type BackendKind = 'claude' | 'chat-api' | 'hermes' | 'opencode'
+export type BackendKind = 'claude' | 'chat-api' | 'hermes' | 'opencode' | 'daemon'
 
 interface BackendOption {
   value: BackendKind
@@ -38,6 +38,12 @@ export function BackendSelect({ value, onChange, chatAvailable, hermesAvailable 
       setupNeeded: hermesAvailable ? undefined : 'no Hermes gateway connected',
     },
     { value: 'opencode', label: 'OpenCode', info: '75+ providers, free models supported', hotkey: 'Alt+4' },
+    {
+      value: 'daemon',
+      label: 'Claude daemon',
+      info: 'Native claude --bg worker -- subscription-billed. New / Resume / Attach.',
+      hotkey: 'Alt+5',
+    },
   ]
 
   return (
