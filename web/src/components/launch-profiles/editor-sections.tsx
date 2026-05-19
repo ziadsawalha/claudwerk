@@ -6,6 +6,7 @@ import { type BackendKind, BackendSelect } from '@/components/spawn-dialog/backe
 import { TogglePill } from '@/components/ui/toggle-pill'
 import { formatShortcut } from '@/lib/commands'
 import { LabeledRow, Section } from './editor-shell'
+import { ProjectUriField } from './project-uri-field'
 
 type LaunchFieldsShow = ComponentProps<typeof LaunchConfigFields>['show']
 
@@ -149,23 +150,8 @@ export function HiddenAppendPromptNotice({ backend, hasValue }: { backend: Backe
 
 export function PinningSection({ profile, onPatch }: { profile: LaunchProfile; onPatch: PatchProfile }) {
   return (
-    <Section title="Pinning" subtitle="Optional. Empty = pick at launch time.">
-      <LabeledRow label="Sentinel alias">
-        <TextInput
-          value={profile.sentinel ?? ''}
-          onChange={v => onPatch({ sentinel: v || undefined })}
-          placeholder="(any)"
-          maxWidth={220}
-        />
-      </LabeledRow>
-      <LabeledRow label="Project URI">
-        <TextInput
-          value={profile.project ?? ''}
-          onChange={v => onPatch({ project: v || undefined })}
-          placeholder="claude://default/path"
-          maxWidth={320}
-        />
-      </LabeledRow>
+    <Section title="Pinning" subtitle="Optional. Empty = pick at launch time. The URI authority is the sentinel.">
+      <ProjectUriField value={profile.project ?? ''} onChange={v => onPatch({ project: v || undefined })} />
     </Section>
   )
 }

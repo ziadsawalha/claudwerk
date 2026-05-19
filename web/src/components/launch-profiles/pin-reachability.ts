@@ -41,16 +41,30 @@ export function resolveProjectCwd(uri: string): string | null {
 }
 
 export function checkProfilePins(profile: LaunchProfile, sentinels: SentinelStatusInfo[]): PinCheckResult {
+  // A pinned project URI is the source of truth: its authority IS the
+  // sentinel (claude://{sentinel}/{path}). An empty/`default` authority
+  // routes to the broker's default sentinel -- no explicit pin.
+  if (profile.project) {
+    let parsed: ReturnType<typeof parseProjectUri>
+    try {
+      parsed = parseProjectUri(profile.project)
+    } catch {
+      return { ok: false, reason: `Pinned project URI "${profile.project}" is invalid` }
+    }
+    const cwd = parsed.path || undefined
+    if (!cwd) {
+      return { ok: false, reason: `Pinned project URI "${profile.project}" has no path` }
+    }
+    const sentinel = parsed.authority && parsed.authority !== DEFAULT_ALIAS ? parsed.authority : undefined
+    if (sentinel && !isSentinelReachable(sentinel, sentinels)) {
+      return { ok: false, reason: `Sentinel "${sentinel}" is offline` }
+    }
+    return { ok: true, sentinel, cwd }
+  }
+  // No project pin -- fall back to the legacy standalone `sentinel` field
+  // (set by profiles created before the URI builder merged the two).
   if (profile.sentinel && !isSentinelReachable(profile.sentinel, sentinels)) {
     return { ok: false, reason: `Sentinel "${profile.sentinel}" is offline` }
   }
-  let cwd: string | undefined
-  if (profile.project) {
-    const resolved = resolveProjectCwd(profile.project)
-    if (!resolved) {
-      return { ok: false, reason: `Pinned project URI "${profile.project}" is invalid` }
-    }
-    cwd = resolved
-  }
-  return { ok: true, sentinel: profile.sentinel, cwd }
+  return { ok: true, sentinel: profile.sentinel || undefined, cwd: undefined }
 }

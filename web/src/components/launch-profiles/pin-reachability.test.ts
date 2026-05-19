@@ -70,4 +70,32 @@ describe('checkProfilePins', () => {
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.cwd).toBe('/Users/jonas/projects/foo')
   })
+
+  it('treats a default authority as no explicit sentinel pin', () => {
+    const out = checkProfilePins(makeProfile({ project: 'claude://default/srv/app' }), ONLINE)
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.sentinel).toBeUndefined()
+  })
+
+  it('derives the routing sentinel from the project URI authority', () => {
+    const out = checkProfilePins(makeProfile({ project: 'claude://tower/srv/app' }), ONLINE)
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.sentinel).toBe('tower')
+      expect(out.cwd).toBe('/srv/app')
+    }
+  })
+
+  it('blocks when the project URI authority sentinel is offline', () => {
+    const out = checkProfilePins(makeProfile({ project: 'claude://cabin/srv/app' }), ONLINE)
+    expect(out.ok).toBe(false)
+    if (!out.ok) expect(out.reason).toContain('cabin')
+  })
+
+  it('lets the project URI authority override a legacy sentinel field', () => {
+    // pre-merge profile: standalone sentinel + a URI on a different host.
+    const out = checkProfilePins(makeProfile({ sentinel: 'cabin', project: 'claude://tower/srv/app' }), ONLINE)
+    expect(out.ok).toBe(true)
+    if (out.ok) expect(out.sentinel).toBe('tower')
+  })
 })
