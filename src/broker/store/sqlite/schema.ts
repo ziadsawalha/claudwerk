@@ -1,6 +1,22 @@
 import type { Database } from 'bun:sqlite'
 import { createRecapSchema } from './recap-schema'
 
+function tableColumns(db: Database, table: string): Set<string> {
+  return new Set((db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>).map(r => r.name))
+}
+
+/** Phase 5 (sentinel profiles): backfill sentinel_id + profile columns on the
+ *  cost tables. Idempotent ALTER ADD COLUMN -- the columns gain defaults so
+ *  pre-existing rows bucket cleanly under sentinelId='' / profile='default'. */
+function addPhase5ProfileColumns(db: Database): void {
+  const turnCols = tableColumns(db, 'turns')
+  if (!turnCols.has('sentinel_id')) db.run("ALTER TABLE turns ADD COLUMN sentinel_id TEXT NOT NULL DEFAULT ''")
+  if (!turnCols.has('profile')) db.run("ALTER TABLE turns ADD COLUMN profile TEXT NOT NULL DEFAULT 'default'")
+  const hourlyCols = tableColumns(db, 'hourly_stats')
+  if (!hourlyCols.has('sentinel_id')) db.run("ALTER TABLE hourly_stats ADD COLUMN sentinel_id TEXT NOT NULL DEFAULT ''")
+  if (!hourlyCols.has('profile')) db.run("ALTER TABLE hourly_stats ADD COLUMN profile TEXT NOT NULL DEFAULT 'default'")
+}
+
 export function createSchema(db: Database) {
   db.run('PRAGMA journal_mode = WAL')
   db.run('PRAGMA foreign_keys = ON')
@@ -259,10 +275,6 @@ export function createSchema(db: Database) {
       exact_cost INTEGER NOT NULL DEFAULT 0
     )
   `)
-  db.run('CREATE INDEX IF NOT EXISTS idx_turns_timestamp ON turns(timestamp)')
-  db.run('CREATE INDEX IF NOT EXISTS idx_turns_account ON turns(account)')
-  db.run('CREATE INDEX IF NOT EXISTS idx_turns_project_uri ON turns(project_uri)')
-
   db.run(`
     CREATE TABLE IF NOT EXISTS hourly_stats (
       hour TEXT NOT NULL,
@@ -278,6 +290,19 @@ export function createSchema(db: Database) {
       PRIMARY KEY (hour, account, model, project_uri)
     )
   `)
+  // Phase 5 (sentinel profiles): denormalised (sentinel_id, profile) columns on
+  // the cost tables. Project_uri already encodes profile via URI userinfo so
+  // the existing PK still separates profiles -- these columns are convenience
+  // for queryable per-profile breakdown (queryProfileBreakdown). The broker
+  // stores NAMES only -- never configDir or env (Profile-Env Boundary).
+  addPhase5ProfileColumns(db)
+
+  db.run('CREATE INDEX IF NOT EXISTS idx_turns_timestamp ON turns(timestamp)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_turns_account ON turns(account)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_turns_project_uri ON turns(project_uri)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_turns_sentinel_profile ON turns(sentinel_id, profile)')
+
   db.run('CREATE INDEX IF NOT EXISTS idx_hourly_hour ON hourly_stats(hour)')
   db.run('CREATE INDEX IF NOT EXISTS idx_hourly_project_uri ON hourly_stats(project_uri)')
+  db.run('CREATE INDEX IF NOT EXISTS idx_hourly_sentinel_profile ON hourly_stats(sentinel_id, profile)')
 }

@@ -1834,7 +1834,15 @@ export interface Conversation {
   }
   permissionMode?: string // current CC permission mode (default/plan/acceptEdits/auto/bypassPermissions)
   lastError?: { stopReason?: string; errorType?: string; errorMessage?: string; timestamp: number }
-  rateLimit?: { retryAfterMs?: number; message: string; timestamp: number }
+  rateLimit?: {
+    retryAfterMs?: number
+    message: string
+    timestamp: number
+    /** Resolved sentinel-profile name -- which account hit the limit. */
+    profile?: string
+    /** Sentinel hosting that profile (broker-internal correlation key). */
+    sentinelId?: string
+  }
   pendingAttention?: {
     type: 'permission' | 'elicitation' | 'ask' | 'dialog' | 'plan_approval' | 'spawn_approval'
     toolName?: string

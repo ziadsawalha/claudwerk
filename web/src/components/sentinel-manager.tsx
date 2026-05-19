@@ -3,6 +3,16 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { haptic } from '@/lib/utils'
 
+interface SentinelProfileInfoLite {
+  name: string
+  label?: string
+  color?: string
+  pooled: boolean
+  authed: boolean
+}
+
+type SelectionMode = 'default' | 'balanced' | 'random'
+
 interface SentinelEntry {
   sentinelId: string
   alias: string
@@ -13,9 +23,63 @@ interface SentinelEntry {
   hostname?: string
   spawnRoot?: string
   createdAt: number
+  profiles?: SentinelProfileInfoLite[]
+  defaultSelection?: SelectionMode
 }
 
-function SentinelRow({
+/** Per-(sentinelId, profile) usage breakdown row (matches
+ *  ProfileBreakdownRow on the server -- web is JS-typed for now to avoid
+ *  pulling broker types into the UI bundle). */
+interface ProfileUsageRow {
+  sentinelId: string
+  profile: string
+  costUsd: number
+  turns: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+function fmtUsd(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '$0.00'
+  if (n < 0.01) return `$${n.toFixed(4)}`
+  if (n < 1) return `$${n.toFixed(3)}`
+  return `$${n.toFixed(2)}`
+}
+
+function ProfilePoolBadge({ pooled }: { pooled: boolean }) {
+  const cls = pooled ? 'bg-accent/12 text-accent/80' : 'text-muted-foreground/40'
+  return <span className={`px-1 py-0.5 text-[8px] ${cls} rounded uppercase`}>{pooled ? 'pooled' : 'pinned'}</span>
+}
+
+function ProfileUsageSpan({ usage }: { usage?: ProfileUsageRow }) {
+  if (!usage) return null
+  return (
+    <span className="text-muted-foreground/60">
+      {usage.turns} turn{usage.turns === 1 ? '' : 's'} · {fmtUsd(usage.costUsd)}
+    </span>
+  )
+}
+
+function ProfileBreakdownLine({ profile, usage }: { profile: SentinelProfileInfoLite; usage?: ProfileUsageRow }) {
+  const authClass = profile.authed ? 'text-active/70' : 'text-destructive/50'
+  const colorStyle = profile.color ? { color: profile.color } : undefined
+  return (
+    <div className="flex items-center gap-2 pl-6 py-0.5 text-[10px] text-muted-foreground/80 font-mono">
+      <span className={`text-sm ${authClass}`}>{profile.authed ? '✓' : '!'}</span>
+      <span className="text-foreground" style={colorStyle}>
+        {profile.name}
+      </span>
+      {profile.label && <span className="text-muted-foreground/50">{profile.label}</span>}
+      <ProfilePoolBadge pooled={profile.pooled} />
+      <span className="flex-1" />
+      <ProfileUsageSpan usage={usage} />
+    </div>
+  )
+}
+
+function SentinelHeader({
   sentinel,
   onSetDefault,
   onRevoke,
@@ -24,8 +88,9 @@ function SentinelRow({
   onSetDefault: () => void
   onRevoke: () => void
 }) {
+  const showSelection = sentinel.defaultSelection && sentinel.defaultSelection !== 'default'
   return (
-    <div className="flex items-center gap-2 p-2 border border-border rounded text-xs font-mono">
+    <div className="flex items-center gap-2 p-2">
       <span className={`text-sm ${sentinel.connected ? 'text-active' : 'text-muted-foreground/40'}`}>
         {sentinel.connected ? '●' : '○'}
       </span>
@@ -33,6 +98,11 @@ function SentinelRow({
       {sentinel.hostname && <span className="text-muted-foreground/50">{sentinel.hostname}</span>}
       {sentinel.isDefault && (
         <span className="px-1 py-0.5 text-[8px] bg-accent/20 text-accent rounded uppercase font-bold">default</span>
+      )}
+      {showSelection && (
+        <span className="px-1 py-0.5 text-[8px] bg-primary/12 text-primary/80 rounded uppercase">
+          {sentinel.defaultSelection}
+        </span>
       )}
       <span className="flex-1" />
       {!sentinel.isDefault && (
@@ -51,6 +121,65 @@ function SentinelRow({
       >
         revoke
       </button>
+    </div>
+  )
+}
+
+function OrphanProfileLine({ row }: { row: ProfileUsageRow }) {
+  return (
+    <div className="flex items-center gap-2 pl-6 py-0.5 text-[10px] text-muted-foreground/50 font-mono">
+      <span className="text-sm text-muted-foreground/30">·</span>
+      <span className="italic">{row.profile}</span>
+      <span className="px-1 py-0.5 text-[8px] text-muted-foreground/40 uppercase">history</span>
+      <span className="flex-1" />
+      <span>
+        {row.turns} turn{row.turns === 1 ? '' : 's'} · {fmtUsd(row.costUsd)}
+      </span>
+    </div>
+  )
+}
+
+function computeOrphans(
+  profiles: SentinelProfileInfoLite[],
+  usage: Map<string, ProfileUsageRow>,
+  connected: boolean,
+): ProfileUsageRow[] {
+  if (!connected || profiles.length === 0) return []
+  const known = new Set(profiles.map(p => p.name))
+  const out: ProfileUsageRow[] = []
+  for (const [name, row] of usage) {
+    if (!known.has(name)) out.push(row)
+  }
+  return out
+}
+
+function SentinelRow({
+  sentinel,
+  usage,
+  onSetDefault,
+  onRevoke,
+}: {
+  sentinel: SentinelEntry
+  /** Per-profile usage map keyed by profile name. Only present for this sentinel. */
+  usage: Map<string, ProfileUsageRow>
+  onSetDefault: () => void
+  onRevoke: () => void
+}) {
+  const profiles = sentinel.profiles ?? []
+  const orphanUsage = computeOrphans(profiles, usage, sentinel.connected)
+  return (
+    <div className="border border-border rounded text-xs font-mono">
+      <SentinelHeader sentinel={sentinel} onSetDefault={onSetDefault} onRevoke={onRevoke} />
+      {profiles.length > 0 && (
+        <div className="border-t border-border/40 py-1">
+          {profiles.map(p => (
+            <ProfileBreakdownLine key={p.name} profile={p} usage={usage.get(p.name)} />
+          ))}
+          {orphanUsage.map(row => (
+            <OrphanProfileLine key={`orphan-${row.profile}`} row={row} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -96,6 +225,7 @@ function SentinelList() {
   const [creating, setCreating] = useState(false)
   const [newAlias, setNewAlias] = useState('')
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
+  const [profileUsage, setProfileUsage] = useState<ProfileUsageRow[]>([])
   const connectedSentinels = useConversationsStore(s => s.sentinels)
 
   const fetchSentinels = useCallback(() => {
@@ -113,10 +243,24 @@ function SentinelList() {
       })
   }, [])
 
+  const fetchProfileUsage = useCallback(() => {
+    // Per-(sentinelId, profile) cost breakdown. New in Phase 5; gracefully
+    // tolerate older brokers that don't yet expose this endpoint.
+    fetch('/api/stats/profiles', { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data && Array.isArray(data.profiles)) setProfileUsage(data.profiles as ProfileUsageRow[])
+      })
+      .catch(() => {
+        /* ignore -- usage is decorative, not required for sentinel management */
+      })
+  }, [])
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: connectedSentinels is a refetch trigger
   useEffect(() => {
     fetchSentinels()
-  }, [fetchSentinels, connectedSentinels])
+    fetchProfileUsage()
+  }, [fetchSentinels, fetchProfileUsage, connectedSentinels])
 
   function handleCreate() {
     if (!newAlias.trim()) return
@@ -179,14 +323,21 @@ function SentinelList() {
       {error && <div className="text-xs text-destructive">{error}</div>}
 
       <div className="space-y-2">
-        {sentinels.map(s => (
-          <SentinelRow
-            key={s.sentinelId}
-            sentinel={s}
-            onSetDefault={() => handleSetDefault(s.sentinelId)}
-            onRevoke={() => handleRevoke(s.sentinelId, s.alias)}
-          />
-        ))}
+        {sentinels.map(s => {
+          const usageMap = new Map<string, ProfileUsageRow>()
+          for (const row of profileUsage) {
+            if (row.sentinelId === s.sentinelId) usageMap.set(row.profile, row)
+          }
+          return (
+            <SentinelRow
+              key={s.sentinelId}
+              sentinel={s}
+              usage={usageMap}
+              onSetDefault={() => handleSetDefault(s.sentinelId)}
+              onRevoke={() => handleRevoke(s.sentinelId, s.alias)}
+            />
+          )
+        })}
         {sentinels.length === 0 && (
           <div className="text-xs text-muted-foreground/50 text-center py-2">
             No sentinels registered. Create one below.

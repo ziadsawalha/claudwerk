@@ -6,6 +6,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { resolveModelFamily } from '../../shared/models'
+import { getProfileFromUri } from '../../shared/project-uri'
 import type { AgentHostLaunchStep, TranscriptLaunchEntry, TranscriptSystemEntry } from '../../shared/protocol'
 import { filterDisplayEntries } from '../../shared/transcript-filter'
 import type { MessageHandler } from '../handler-context'
@@ -317,9 +318,19 @@ const streamDelta: MessageHandler = (ctx, data) => {
   }
 }
 
+function formatRateLimitMessage(rateLimitType: string | undefined, retryAfterMs: number | undefined): string {
+  const typeSuffix = rateLimitType ? ` (${rateLimitType})` : ''
+  const retrySuffix = retryAfterMs ? ` - retry in ${Math.ceil(retryAfterMs / 1000)}s` : ''
+  return `Rate limited${typeSuffix}${retrySuffix}`
+}
+
 // Rate limit status from headless backend. Only sets conversation.rateLimit
 // banner and creates a transcript entry when actually limited.
 // "allowed" status clears any existing rate limit state.
+//
+// Phase 5 -- profile-tag the broadcast. Rate-limit telemetry is per-account
+// per-profile (each profile's configDir holds different creds), so the UI
+// can show per-profile headroom and the v2 balancer can consume it.
 const rateLimitStatusHandler: MessageHandler = (ctx, data) => {
   const conversationId = (data.conversationId || ctx.ws.data.conversationId) as string
   if (!conversationId) return
@@ -327,54 +338,59 @@ const rateLimitStatusHandler: MessageHandler = (ctx, data) => {
   if (!conversation) return
 
   const status = data.status as string
-  const isLimited = status !== 'allowed'
   const retryAfterMs = data.retryAfterMs as number | undefined
   const rateLimitType = data.rateLimitType as string | undefined
+  const profile = getProfileFromUri(conversation.project) || 'default'
+  const sentinelId = conversation.hostSentinelId || ''
 
-  if (isLimited) {
-    const message = `Rate limited${rateLimitType ? ` (${rateLimitType})` : ''}${retryAfterMs ? ` - retry in ${Math.ceil(retryAfterMs / 1000)}s` : ''}`
-    conversation.rateLimit = { retryAfterMs: retryAfterMs || 5000, message, timestamp: Date.now() }
+  if (status === 'allowed') {
+    if (!conversation.rateLimit) return
+    conversation.rateLimit = undefined
     ctx.conversations.broadcastConversationUpdate(conversationId)
-
-    // Broadcast rate_limit_status to control panels for toast notification
-    ctx.broadcast({
-      type: 'rate_limit_status',
-      conversationId,
-      status: data.status,
-      rateLimitType,
-      retryAfterMs,
-      resetsAt: data.resetsAt,
-      raw: data.raw,
-    })
-
-    const entry = {
-      type: 'system' as const,
-      subtype: 'rate_limit',
-      content: message,
-      retryAfterMs,
-      raw: data.raw as Record<string, unknown> | undefined,
-      uuid: randomUUID(),
-      timestamp: new Date().toISOString(),
-    }
-    ctx.conversations.addTranscriptEntries(conversationId, [entry], false)
-    ctx.conversations.broadcastToChannel('conversation:transcript', conversationId, {
-      type: 'transcript_entries',
-      conversationId,
-      entries: [entry],
-      isInitial: false,
-    })
-  } else {
-    if (conversation.rateLimit) {
-      conversation.rateLimit = undefined
-      ctx.conversations.broadcastConversationUpdate(conversationId)
-      // Broadcast rate_limit_status cleared
-      ctx.broadcast({
-        type: 'rate_limit_status',
-        conversationId,
-        status: 'allowed',
-      })
-    }
+    ctx.broadcast({ type: 'rate_limit_status', conversationId, status: 'allowed', profile, sentinelId })
+    return
   }
+
+  const message = formatRateLimitMessage(rateLimitType, retryAfterMs)
+  conversation.rateLimit = {
+    retryAfterMs: retryAfterMs || 5000,
+    message,
+    timestamp: Date.now(),
+    profile,
+    sentinelId,
+  }
+  ctx.conversations.broadcastConversationUpdate(conversationId)
+
+  ctx.broadcast({
+    type: 'rate_limit_status',
+    conversationId,
+    status: data.status,
+    rateLimitType,
+    retryAfterMs,
+    resetsAt: data.resetsAt,
+    raw: data.raw,
+    profile,
+    sentinelId,
+  })
+
+  const entry = {
+    type: 'system' as const,
+    subtype: 'rate_limit',
+    content: message,
+    retryAfterMs,
+    raw: data.raw as Record<string, unknown> | undefined,
+    profile,
+    sentinelId,
+    uuid: randomUUID(),
+    timestamp: new Date().toISOString(),
+  }
+  ctx.conversations.addTranscriptEntries(conversationId, [entry], false)
+  ctx.conversations.broadcastToChannel('conversation:transcript', conversationId, {
+    type: 'transcript_entries',
+    conversationId,
+    entries: [entry],
+    isInitial: false,
+  })
 }
 
 const MAX_COST_TIMELINE = 500
@@ -392,8 +408,13 @@ const turnCost: MessageHandler = (ctx, data) => {
     }
     ctx.conversations.broadcastConversationUpdate(conversationId)
 
-    // Record to persistent cost store (delta computed internally)
+    // Record to persistent cost store (delta computed internally). The profile
+    // is the resolved name from the URI userinfo (RESOLVED, not the intent
+    // tagged union on launchConfig.sentinelProfile -- see plan-sentinel-profiles
+    // "Conversation -- intent vs resolved").
     const now = Date.now()
+    const profile = getProfileFromUri(conversation.project) || 'default'
+    const sentinelId = conversation.hostSentinelId || ''
     ctx.store.costs.recordTurnFromCumulatives({
       timestamp: now,
       conversationId,
@@ -407,6 +428,8 @@ const turnCost: MessageHandler = (ctx, data) => {
       totalCacheWrite: conversation.stats.totalCacheCreation,
       totalCostUsd: costUsd,
       exactCost: true,
+      sentinelId,
+      profile,
     })
 
     // Broadcast live update for stats page
@@ -420,6 +443,8 @@ const turnCost: MessageHandler = (ctx, data) => {
       inputTokens: conversation.stats.totalInputTokens,
       outputTokens: conversation.stats.totalOutputTokens,
       timestamp: now,
+      sentinelId,
+      profile,
     })
   }
 }

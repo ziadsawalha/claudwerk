@@ -7,6 +7,8 @@ import type {
   CumulativeTurnInput,
   HourlyFilter,
   HourlyRow,
+  ProfileBreakdownFilter,
+  ProfileBreakdownRow,
   TurnFilter,
   TurnRecord,
 } from '../types'
@@ -61,7 +63,88 @@ function mapHourlyRow(r: Record<string, unknown>): HourlyRow {
     cacheReadTokens: r.cache_read_tokens as number,
     cacheWriteTokens: r.cache_write_tokens as number,
     costUsd: r.cost_usd as number,
+    sentinelId: (r.sentinel_id as string) || '',
+    profile: (r.profile as string) || 'default',
   }
+}
+
+/** Normalise profile to its bucket name. Empty / undefined -> 'default'. */
+function profileBucket(p: string | null | undefined): string {
+  return p && p.length > 0 ? p : 'default'
+}
+
+/** Shared WHERE-clause builder for `turns` queries. Extracted from queryTurns
+ *  so the per-call function stays under the complexity gate after Phase 5
+ *  added sentinelId / profile filters. */
+function buildTurnFilterClauses(filter: TurnFilter): { conditions: string[]; binds: Binds } {
+  const conditions: string[] = []
+  const binds: Binds = {}
+  if (filter.from) {
+    conditions.push('timestamp >= $from')
+    binds.from = filter.from
+  }
+  if (filter.to) {
+    conditions.push('timestamp <= $to')
+    binds.to = filter.to
+  }
+  if (filter.account) {
+    conditions.push('account = $account')
+    binds.account = filter.account
+  }
+  if (filter.model) {
+    conditions.push('model LIKE $model')
+    binds.model = `%${filter.model}%`
+  }
+  if (filter.projectUri) {
+    conditions.push('project_uri = $projectUri')
+    binds.projectUri = filter.projectUri
+  }
+  if (filter.sentinelId) {
+    conditions.push('sentinel_id = $sentinelId')
+    binds.sentinelId = filter.sentinelId
+  }
+  if (filter.profile) {
+    conditions.push('profile = $profile')
+    binds.profile = filter.profile
+  }
+  return { conditions, binds }
+}
+
+/** Shared WHERE-clause builder for `hourly_stats` queries. Same shape as
+ *  buildTurnFilterClauses but keys timestamp filters off the `hour` column
+ *  (toHourKey-encoded TEXT) instead of raw epoch ms. */
+function buildHourlyFilterClauses(filter: HourlyFilter): { conditions: string[]; binds: Binds } {
+  const conditions: string[] = []
+  const binds: Binds = {}
+  if (filter.from) {
+    conditions.push('hour >= $from')
+    binds.from = toHourKey(filter.from)
+  }
+  if (filter.to) {
+    conditions.push('hour <= $to')
+    binds.to = toHourKey(filter.to)
+  }
+  if (filter.account) {
+    conditions.push('account = $account')
+    binds.account = filter.account
+  }
+  if (filter.model) {
+    conditions.push('model LIKE $model')
+    binds.model = `%${filter.model}%`
+  }
+  if (filter.projectUri) {
+    conditions.push('project_uri = $projectUri')
+    binds.projectUri = filter.projectUri
+  }
+  if (filter.sentinelId) {
+    conditions.push('sentinel_id = $sentinelId')
+    binds.sentinelId = filter.sentinelId
+  }
+  if (filter.profile) {
+    conditions.push('profile = $profile')
+    binds.profile = filter.profile
+  }
+  return { conditions, binds }
 }
 
 interface ConversationSnapshot {
@@ -76,26 +159,33 @@ export function createSqliteCostStore(db: Database): CostStore {
   const stmtInsertTurn = db.prepare(`
     INSERT INTO turns (timestamp, conversation_id, project_uri, account, org_id, model,
       input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-      cost_usd, exact_cost)
+      cost_usd, exact_cost, sentinel_id, profile)
     VALUES ($timestamp, $conversationId, $projectUri, $account, $orgId, $model,
       $inputTokens, $outputTokens, $cacheReadTokens, $cacheWriteTokens,
-      $costUsd, $exactCost)
+      $costUsd, $exactCost, $sentinelId, $profile)
   `)
 
   const stmtDeleteOldTurns = db.prepare('DELETE FROM turns WHERE timestamp < $cutoff')
   const stmtDeleteOldHourly = db.prepare('DELETE FROM hourly_stats WHERE hour < $cutoffHour')
 
+  // The hourly_stats PK is (hour, account, model, project_uri). project_uri already
+  // encodes the profile via its userinfo slot, so adding sentinel_id/profile to
+  // the SELECT doesn't change the grouping -- they're denormalized convenience
+  // columns. INSERT OR REPLACE keeps PK semantics intact; MIN()/MAX() over a
+  // PK-deterministic group picks the single value present.
   const stmtMaterializeHourly = db.prepare(
     `INSERT OR REPLACE INTO hourly_stats (hour, account, model, project_uri,
       turn_count, input_tokens, output_tokens, cache_read_tokens,
-      cache_write_tokens, cost_usd)
+      cache_write_tokens, cost_usd, sentinel_id, profile)
     SELECT
       strftime('%Y-%m-%dT%H:00:00Z', timestamp / 1000, 'unixepoch') as hour,
       account, model, COALESCE(project_uri, '') as project_uri,
       COUNT(*) as turn_count,
       SUM(input_tokens), SUM(output_tokens),
       SUM(cache_read_tokens), SUM(cache_write_tokens),
-      SUM(cost_usd)
+      SUM(cost_usd),
+      COALESCE(MIN(sentinel_id), '') as sentinel_id,
+      COALESCE(MIN(profile), 'default') as profile
     FROM turns
     WHERE timestamp >= $start AND timestamp <= $end
       AND strftime('%Y-%m-%dT%H:00:00Z', timestamp / 1000, 'unixepoch') != $currentHour
@@ -128,6 +218,8 @@ export function createSqliteCostStore(db: Database): CostStore {
       cacheWriteTokens: record.cacheWriteTokens,
       costUsd: record.costUsd,
       exactCost: record.exactCost ? 1 : 0,
+      sentinelId: record.sentinelId ?? '',
+      profile: profileBucket(record.profile),
     })
   }
 
@@ -161,6 +253,8 @@ export function createSqliteCostStore(db: Database): CostStore {
       cacheWriteTokens: dCW,
       costUsd: Math.max(0, dCost),
       exactCost: params.exactCost,
+      sentinelId: params.sentinelId,
+      profile: params.profile,
     })
 
     lastSnapshot.set(params.conversationId, {
@@ -174,29 +268,7 @@ export function createSqliteCostStore(db: Database): CostStore {
   }
 
   function queryTurns(filter: TurnFilter): { rows: TurnRecord[]; total: number } {
-    const conditions: string[] = []
-    const binds: Binds = {}
-
-    if (filter.from) {
-      conditions.push('timestamp >= $from')
-      binds.from = filter.from
-    }
-    if (filter.to) {
-      conditions.push('timestamp <= $to')
-      binds.to = filter.to
-    }
-    if (filter.account) {
-      conditions.push('account = $account')
-      binds.account = filter.account
-    }
-    if (filter.model) {
-      conditions.push('model LIKE $model')
-      binds.model = `%${filter.model}%`
-    }
-    if (filter.projectUri) {
-      conditions.push('project_uri = $projectUri')
-      binds.projectUri = filter.projectUri
-    }
+    const { conditions, binds } = buildTurnFilterClauses(filter)
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
     const limit = Math.min(filter.limit ?? 100, 1000)
@@ -208,7 +280,7 @@ export function createSqliteCostStore(db: Database): CostStore {
       `SELECT timestamp, conversation_id, COALESCE(project_uri, '') as project_uri,
       account, org_id, model,
       input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-      cost_usd, exact_cost
+      cost_usd, exact_cost, sentinel_id, profile
       FROM turns ${where} ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${offset}`,
       binds,
     ) as Array<Record<string, unknown>>
@@ -228,6 +300,8 @@ export function createSqliteCostStore(db: Database): CostStore {
         cacheWriteTokens: r.cache_write_tokens as number,
         costUsd: r.cost_usd as number,
         exactCost: !!(r.exact_cost as number),
+        sentinelId: (r.sentinel_id as string) || '',
+        profile: (r.profile as string) || 'default',
       })),
     }
   }
@@ -235,30 +309,7 @@ export function createSqliteCostStore(db: Database): CostStore {
   function queryHourly(filter: HourlyFilter): HourlyRow[] {
     materializeHourly(filter.from, filter.to)
 
-    const conditions: string[] = []
-    const binds: Binds = {}
-
-    if (filter.from) {
-      conditions.push('hour >= $from')
-      binds.from = toHourKey(filter.from)
-    }
-    if (filter.to) {
-      conditions.push('hour <= $to')
-      binds.to = toHourKey(filter.to)
-    }
-    if (filter.account) {
-      conditions.push('account = $account')
-      binds.account = filter.account
-    }
-    if (filter.model) {
-      conditions.push('model LIKE $model')
-      binds.model = `%${filter.model}%`
-    }
-    if (filter.projectUri) {
-      conditions.push('project_uri = $projectUri')
-      binds.projectUri = filter.projectUri
-    }
-
+    const { conditions, binds } = buildHourlyFilterClauses(filter)
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
     if (filter.groupBy === 'day') {
@@ -268,7 +319,9 @@ export function createSqliteCostStore(db: Database): CostStore {
         MIN(project_uri) as project_uri,
         SUM(turn_count) as turn_count, SUM(input_tokens) as input_tokens,
         SUM(output_tokens) as output_tokens, SUM(cache_read_tokens) as cache_read_tokens,
-        SUM(cache_write_tokens) as cache_write_tokens, SUM(cost_usd) as cost_usd
+        SUM(cache_write_tokens) as cache_write_tokens, SUM(cost_usd) as cost_usd,
+        COALESCE(MIN(sentinel_id), '') as sentinel_id,
+        COALESCE(MIN(profile), 'default') as profile
         FROM hourly_stats ${where}
         GROUP BY substr(hour, 1, 10), account, model
         ORDER BY hour`,
@@ -281,6 +334,46 @@ export function createSqliteCostStore(db: Database): CostStore {
       Record<string, unknown>
     >
     return rows.map(mapHourlyRow)
+  }
+
+  function queryProfileBreakdown(filter?: ProfileBreakdownFilter): ProfileBreakdownRow[] {
+    const conditions: string[] = []
+    const binds: Binds = {}
+    const from = filter?.from ?? Date.now() - 30 * 24 * 60 * 60 * 1000
+    const to = filter?.to ?? Date.now()
+    conditions.push('timestamp >= $from', 'timestamp <= $to')
+    binds.from = from
+    binds.to = to
+    if (filter?.sentinelId) {
+      conditions.push('sentinel_id = $sentinelId')
+      binds.sentinelId = filter.sentinelId
+    }
+    const where = `WHERE ${conditions.join(' AND ')}`
+    const rows = queryAll(
+      db,
+      `SELECT COALESCE(sentinel_id, '') as sentinel_id,
+        COALESCE(NULLIF(profile, ''), 'default') as profile,
+        SUM(cost_usd) as cost_usd,
+        COUNT(*) as turns,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        SUM(cache_read_tokens) as cache_read_tokens,
+        SUM(cache_write_tokens) as cache_write_tokens
+      FROM turns ${where}
+      GROUP BY sentinel_id, profile
+      ORDER BY cost_usd DESC`,
+      binds,
+    ) as Array<Record<string, unknown>>
+    return rows.map(r => ({
+      sentinelId: (r.sentinel_id as string) || '',
+      profile: (r.profile as string) || 'default',
+      costUsd: r.cost_usd as number,
+      turns: r.turns as number,
+      inputTokens: r.input_tokens as number,
+      outputTokens: r.output_tokens as number,
+      cacheReadTokens: r.cache_read_tokens as number,
+      cacheWriteTokens: r.cache_write_tokens as number,
+    }))
   }
 
   function querySummary(period: CostPeriod): CostSummary {
@@ -315,6 +408,21 @@ export function createSqliteCostStore(db: Database): CostStore {
       b,
     ) as Array<{ model: string; cost: number; turns: number }>
 
+    const profileRows = queryAll(
+      db,
+      `SELECT COALESCE(sentinel_id, '') as sentinel_id,
+        COALESCE(NULLIF(profile, ''), 'default') as profile,
+        SUM(cost_usd) as cost,
+        COUNT(*) as turns,
+        SUM(input_tokens) as input_t,
+        SUM(output_tokens) as output_t,
+        SUM(cache_read_tokens) as cache_r,
+        SUM(cache_write_tokens) as cache_w
+      FROM turns WHERE timestamp >= $cutoff
+      GROUP BY sentinel_id, profile ORDER BY cost DESC`,
+      b,
+    ) as Array<Record<string, unknown>>
+
     return {
       period,
       totalCostUsd: totals.cost,
@@ -329,6 +437,16 @@ export function createSqliteCostStore(db: Database): CostStore {
         turns: p.turns,
       })),
       topModels: topModels.map(m => ({ model: m.model, costUsd: m.cost, turns: m.turns })),
+      profiles: profileRows.map(r => ({
+        sentinelId: (r.sentinel_id as string) || '',
+        profile: (r.profile as string) || 'default',
+        costUsd: (r.cost as number) || 0,
+        turns: (r.turns as number) || 0,
+        inputTokens: (r.input_t as number) || 0,
+        outputTokens: (r.output_t as number) || 0,
+        cacheReadTokens: (r.cache_r as number) || 0,
+        cacheWriteTokens: (r.cache_w as number) || 0,
+      })),
     }
   }
 
@@ -345,6 +463,7 @@ export function createSqliteCostStore(db: Database): CostStore {
     queryTurns,
     queryHourly,
     querySummary,
+    queryProfileBreakdown,
     pruneOlderThan,
   }
 }

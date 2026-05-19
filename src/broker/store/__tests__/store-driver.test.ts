@@ -1009,6 +1009,99 @@ function runStoreTests(name: string, createDriver: () => StoreDriver) {
         expect(yesterday!.costUsd).toBeCloseTo(0.6)
       })
 
+      // -----------------------------------------------------------------
+      // Phase 5 -- per-(sentinelId, profile) usage rollup
+      // -----------------------------------------------------------------
+
+      it('queryProfileBreakdown groups by (sentinelId, profile)', () => {
+        const t = 1_700_000_000_000
+        store.costs.recordTurn(baseTurn({ timestamp: t, sentinelId: 'snt_a', profile: 'work', costUsd: 1 }))
+        store.costs.recordTurn(baseTurn({ timestamp: t + 1, sentinelId: 'snt_a', profile: 'work', costUsd: 2 }))
+        store.costs.recordTurn(baseTurn({ timestamp: t + 2, sentinelId: 'snt_a', profile: 'alt', costUsd: 0.5 }))
+        // Same profile NAME, different sentinel -- must be a separate bucket.
+        store.costs.recordTurn(baseTurn({ timestamp: t + 3, sentinelId: 'snt_b', profile: 'work', costUsd: 0.25 }))
+
+        const rows = store.costs.queryProfileBreakdown({ from: t - 1, to: t + 100 })
+        // Three buckets, sorted by cost desc: (snt_a/work), (snt_a/alt), (snt_b/work)
+        expect(rows).toHaveLength(3)
+        expect(rows[0]).toMatchObject({ sentinelId: 'snt_a', profile: 'work', turns: 2 })
+        expect(rows[0].costUsd).toBeCloseTo(3)
+        expect(rows[1]).toMatchObject({ sentinelId: 'snt_a', profile: 'alt', turns: 1 })
+        expect(rows[1].costUsd).toBeCloseTo(0.5)
+        expect(rows[2]).toMatchObject({ sentinelId: 'snt_b', profile: 'work', turns: 1 })
+        expect(rows[2].costUsd).toBeCloseTo(0.25)
+      })
+
+      it('queryProfileBreakdown buckets implicit / legacy turns under default', () => {
+        const t = 1_700_000_500_000
+        // No sentinelId, no profile -- legacy / pre-Phase-5 turns
+        store.costs.recordTurn(baseTurn({ timestamp: t, costUsd: 0.2 }))
+        // Empty-string profile -- treated identically to undefined
+        store.costs.recordTurn(baseTurn({ timestamp: t + 1, profile: '', costUsd: 0.1 }))
+        // Explicit 'default' name -- same bucket
+        store.costs.recordTurn(baseTurn({ timestamp: t + 2, profile: 'default', costUsd: 0.3 }))
+
+        const rows = store.costs.queryProfileBreakdown({ from: t - 1, to: t + 100 })
+        expect(rows).toHaveLength(1)
+        expect(rows[0].sentinelId).toBe('')
+        expect(rows[0].profile).toBe('default')
+        expect(rows[0].turns).toBe(3)
+        expect(rows[0].costUsd).toBeCloseTo(0.6)
+      })
+
+      it('queryProfileBreakdown filters by sentinelId', () => {
+        const t = 1_700_001_000_000
+        store.costs.recordTurn(baseTurn({ timestamp: t, sentinelId: 'snt_a', profile: 'work', costUsd: 1 }))
+        store.costs.recordTurn(baseTurn({ timestamp: t + 1, sentinelId: 'snt_b', profile: 'work', costUsd: 2 }))
+
+        const rows = store.costs.queryProfileBreakdown({ from: t - 1, to: t + 100, sentinelId: 'snt_b' })
+        expect(rows).toHaveLength(1)
+        expect(rows[0].sentinelId).toBe('snt_b')
+        expect(rows[0].costUsd).toBeCloseTo(2)
+      })
+
+      it('querySummary includes per-profile breakdown in `profiles`', () => {
+        const now = Date.now()
+        store.costs.recordTurn(baseTurn({ timestamp: now, sentinelId: 'snt_a', profile: 'work', costUsd: 0.5 }))
+        store.costs.recordTurn(baseTurn({ timestamp: now, sentinelId: 'snt_a', profile: 'work', costUsd: 0.25 }))
+        // No-profile turn -- buckets under default.
+        store.costs.recordTurn(baseTurn({ timestamp: now, costUsd: 0.1 }))
+
+        const summary = store.costs.querySummary('24h')
+        expect(summary.profiles).toBeDefined()
+        expect(summary.profiles).toHaveLength(2)
+        const work = summary.profiles.find(p => p.profile === 'work' && p.sentinelId === 'snt_a')
+        const dflt = summary.profiles.find(p => p.profile === 'default' && p.sentinelId === '')
+        expect(work).toBeDefined()
+        expect(work?.turns).toBe(2)
+        expect(work?.costUsd).toBeCloseTo(0.75)
+        expect(dflt).toBeDefined()
+        expect(dflt?.turns).toBe(1)
+      })
+
+      it('recordTurnFromCumulatives propagates sentinelId + profile', () => {
+        store.costs.recordTurnFromCumulatives({
+          timestamp: 4_000_000,
+          conversationId: 'cum-prof',
+          projectUri: 'p',
+          account: '',
+          orgId: '',
+          model: 'm',
+          totalInputTokens: 10,
+          totalOutputTokens: 20,
+          totalCacheRead: 0,
+          totalCacheWrite: 0,
+          totalCostUsd: 0.01,
+          exactCost: true,
+          sentinelId: 'snt_x',
+          profile: 'work',
+        })
+        const { rows } = store.costs.queryTurns({ sentinelId: 'snt_x', profile: 'work' })
+        expect(rows).toHaveLength(1)
+        expect(rows[0].sentinelId).toBe('snt_x')
+        expect(rows[0].profile).toBe('work')
+      })
+
       it('pruneOlderThan deletes old turns + hourly rows', () => {
         const now = Date.now()
         store.costs.recordTurn(baseTurn({ timestamp: now - 40 * 24 * 60 * 60 * 1000 }))

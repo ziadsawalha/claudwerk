@@ -134,7 +134,9 @@ function createMockStoreDriver(): StoreDriver {
       totalCacheWriteTokens: 0,
       topProjects: [],
       topModels: [],
+      profiles: [],
     }),
+    queryProfileBreakdown: () => [],
     pruneOlderThan: () => ({ turns: 0, hourly: 0 }),
   }
   return {

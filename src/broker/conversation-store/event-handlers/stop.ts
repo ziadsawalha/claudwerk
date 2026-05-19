@@ -1,3 +1,4 @@
+import { getProfileFromUri } from '../../../shared/project-uri'
 import type { Conversation, HookEventOf } from '../../../shared/protocol'
 import { getModelInfo } from '../../model-pricing'
 import type { ConversationStoreContext } from '../event-context'
@@ -69,5 +70,7 @@ export function handleStop(
     totalCacheWrite: s.totalCacheCreation,
     totalCostUsd: totalEstCost,
     exactCost: false,
+    sentinelId: conv.hostSentinelId || '',
+    profile: getProfileFromUri(conv.project) || 'default',
   })
 }

@@ -447,6 +447,12 @@ export interface TurnRecord {
   cacheWriteTokens: number
   costUsd: number
   exactCost: boolean
+  /** Sentinel ID (snt_...) hosting the conversation. Empty when unknown
+   *  (e.g. legacy turns recorded before Phase 5). */
+  sentinelId?: string
+  /** Resolved sentinel-profile name (URI userinfo). Defaults to 'default'
+   *  when the conversation has no explicit profile in its URI. */
+  profile?: string
 }
 
 export interface HourlyRow {
@@ -460,6 +466,21 @@ export interface HourlyRow {
   cacheReadTokens: number
   cacheWriteTokens: number
   costUsd: number
+  sentinelId?: string
+  profile?: string
+}
+
+export interface ProfileBreakdownRow {
+  /** Sentinel ID (snt_...) -- empty for legacy turns predating Phase 5. */
+  sentinelId: string
+  /** Resolved profile name; 'default' for the implicit / no-profile case. */
+  profile: string
+  costUsd: number
+  turns: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
 }
 
 export interface CostSummary {
@@ -472,6 +493,8 @@ export interface CostSummary {
   totalCacheWriteTokens: number
   topProjects: Array<{ projectUri: string; costUsd: number; turns: number }>
   topModels: Array<{ model: string; costUsd: number; turns: number }>
+  /** Per-(sentinelId, profile) breakdown of cost+turns over the period. */
+  profiles: ProfileBreakdownRow[]
 }
 
 export interface CumulativeTurnInput {
@@ -487,6 +510,8 @@ export interface CumulativeTurnInput {
   totalCacheWrite: number
   totalCostUsd: number
   exactCost: boolean
+  sentinelId?: string
+  profile?: string
 }
 
 export interface TurnFilter {
@@ -495,6 +520,8 @@ export interface TurnFilter {
   account?: string
   model?: string
   projectUri?: string
+  sentinelId?: string
+  profile?: string
   limit?: number
   offset?: number
 }
@@ -505,7 +532,15 @@ export interface HourlyFilter {
   account?: string
   model?: string
   projectUri?: string
+  sentinelId?: string
+  profile?: string
   groupBy?: 'hour' | 'day'
+}
+
+export interface ProfileBreakdownFilter {
+  from?: number
+  to?: number
+  sentinelId?: string
 }
 
 export type CostPeriod = '24h' | '7d' | '30d'
@@ -522,6 +557,13 @@ export interface CostStore {
   queryTurns(filter: TurnFilter): { rows: TurnRecord[]; total: number }
   queryHourly(filter: HourlyFilter): HourlyRow[]
   querySummary(period: CostPeriod): CostSummary
+  /**
+   * Per-(sentinelId, profile) breakdown over [from, to] (defaults to last 30d).
+   * Profile names can collide across sentinels (`work@default` vs `work@beast`
+   * are different accounts) -- the (sentinelId, profile) tuple is the key.
+   * Legacy turns predating Phase 5 bucket under sentinelId='' / profile='default'.
+   */
+  queryProfileBreakdown(filter?: ProfileBreakdownFilter): ProfileBreakdownRow[]
   /** Delete turns + hourly rows older than cutoffMs. Returns counts deleted. */
   pruneOlderThan(cutoffMs: number): { turns: number; hourly: number }
 }

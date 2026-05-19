@@ -73,16 +73,27 @@ export function createStatsRouter(
 
   // ─── Cost reporting ─────────────────────────────────────────────────
 
+  // Shared query-string -> CostStore filter coercion. Hoisted out of the
+  // per-route arrows so they stay below the complexity gate after Phase 5
+  // adds sentinelId/profile filters.
+  function turnFilterFromQuery(q: Record<string, string>) {
+    return {
+      from: q.from ? Number(q.from) : undefined,
+      to: q.to ? Number(q.to) : undefined,
+      account: q.account || undefined,
+      model: q.model || undefined,
+      projectUri: q.project || q.cwd || undefined,
+      sentinelId: q.sentinelId || undefined,
+      profile: q.profile || undefined,
+    }
+  }
+
   app.get('/api/stats/turns', c => {
     if (!httpIsAdmin(c.req.raw)) return c.json({ error: 'Forbidden: admin only' }, 403)
     const q = c.req.query()
     return c.json(
       store.costs.queryTurns({
-        from: q.from ? Number(q.from) : undefined,
-        to: q.to ? Number(q.to) : undefined,
-        account: q.account || undefined,
-        model: q.model || undefined,
-        projectUri: q.project || q.cwd || undefined,
+        ...turnFilterFromQuery(q),
         limit: q.limit ? Number(q.limit) : undefined,
         offset: q.offset ? Number(q.offset) : undefined,
       }),
@@ -94,11 +105,7 @@ export function createStatsRouter(
     const q = c.req.query()
     return c.json(
       store.costs.queryHourly({
-        from: q.from ? Number(q.from) : undefined,
-        to: q.to ? Number(q.to) : undefined,
-        account: q.account || undefined,
-        model: q.model || undefined,
-        projectUri: q.project || q.cwd || undefined,
+        ...turnFilterFromQuery(q),
         groupBy: (q.groupBy as 'hour' | 'day') || undefined,
       }),
     )
@@ -111,6 +118,23 @@ export function createStatsRouter(
       return c.json({ error: 'Invalid period. Use 24h, 7d, or 30d' }, 400)
     }
     return c.json(store.costs.querySummary(period))
+  })
+
+  // Per-(sentinelId, profile) breakdown. Profile names can collide across
+  // sentinels (`work@default` vs `work@beast` are different accounts), so the
+  // (sentinelId, profile) tuple is the key. Legacy turns predating Phase 5
+  // bucket under sentinelId='' / profile='default'.
+  //
+  // Stores NAMES only -- never configDir or env (Profile-Env Boundary covenant).
+  app.get('/api/stats/profiles', c => {
+    if (!httpIsAdmin(c.req.raw)) return c.json({ error: 'Forbidden: admin only' }, 403)
+    const q = c.req.query()
+    const rows = store.costs.queryProfileBreakdown({
+      from: q.from ? Number(q.from) : undefined,
+      to: q.to ? Number(q.to) : undefined,
+      sentinelId: q.sentinelId || undefined,
+    })
+    return c.json({ profiles: rows })
   })
 
   // ─── Projects ──────────────────────────────────────────────────────

@@ -23,6 +23,8 @@ import type {
   KVStore,
   MessageLogEntry,
   MessageStore,
+  ProfileBreakdownFilter,
+  ProfileBreakdownRow,
   QueuedMessage,
   ScopeLink,
   ScopeLinkStore,
@@ -735,20 +737,33 @@ function createCostStore(): CostStore {
   const turns: TurnRecord[] = []
   const lastSnapshot = new Map<string, MemorySnapshot>()
 
-  function filterTurns(f: Pick<TurnFilter, 'from' | 'to' | 'account' | 'model' | 'projectUri'>): TurnRecord[] {
+  function profileBucketMem(p: string | undefined): string {
+    return p && p.length > 0 ? p : 'default'
+  }
+
+  function filterTurns(
+    f: Pick<TurnFilter, 'from' | 'to' | 'account' | 'model' | 'projectUri' | 'sentinelId' | 'profile'>,
+  ): TurnRecord[] {
     return turns.filter(t => {
       if (f.from && t.timestamp < f.from) return false
       if (f.to && t.timestamp > f.to) return false
       if (f.account && t.account !== f.account) return false
       if (f.model && !t.model.includes(f.model)) return false
       if (f.projectUri && t.projectUri !== f.projectUri) return false
+      if (f.sentinelId && (t.sentinelId ?? '') !== f.sentinelId) return false
+      if (f.profile && profileBucketMem(t.profile) !== f.profile) return false
       return true
     })
   }
 
   return {
     recordTurn(record) {
-      turns.push({ ...record, projectUri: normalizeUri(record.projectUri) })
+      turns.push({
+        ...record,
+        projectUri: normalizeUri(record.projectUri),
+        sentinelId: record.sentinelId ?? '',
+        profile: profileBucketMem(record.profile),
+      })
     },
 
     recordTurnFromCumulatives(params: CumulativeTurnInput) {
@@ -781,6 +796,8 @@ function createCostStore(): CostStore {
         cacheWriteTokens: dCW,
         costUsd: Math.max(0, dCost),
         exactCost: params.exactCost,
+        sentinelId: params.sentinelId ?? '',
+        profile: profileBucketMem(params.profile),
       })
 
       lastSnapshot.set(params.conversationId, {
@@ -866,6 +883,7 @@ function createCostStore(): CostStore {
 
       const projectAgg = new Map<string, { costUsd: number; turns: number }>()
       const modelAgg = new Map<string, { costUsd: number; turns: number }>()
+      const profileAgg = new Map<string, ProfileBreakdownRow>()
       let totalCost = 0
       let totalInput = 0
       let totalOutput = 0
@@ -888,6 +906,27 @@ function createCostStore(): CostStore {
         m.costUsd += t.costUsd
         m.turns++
         modelAgg.set(t.model, m)
+
+        const sentinelId = t.sentinelId ?? ''
+        const profile = profileBucketMem(t.profile)
+        const profileKey = `${sentinelId} ${profile}`
+        const pf = profileAgg.get(profileKey) ?? {
+          sentinelId,
+          profile,
+          costUsd: 0,
+          turns: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        }
+        pf.costUsd += t.costUsd
+        pf.turns++
+        pf.inputTokens += t.inputTokens
+        pf.outputTokens += t.outputTokens
+        pf.cacheReadTokens += t.cacheReadTokens
+        pf.cacheWriteTokens += t.cacheWriteTokens
+        profileAgg.set(profileKey, pf)
       }
 
       const topProjects = [...projectAgg.entries()]
@@ -900,6 +939,8 @@ function createCostStore(): CostStore {
         .sort((a, b) => b.costUsd - a.costUsd)
         .slice(0, 10)
 
+      const profiles = [...profileAgg.values()].sort((a, b) => b.costUsd - a.costUsd)
+
       return {
         period,
         totalCostUsd: totalCost,
@@ -910,7 +951,43 @@ function createCostStore(): CostStore {
         totalCacheWriteTokens: totalCacheWrite,
         topProjects,
         topModels,
+        profiles,
       } satisfies CostSummary
+    },
+
+    queryProfileBreakdown(filter?: ProfileBreakdownFilter): ProfileBreakdownRow[] {
+      const from = filter?.from ?? Date.now() - 30 * 24 * 60 * 60 * 1000
+      const to = filter?.to ?? Date.now()
+      const matches = turns.filter(t => {
+        if (t.timestamp < from || t.timestamp > to) return false
+        if (filter?.sentinelId && (t.sentinelId ?? '') !== filter.sentinelId) return false
+        return true
+      })
+
+      const agg = new Map<string, ProfileBreakdownRow>()
+      for (const t of matches) {
+        const sentinelId = t.sentinelId ?? ''
+        const profile = profileBucketMem(t.profile)
+        const key = `${sentinelId} ${profile}`
+        const row = agg.get(key) ?? {
+          sentinelId,
+          profile,
+          costUsd: 0,
+          turns: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        }
+        row.costUsd += t.costUsd
+        row.turns++
+        row.inputTokens += t.inputTokens
+        row.outputTokens += t.outputTokens
+        row.cacheReadTokens += t.cacheReadTokens
+        row.cacheWriteTokens += t.cacheWriteTokens
+        agg.set(key, row)
+      }
+      return [...agg.values()].sort((a, b) => b.costUsd - a.costUsd)
     },
 
     pruneOlderThan(cutoffMs) {
