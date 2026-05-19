@@ -2283,6 +2283,29 @@ export interface SpawnConversation {
   /** Which ACP agent recipe to use when agentHostType === 'acp'. The sentinel
    *  resolves this against its acp-recipes registry. e.g. 'opencode'. */
   acpAgent?: string
+  /** Daemon launch mode. 'new': `claude --bg` a fresh worker. 'resume':
+   *  `claude --bg --resume <sessionId>` a forked worker. 'attach': attach to an
+   *  already-running daemon worker (no `claude --bg`). Defaults to 'new' when
+   *  absent. Only meaningful when agentHostType === 'daemon'. */
+  daemonMode?: 'new' | 'resume' | 'attach'
+  /** Daemon session id to resume -- the input to `claude --bg --resume <id>`.
+   *  The resumed worker forks to a fresh ccSessionId (it carries prior history
+   *  but does NOT keep this id). Required when daemonMode === 'resume'. Only
+   *  meaningful when agentHostType === 'daemon'. */
+  daemonResumeSessionId?: string
+  /** 8-hex daemon worker short id to attach to, taken from the daemon roster.
+   *  Required when daemonMode === 'attach'; the sentinel never runs
+   *  `claude --bg` for attach. Only meaningful when agentHostType === 'daemon'. */
+  daemonAttachShort?: string
+  /** Absolute path on the sentinel host to a settings JSON. Injected as
+   *  `claude --bg --settings <path>` for daemonMode new|resume only (attach
+   *  reuses the worker's existing config). Only meaningful when
+   *  agentHostType === 'daemon'. */
+  daemonSettingsPath?: string
+  /** Absolute path on the sentinel host to an MCP config JSON. Injected as
+   *  `claude --bg --mcp-config <path>` for daemonMode new|resume only. Only
+   *  meaningful when agentHostType === 'daemon'. */
+  daemonMcpConfigPath?: string
 }
 
 export interface ListDirs {

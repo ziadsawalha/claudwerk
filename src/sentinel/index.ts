@@ -28,6 +28,8 @@ import {
 import { hostname as osHostname } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { Subprocess } from 'bun'
+import { has } from '../shared/cc-daemon/ops'
+import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import { cwdToProjectUri, parseProjectUri } from '../shared/project-uri'
 import type {
   BrokerSentinelMessage,
@@ -44,6 +46,14 @@ import type {
 } from '../shared/protocol'
 import { DEFAULT_BROKER_URL, HEARTBEAT_INTERVAL_MS } from '../shared/protocol'
 import { getAcpRecipe, listAcpRecipes } from './acp-recipes'
+import {
+  buildDaemonDispatchArgs,
+  type DaemonLaunchMode,
+  evaluateAttachPresence,
+  mergeDaemonWorkerEnv,
+  parseDaemonShort,
+  validateDaemonConfigPaths,
+} from './daemon-dispatch'
 import { startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
 import { type PreflightIssue, preflightSpawn } from './preflight'
 
@@ -803,36 +813,67 @@ function spawnAcpHostDirect(opts: {
   return { success: true, pid }
 }
 
-/** Match ANSI SGR sequences without the literal ESC control char (which
- *  trips biome's noControlCharactersInRegex). The stray ESC left behind is
- *  harmless -- the consumer matches across it with `\W`. */
-const DAEMON_ANSI_RE = /\[[0-9;]*m/g
-
 /**
- * Dispatch a Claude Code daemon worker via `claude --bg` and capture its
- * 8-hex job short id from the `backgrounded - <id>` line. This is the Phase 2
- * dispatch path; Phase 3 will use the daemon socket `dispatch` op for full
- * DispatchSpec control. The captured short is handed to bin/daemon-host via
- * CLAUDWERK_DAEMON_SHORT so it can attach to the worker's PTY.
+ * Dispatch a Claude Code daemon worker via `claude --bg` and capture its 8-hex
+ * job short id from the `backgrounded - <id>` line. Covers NEW
+ * (`claude --bg <prompt>`) and RESUME (`claude --bg --resume <sessionId>
+ * [<prompt>]`) -- both print the same `backgrounded` line and yield a fresh
+ * short. Config flags (`--settings`, `--mcp-config`, `--append-system-prompt`)
+ * and per-spawn env vars are injected for both modes; the env merge lands on
+ * the WORKER process, not just the daemon-host. ATTACH never reaches this
+ * function (it has no `claude --bg` step).
+ *
+ * The captured short is handed to bin/daemon-host via CLAUDWERK_DAEMON_SHORT so
+ * it can attach to the worker's PTY. argv assembly + short capture + env merge
+ * are pure helpers in daemon-dispatch.ts (testable without booting the sentinel).
  */
 async function dispatchDaemonWorker(opts: {
   cwd: string
-  prompt: string
+  mode: 'new' | 'resume'
+  prompt?: string
+  resumeSessionId?: string
   model?: string
   name?: string
+  settingsPath?: string
+  mcpConfigPath?: string
+  appendSystemPrompt?: string
+  env?: Record<string, string>
   jobId?: string
 }): Promise<{ short: string | null; output: string }> {
-  const args = ['claude', '--bg']
-  if (opts.model) args.push('--model', opts.model)
-  if (opts.name) {
-    const jobName = `cw-${opts.name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40)}`
-    args.push('--name', jobName)
+  let args: string[]
+  try {
+    args = buildDaemonDispatchArgs({
+      mode: opts.mode,
+      prompt: opts.prompt,
+      resumeSessionId: opts.resumeSessionId,
+      model: opts.model,
+      name: opts.name,
+      settingsPath: opts.settingsPath,
+      mcpConfigPath: opts.mcpConfigPath,
+      appendSystemPrompt: opts.appendSystemPrompt,
+    })
+  } catch (e: unknown) {
+    return { short: null, output: `claude --bg arg assembly failed: ${(e as Error).message}` }
   }
-  args.push(opts.prompt)
-  launchLog(opts.jobId, 'Dispatching claude --bg worker', 'info', `model=${opts.model ?? 'default'}`)
+  const flags = [
+    `model=${opts.model ?? 'default'}`,
+    opts.mode === 'resume' ? `resume=${opts.resumeSessionId}` : null,
+    opts.settingsPath ? '+settings' : null,
+    opts.mcpConfigPath ? '+mcp-config' : null,
+    opts.appendSystemPrompt ? '+append-system-prompt' : null,
+    opts.env ? `+${Object.keys(opts.env).length}env` : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+  launchLog(opts.jobId, `Dispatching claude --bg worker (${opts.mode})`, 'info', flags)
   let proc: Subprocess
   try {
-    proc = Bun.spawn(args, { cwd: opts.cwd, env: cleanSentinelEnv(), stdout: 'pipe', stderr: 'pipe' })
+    proc = Bun.spawn(args, {
+      cwd: opts.cwd,
+      env: mergeDaemonWorkerEnv(cleanSentinelEnv(), opts.env),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
   } catch (e: unknown) {
     return { short: null, output: `claude --bg spawn failed: ${(e as Error).message}` }
   }
@@ -842,8 +883,7 @@ async function dispatchDaemonWorker(opts: {
   ])
   await proc.exited
   const output = `${out}${err}`.trim()
-  const match = output.replace(DAEMON_ANSI_RE, '').match(/backgrounded\s+\W+\s*([0-9a-f]{8})/)
-  return { short: match ? match[1] : null, output }
+  return { short: parseDaemonShort(output), output }
 }
 
 /**
@@ -857,6 +897,11 @@ function spawnDaemonHostDirect(opts: {
   cwd: string
   conversationId: string
   daemonShort: string
+  /** Launch mode -- passed to daemon-host as CLAUDWERK_DAEMON_MODE. */
+  mode: DaemonLaunchMode
+  /** Daemon session id resumed from -- passed as CLAUDWERK_DAEMON_RESUME_SESSION
+   *  when mode === 'resume'. The worker forks to a fresh id; this is the input. */
+  resumeSessionId?: string
   secret: string
   jobId?: string
   conversationName?: string
@@ -864,7 +909,12 @@ function spawnDaemonHostDirect(opts: {
   env?: Record<string, string>
 }): { success: boolean; error?: string; pid?: number } {
   const startTime = Date.now()
-  launchLog(opts.jobId, 'Spawning daemon-host (direct)', 'info', `${opts.bin} short=${opts.daemonShort}`)
+  launchLog(
+    opts.jobId,
+    'Spawning daemon-host (direct)',
+    'info',
+    `${opts.bin} short=${opts.daemonShort} mode=${opts.mode}`,
+  )
 
   const env: Record<string, string | undefined> = cleanSentinelEnv()
   env.RCLAUDE_SECRET = opts.secret
@@ -872,6 +922,10 @@ function spawnDaemonHostDirect(opts: {
   env.RCLAUDE_HEADLESS = '1'
   env.RCLAUDE_CWD = opts.cwd
   env.CLAUDWERK_DAEMON_SHORT = opts.daemonShort
+  env.CLAUDWERK_DAEMON_MODE = opts.mode
+  if (opts.mode === 'resume' && opts.resumeSessionId) {
+    env.CLAUDWERK_DAEMON_RESUME_SESSION = opts.resumeSessionId
+  }
   if (opts.conversationName) env.CLAUDWERK_CONVERSATION_NAME = opts.conversationName
   if (opts.conversationDescription) env.CLAUDWERK_CONVERSATION_DESCRIPTION = opts.conversationDescription
   if (opts.env) Object.assign(env, opts.env)
@@ -2385,12 +2439,32 @@ function connect(
               )
               break
             }
-            if (!spawnMsg.prompt?.trim()) {
-              sendDaemonFail('daemon spawn requires an initial prompt (claude --bg dispatches a job with a prompt)')
+
+            // NEW: claude --bg a fresh worker. RESUME: claude --bg --resume a
+            // forked worker. ATTACH: attach to an already-running roster worker
+            // (no claude --bg). Default 'new' for backward-compat with the
+            // pre-Phase-C daemon backend, which sends no daemonMode.
+            const daemonMode: DaemonLaunchMode = spawnMsg.daemonMode ?? 'new'
+
+            // Mode-specific required fields. NEW needs a prompt (claude --bg
+            // dispatches a job with one); RESUME needs the session to fork
+            // from; ATTACH needs the roster short to attach to.
+            if (daemonMode === 'new' && !spawnMsg.prompt?.trim()) {
+              sendDaemonFail('daemon spawn (new mode) requires an initial prompt -- claude --bg dispatches with one')
               break
             }
+            if (daemonMode === 'resume' && !spawnMsg.daemonResumeSessionId?.trim()) {
+              sendDaemonFail('daemon spawn (resume mode) requires daemonResumeSessionId (the session to resume)')
+              break
+            }
+            if (daemonMode === 'attach' && !spawnMsg.daemonAttachShort?.trim()) {
+              sendDaemonFail('daemon spawn (attach mode) requires daemonAttachShort (the roster worker short id)')
+              break
+            }
+
             // Validate cwd (create on mkdir) + spawn-approval marker -- same
-            // gate as the rclaude / opencode / acp paths.
+            // gate as the rclaude / opencode / acp paths. Applies to all three
+            // modes: the daemon-host needs a real cwd for the transcript slug.
             if (!existsSync(expandedCwd)) {
               if (spawnMsg.mkdir) {
                 try {
@@ -2408,24 +2482,72 @@ function connect(
               sendDaemonFail(`Spawn not allowed: no .rclaude-spawn marker at or above ${expandedCwd}`)
               break
             }
-            // Dispatch the claude --bg worker and capture its short id.
-            const dispatched = await dispatchDaemonWorker({
-              cwd: expandedCwd,
-              prompt: spawnMsg.prompt,
-              model: spawnMsg.model,
-              name: spawnMsg.conversationName,
-              jobId: spawnMsg.jobId,
-            })
-            if (!dispatched.short) {
-              sendDaemonFail(`claude --bg returned no job id -- ${dispatched.output.slice(0, 300) || 'no output'}`)
-              break
+
+            // Resolve the worker short id. NEW/RESUME dispatch a `claude --bg`
+            // worker and capture its fresh short; ATTACH takes the short
+            // straight from the roster-sourced spawn request after probing the
+            // daemon `has` op to confirm the worker is present.
+            let daemonShort: string
+            if (daemonMode === 'attach') {
+              // daemonAttachShort is validated non-empty above.
+              const attachShort = spawnMsg.daemonAttachShort as string
+              const controlSock = resolveControlSocket()
+              if (!controlSock) {
+                sendDaemonFail(
+                  'daemon attach: no Claude Code daemon control socket reachable -- the daemon may have idle-exited',
+                )
+                break
+              }
+              let verdict: { ok: boolean; error?: string }
+              try {
+                verdict = evaluateAttachPresence(await has(controlSock, attachShort), attachShort)
+              } catch (e: unknown) {
+                verdict = { ok: false, error: `daemon attach: has() probe failed: ${(e as Error).message}` }
+              }
+              if (!verdict.ok) {
+                sendDaemonFail(verdict.error ?? `daemon attach: worker ${attachShort} unavailable`)
+                break
+              }
+              daemonShort = attachShort
+              launchLog(spawnMsg.jobId, 'daemon attach target verified', 'ok', `short=${daemonShort} present`)
+            } else {
+              // NEW / RESUME -- validate config paths exist, then claude --bg.
+              const pathCheck = validateDaemonConfigPaths(
+                { settingsPath: spawnMsg.daemonSettingsPath, mcpConfigPath: spawnMsg.daemonMcpConfigPath },
+                existsSync,
+              )
+              if (!pathCheck.ok) {
+                sendDaemonFail(pathCheck.error ?? 'daemon spawn: config path validation failed')
+                break
+              }
+              const dispatched = await dispatchDaemonWorker({
+                cwd: expandedCwd,
+                mode: daemonMode,
+                prompt: spawnMsg.prompt,
+                resumeSessionId: spawnMsg.daemonResumeSessionId,
+                model: spawnMsg.model,
+                name: spawnMsg.conversationName,
+                settingsPath: spawnMsg.daemonSettingsPath,
+                mcpConfigPath: spawnMsg.daemonMcpConfigPath,
+                appendSystemPrompt: spawnMsg.appendSystemPrompt,
+                env: spawnMsg.env,
+                jobId: spawnMsg.jobId,
+              })
+              if (!dispatched.short) {
+                sendDaemonFail(`claude --bg returned no job id -- ${dispatched.output.slice(0, 300) || 'no output'}`)
+                break
+              }
+              daemonShort = dispatched.short
+              launchLog(spawnMsg.jobId, 'daemon worker dispatched', 'ok', `short=${daemonShort} mode=${daemonMode}`)
             }
-            launchLog(spawnMsg.jobId, 'daemon worker dispatched', 'ok', `short=${dispatched.short}`)
+
             const daemonRes = spawnDaemonHostDirect({
               bin: daemonBin,
               cwd: expandedCwd,
               conversationId: spawnMsg.conversationId,
-              daemonShort: dispatched.short,
+              daemonShort,
+              mode: daemonMode,
+              resumeSessionId: spawnMsg.daemonResumeSessionId,
               secret,
               jobId: spawnMsg.jobId,
               conversationName: spawnMsg.conversationName,

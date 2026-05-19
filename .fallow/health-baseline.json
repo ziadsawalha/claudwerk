@@ -1622,6 +1622,11 @@
         "count": 2
       }
     },
+    "src/sentinel/daemon-dispatch.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "src/sentinel/index.ts": {
       "complexity_critical": {
         "count": 7
@@ -1630,10 +1635,10 @@
         "count": 10
       },
       "crap_high": {
-        "count": 8
+        "count": 10
       },
       "crap_moderate": {
-        "count": 15
+        "count": 13
       }
     },
     "src/sentinel/preflight.test.ts": {
@@ -2872,6 +2877,7 @@
     "src/broker/handlers/inter-conversation.ts:complexity",
     "src/broker/store/memory/driver.ts:high impact",
     "src/broker/handlers/conversation-lifecycle.ts:complexity",
+    "web/src/components/launch-profiles/pin-reachability.ts:high impact",
     "web/src/lib/legacy-to-canonical.ts:high impact",
     "web/src/lib/task-scoring.ts:high impact",
     "src/broker/routes/stats.ts:untested risk",
@@ -2939,13 +2945,13 @@
     "src/opencode-agent-host/ndjson-parser.ts:complexity",
     "web/public/sw.js:untested risk",
     "web/src/components/conversation-detail/conversation-banners.tsx:complexity",
+    "src/sentinel/index.ts:complexity",
     "src/claude-agent-host/ws-client.ts:complexity",
     "web/src/components/transcript/grep-results.tsx:complexity",
     "src/claude-agent-host/osc52-parser.ts:complexity",
     "scripts/acp-failures.ts:untested risk",
     "src/broker/store/migrate.ts:complexity",
     "src/broker/conversation-store/channel-registry.ts:complexity",
-    "src/sentinel/index.ts:complexity",
     "web/src/components/command-palette/footer-hints.tsx:complexity",
     "src/acp-agent-host/translator.ts:complexity"
   ]
