@@ -8,6 +8,7 @@
  */
 
 import type { DialogLayout } from '../../shared/dialog-schema'
+import { cancelDialogNotify, resetDialogNotifyTimer, scheduleDialogNotify } from '../attention-notify'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
 
@@ -52,6 +53,12 @@ const dialogShow: MessageHandler = (ctx, data) => {
   }
   ctx.broadcastScoped(dialogMsg, conversation.project)
 
+  scheduleDialogNotify({
+    conversationId,
+    project: conversation.project,
+    dialogTitle: (layout.title as string) || 'Dialog',
+  })
+
   ctx.log.info(
     `[dialog] Show: "${layout.title}" (${dialogId.toString().slice(0, 8)}) conversation=${conversationId.slice(0, 8)}`,
   )
@@ -78,6 +85,8 @@ const dialogResult: MessageHandler = (ctx, data) => {
     ctx.conversations.persistConversationById(conversationId)
     ctx.conversations.broadcastConversationUpdate(conversationId)
   }
+
+  cancelDialogNotify(conversationId)
 
   // Forward to the agent host that owns this conversation
   const targetWs = ctx.conversations.getConversationSocket(conversationId)
@@ -122,6 +131,8 @@ const dialogDismiss: MessageHandler = (ctx, data) => {
     ctx.conversations.broadcastConversationUpdate(conversationId)
   }
 
+  cancelDialogNotify(conversationId)
+
   if (conversation?.project) {
     const dismissMsg2 = { type: 'dialog_dismiss', conversationId: conversationId, dialogId }
     ctx.broadcastScoped(dismissMsg2, conversation.project)
@@ -142,6 +153,16 @@ const dialogKeepalive: MessageHandler = (ctx, data) => {
   const targetWs = ctx.conversations.getConversationSocket(conversationId)
   if (targetWs) {
     targetWs.send(JSON.stringify({ type: 'dialog_keepalive', dialogId }))
+  }
+
+  // User is actively interacting -- restart the 4-min notification clock so
+  // we don't push to someone who already has the dialog open.
+  if (conversation?.project) {
+    resetDialogNotifyTimer({
+      conversationId,
+      project: conversation.project,
+      dialogTitle: (conversation.pendingDialog?.layout as { title?: string })?.title || 'Dialog',
+    })
   }
 }
 

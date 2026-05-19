@@ -8,6 +8,7 @@
  */
 
 import type { AskQuestionDismiss, PermissionDismiss } from '../../shared/protocol'
+import { cancelAskNotify, scheduleAskNotify } from '../attention-notify'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
 
@@ -190,6 +191,14 @@ const askQuestion: MessageHandler = (ctx, data) => {
     questions: data.questions,
   }
   ctx.broadcastScoped(msg, conversation.project)
+
+  const firstQuestion = (data.questions as Array<{ question: string }>)?.[0]?.question
+  scheduleAskNotify({
+    conversationId,
+    project: conversation.project,
+    question: firstQuestion || 'Question waiting',
+  })
+
   ctx.log.debug(
     `[ask] Question: ${(data.toolUseId as string)?.slice(0, 12)} ${(data.questions as unknown[])?.length || 0}q`,
   )
@@ -231,6 +240,8 @@ const askAnswer: MessageHandler = (ctx, data) => {
     ctx.conversations.broadcastConversationUpdate(conversationId)
   }
 
+  cancelAskNotify(conversationId)
+
   // Broadcast dismiss to other dashboard subscribers so the question card
   // disappears on every session, not just the one that answered.
   if (conversation?.project) {
@@ -257,6 +268,8 @@ const askQuestionTimeout: MessageHandler = (ctx, data) => {
     ctx.conversations.persistConversationById(conversationId)
     ctx.conversations.broadcastConversationUpdate(conversationId)
   }
+
+  cancelAskNotify(conversationId)
 
   if (conversation?.project) {
     ctx.broadcastScoped(
