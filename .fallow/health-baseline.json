@@ -43,6 +43,11 @@
         "count": 1
       }
     },
+    "scripts/cc-daemon-launch-smoke.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "scripts/lib/require-clean-tree.ts": {
       "crap_high": {
         "count": 1
@@ -1602,6 +1607,11 @@
       },
       "crap_moderate": {
         "count": 1
+      }
+    },
+    "src/daemon-agent-host/launch-smoke.ts": {
+      "crap_moderate": {
+        "count": 2
       }
     },
     "src/daemon-agent-host/session-observer.ts": {

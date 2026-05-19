@@ -27,6 +27,7 @@ import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
+import { dispatchClaudeBgWorker } from '../../../daemon-agent-host/launch-smoke-mirror'
 import { resolveControlSocket } from '../../../shared/cc-daemon/socket-path'
 import {
   cleanup,
@@ -48,31 +49,6 @@ const run = STAGING_AVAILABLE && HAVE_BIN && HAVE_DAEMON ? describe : describe.s
 
 const HAIKU = 'claude-haiku-4-5-20251001'
 const PROBE = 'Reply with exactly: PROBE-DAEMON-OK and nothing else.'
-
-/** Strip ANSI escapes so the `backgrounded - <id>` line can be matched. */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escapes are control chars.
-const ANSI_RE = /\[[0-9;]*m/g
-
-/** Extract the 8-hex worker short id from `claude --bg` output. */
-function parseShort(output: string): string | null {
-  const m = output.replace(ANSI_RE, '').match(/backgrounded\s+\W+\s*([0-9a-f]{8})/)
-  return m ? m[1] : null
-}
-
-/** Dispatch a `claude --bg` Haiku worker in `cwd`; return its short id. */
-async function dispatchWorker(cwd: string, name: string): Promise<string> {
-  const proc = Bun.spawn(['claude', '--bg', '--model', HAIKU, '--name', name, PROBE], {
-    cwd,
-    env: process.env,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-  await proc.exited
-  const short = parseShort(`${out}${err}`)
-  if (!short) throw new Error(`claude --bg printed no short id: ${`${out}${err}`.slice(0, 200)}`)
-  return short
-}
 
 /** Remove a probe worker job -- only ever a short this test dispatched. */
 async function removeWorker(short: string): Promise<void> {
@@ -115,7 +91,12 @@ run('daemon-host e2e', () => {
     // Play the sentinel's NEW-mode dispatch: claude --bg -> capture short.
     const cwd = mkdtempSync(join(tmpdir(), 'daemon-e2e-'))
     tempDirs.push(cwd)
-    const short = await dispatchWorker(cwd, `cw-e2e-${conversationId.slice(-8)}`)
+    const short = await dispatchClaudeBgWorker({
+      cwd,
+      name: `cw-e2e-${conversationId.slice(-8)}`,
+      prompt: PROBE,
+      model: HAIKU,
+    })
     dispatchedShorts.push(short)
 
     // Spawn the real daemon-host binary with the env the sentinel would set.
