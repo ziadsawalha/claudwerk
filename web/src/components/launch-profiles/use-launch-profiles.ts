@@ -17,6 +17,14 @@ export interface UseLaunchProfilesResult {
   save: (next: LaunchProfile[]) => Promise<SaveProfilesResponse>
 }
 
+/**
+ * Stable reference for the "not loaded yet" case. Returning a fresh `[]`
+ * on every render churns referential equality and breaks effects that
+ * depend on `profiles` (e.g. the manager's draft-seeding effect, which
+ * would otherwise wipe a freshly-created profile on the next render).
+ */
+const EMPTY_PROFILES: LaunchProfile[] = []
+
 export async function ensureLaunchProfilesLoaded(): Promise<LaunchProfile[]> {
   if (getLaunchProfilesSnapshot() !== null) return getLaunchProfilesSnapshot() as LaunchProfile[]
   if (isLaunchProfilesLoading()) {
@@ -62,7 +70,7 @@ export function useLaunchProfiles(): UseLaunchProfilesResult {
   }, [])
 
   return {
-    profiles: snapshot ?? [],
+    profiles: snapshot ?? EMPTY_PROFILES,
     loaded: snapshot !== null,
     loading: isLaunchProfilesLoading(),
     reload,
