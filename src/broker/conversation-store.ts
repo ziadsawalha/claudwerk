@@ -1254,6 +1254,10 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     conv.pendingAttention = undefined
     conv.planMode = undefined
     conv.hasNotification = undefined
+    // contextMode is CC's runtime state (set by /model or /context commands).
+    // It must not survive /clear -- the new session's model may be different,
+    // and a stale 'standard' override would suppress the [1m] suffix detection.
+    conv.contextMode = undefined
     for (const bgTask of conv.bgTasks) {
       if (bgTask.status === 'running') {
         bgTask.status = 'killed'

@@ -162,6 +162,16 @@ describe('conversation lifecycle', () => {
     expect(cleared!.status).toBe('idle')
   })
 
+  it('clearConversation resets contextMode so stale standard does not suppress [1m]', () => {
+    const conv = store.createConversation('ctx-mode-clear', '/cwd')
+    conv.contextMode = 'standard'
+
+    store.clearConversation('ctx-mode-clear', '/cwd')
+
+    const cleared = store.getConversation('ctx-mode-clear')
+    expect(cleared!.contextMode).toBeUndefined()
+  })
+
   it('updateActivity updates conversation lastActivity timestamp', async () => {
     store.createConversation('act-test', '/cwd')
     const before = store.getConversation('act-test')!.lastActivity
