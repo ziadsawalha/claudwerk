@@ -1938,6 +1938,41 @@ export interface Conversation {
   hostSentinelAlias?: string // denormalized display alias of the sentinel
 }
 
+/**
+ * Sentinel-profile selection mode at spawn time.
+ *
+ * - 'default'  -- pick whatever the sentinel's `defaultSelection` says (the
+ *                 no-input spawn behavior; usually the literal `default` profile).
+ * - 'balanced' -- sentinel picks the least-loaded pooled profile.
+ * - 'random'   -- sentinel picks a uniformly random pooled profile.
+ *
+ * A literal profile NAME (e.g. `'work'`) lives alongside this type in fields
+ * typed `SelectionMode | string`; the named-profile path is the "Fixed" mode.
+ */
+export type SelectionMode = 'default' | 'balanced' | 'random'
+
+/**
+ * Sentinel-reported profile metadata -- NAMES and display only, never the
+ * resolved env or `configDir`. The BROKER stores these; the sentinel keeps
+ * the real config (per the Profile-Env Boundary in
+ * `.claude/docs/plan-sentinel-profiles.md`).
+ */
+export interface SentinelProfileInfo {
+  /** Profile name -- addressable, `[a-z0-9-]{1,63}`. The `default` profile
+   *  (`~/.claude`) is the implicit fallback when a spawn carries no profile. */
+  name: string
+  /** Optional human-readable label for the control panel. */
+  label?: string
+  /** Optional tint for the profile badge. */
+  color?: string
+  /** Whether this profile participates in `balanced` / `random` selection. */
+  pooled: boolean
+  /** Whether the sentinel believes this profile has valid Claude credentials
+   *  in its `configDir`. Surfaced so the control panel can flag an un-authed
+   *  profile before a spawn fails. */
+  authed: boolean
+}
+
 /** Resolved launch configuration -- stored on the conversation at spawn time, reused on revive */
 export interface LaunchConfig {
   headless: boolean
@@ -1964,6 +1999,23 @@ export interface LaunchConfig {
   daemonMode?: 'new' | 'resume' | 'attach'
   daemonSettingsPath?: string
   daemonMcpConfigPath?: string
+  /**
+   * Per-launch sentinel-profile INTENT -- what the user asked for at launch
+   * time. Absent => `default` profile.
+   *
+   * - `{ kind: 'fixed', name }` -- user pinned an explicit named profile.
+   * - `{ kind: 'balanced' }`    -- sentinel picks least-loaded pooled profile.
+   * - `{ kind: 'random' }`      -- sentinel picks a uniformly random pooled profile.
+   *
+   * The RESOLVED profile name (what the sentinel actually picked) lives in
+   * the conversation's `projectUri` userinfo, not here. The intent stays
+   * around for display ("this was picked by random") and re-launch-as-new
+   * semantics.
+   *
+   * Profile env (API keys, `configDir`) NEVER reaches this struct -- see
+   * `.claude/docs/plan-sentinel-profiles.md` Profile-Env Boundary covenant.
+   */
+  sentinelProfile?: { kind: 'fixed'; name: string } | { kind: 'balanced' } | { kind: 'random' }
 }
 
 // ─── Launch Jobs (request-scoped event channels for spawn/revive) ────
@@ -2033,6 +2085,12 @@ export interface SentinelIdentify {
   hostname?: string
   alias?: string // suggested sentinel alias (first-contact only; broker may override with stored value)
   spawnRoot?: string // default directory for relative spawn paths
+  /** Sentinel profiles available on this host -- NAMES + display only. The
+   *  sentinel keeps the real `configDir` / env. See `SentinelProfileInfo`. */
+  profiles?: SentinelProfileInfo[]
+  /** What the sentinel does when a spawn arrives with no explicit profile.
+   *  Defaults to `'default'` (use the `default` profile, today's behavior). */
+  defaultSelection?: SelectionMode
 }
 
 export interface ReviveResult {
@@ -2045,6 +2103,12 @@ export interface ReviveResult {
   error?: string
   tmuxSession?: string
   continued: boolean // true if --resume worked, false if fresh session
+  /** The sentinel-profile name the sentinel actually used (echoed back from
+   *  the URI userinfo). Revive never re-rolls balanced/random selection -- it
+   *  pins the profile written into the stored `projectUri` -- so this is
+   *  always the same name the broker sent in `ReviveConversation.profile`.
+   *  Present only when the conversation runs under a non-default profile. */
+  resolvedProfile?: string
 }
 
 export interface SpawnResult {
@@ -2056,6 +2120,12 @@ export interface SpawnResult {
   project?: string
   tmuxSession?: string
   conversationId?: string
+  /** The sentinel-profile name the sentinel actually picked. For `'fixed'`
+   *  spawns this is just the named profile; for `'balanced'` / `'random'`
+   *  this is the sentinel's pick, which the broker writes into the stored
+   *  `projectUri` userinfo so revive pins the same profile forever.
+   *  Present only when the conversation runs under a non-default profile. */
+  resolvedProfile?: string
 }
 
 export interface ListDirsResult {
@@ -2368,6 +2438,13 @@ export interface ReviveConversation {
   acpAgent?: string
   /** Tool permission tier: 'none' | 'safe' | 'full'. */
   toolPermission?: 'none' | 'safe' | 'full'
+  /** Sentinel-profile pin for revive -- always a literal profile NAME (the
+   *  broker reads it back from the stored `projectUri` userinfo). Revive
+   *  never re-rolls balanced/random selection. `SelectionMode` is permitted
+   *  in the type only to keep the wire shape symmetrical with
+   *  `SpawnConversation.profile`; the broker should always send a name on
+   *  revive. Profile env (configDir, API keys) is resolved sentinel-side. */
+  profile?: SelectionMode | string
 }
 
 export interface SpawnConversation {
@@ -2447,6 +2524,12 @@ export interface SpawnConversation {
    *  `claude --bg --mcp-config <path>` for daemonMode new|resume only. Only
    *  meaningful when agentHostType === 'daemon'. */
   daemonMcpConfigPath?: string
+  /** Sentinel-profile selection at spawn time. Either a `SelectionMode`
+   *  ('default' | 'balanced' | 'random') OR a literal profile NAME ("Fixed"
+   *  mode). When absent the sentinel falls back to its `defaultSelection`.
+   *  Profile env (configDir, API keys) is resolved sentinel-side from this
+   *  name -- the broker never holds it (Profile-Env Boundary covenant). */
+  profile?: SelectionMode | string
 }
 
 export interface ListDirs {

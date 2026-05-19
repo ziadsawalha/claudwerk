@@ -15,12 +15,25 @@
  * `claude://default/{path}` form, and `matchProjectUri()` treats
  * empty authority as equivalent to `default` so pre-migration grants keep
  * matching post-migration session scopes.
+ *
+ * Profile slot (sentinel-profiles plan): the URI userinfo (`work@beast`) names
+ * the sentinel PROFILE that hosts the conversation. Profile is preserved by
+ * parse/build/normalize (it pins which CLAUDE_CONFIG_DIR a revive lands in),
+ * but PROFILE IS NOT IDENTITY -- compareProjectUri / matchProjectUri /
+ * isSameProject all strip profile before comparing. See `stripProfile()`.
  */
 export const DEFAULT_SENTINEL_NAME = 'default'
+
+/** Valid profile-name shape -- enforced at validate time and at parse time
+ *  (out-of-shape userinfo is dropped on the manual-fallback path). */
+const PROFILE_NAME_RE = /^[a-z0-9-]{1,63}$/
 
 export interface ProjectUri {
   scheme: string
   authority?: string
+  /** Sentinel profile name from the URI userinfo (`profile@sentinel`). NOT
+   *  identity -- comparison helpers strip this. See `stripProfile()`. */
+  profile?: string
   path: string
   fragment?: string
   raw: string
@@ -29,6 +42,9 @@ export interface ProjectUri {
 export interface ProjectUriParts {
   scheme: string
   authority?: string
+  /** Sentinel profile name. Emitted as `${profile}@` before the authority by
+   *  `buildProjectUri` when set. */
+  profile?: string
   path: string
   fragment?: string
 }
@@ -42,6 +58,21 @@ const WILDCARD_URI: ProjectUri = Object.freeze({
 function parseSchemeWildcard(uri: string): ProjectUri {
   const scheme = uri.slice(0, uri.indexOf(':'))
   return { scheme: scheme.toLowerCase(), path: '*', raw: uri }
+}
+
+/** Split a raw authority on a leading `profile@` userinfo, falling back to
+ *  the whole thing as the host when the userinfo doesn't match the profile
+ *  shape. Used on the manual-fallback parse path (malformed authorities that
+ *  WHATWG rejected -- e.g. `work@Mistral Dophin`). */
+function splitProfileFromAuthority(rawAuthority: string): { profile?: string; host: string } {
+  const atIdx = rawAuthority.indexOf('@')
+  if (atIdx < 0) return { host: rawAuthority }
+  const candidate = rawAuthority.slice(0, atIdx)
+  // An out-of-shape userinfo is left attached to the authority rather than
+  // smuggled into `profile` -- the fallback path runs on malformed input and
+  // the profile slot is reserved for the canonical shape.
+  if (!PROFILE_NAME_RE.test(candidate)) return { host: rawAuthority }
+  return { profile: candidate, host: rawAuthority.slice(atIdx + 1) }
 }
 
 export function parseProjectUri(uri: string): ProjectUri {
@@ -72,9 +103,19 @@ export function parseProjectUri(uri: string): ProjectUri {
     const before = fragmentIdx >= 0 ? rest.slice(0, fragmentIdx) : rest
     const fragment = fragmentIdx >= 0 ? rest.slice(fragmentIdx + 1) : undefined
     const slashIdx = before.indexOf('/')
-    const authority = (slashIdx >= 0 ? before.slice(0, slashIdx) : before) || undefined
+    const rawAuthority = (slashIdx >= 0 ? before.slice(0, slashIdx) : before) || undefined
     const path = slashIdx >= 0 ? before.slice(slashIdx) || '/' : '/'
-    return { scheme, authority, path, fragment, raw: uri }
+    const split: { profile?: string; host: string | undefined } = rawAuthority
+      ? splitProfileFromAuthority(rawAuthority)
+      : { host: undefined }
+    return {
+      scheme,
+      authority: split.host || undefined,
+      profile: split.profile,
+      path,
+      fragment,
+      raw: uri,
+    }
   }
 
   const scheme = url.protocol.slice(0, -1).toLowerCase()
@@ -83,8 +124,9 @@ export function parseProjectUri(uri: string): ProjectUri {
   const authority = url.hostname || undefined
   const path = decodeURIComponent(url.pathname) || '/'
   const fragment = url.hash ? url.hash.slice(1) : undefined
+  const profile = url.username ? decodeURIComponent(url.username) : undefined
 
-  return { scheme, authority, path, fragment, raw: uri }
+  return { scheme, authority, profile: profile || undefined, path, fragment, raw: uri }
 }
 
 /**
@@ -109,6 +151,10 @@ export function tryParseProjectUri(uri: string): ProjectUri | null {
  * (`*`, `scheme:*`) are also rejected -- they're permission patterns,
  * not real project addresses.
  *
+ * Profile (URI userinfo `profile@sentinel`) is accepted when it matches
+ * `[a-z0-9-]{1,63}`. Password / port / query are still rejected -- the
+ * userinfo slot is reserved for the sentinel-profile name only.
+ *
  * Returns `{ valid: true }` on accept, or `{ valid: false, error }` with a
  * human-readable explanation that callers can surface verbatim to the user.
  */
@@ -131,33 +177,35 @@ export function validateProjectUri(uri: string): { valid: true } | { valid: fals
   try {
     url = new URL(uri)
   } catch {
-    // WHATWG rejected this for some illegal character. Pinpoint the authority
-    // (most common source: a space or unencoded special char).
-    const rest = schemeMatch[2]
-    const slashIdx = rest.indexOf('/')
-    const authority = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest
-    if (authority && /[\s<>"`{}|\\^[\]]/.test(authority)) {
-      return {
-        valid: false,
-        error: `Project URI "${uri}" has an invalid authority "${authority}" (contains whitespace or illegal URL characters)`,
-      }
-    }
-    return { valid: false, error: `Project URI "${uri}" is not a valid URL (rejected by WHATWG URL parser)` }
+    return { valid: false, error: diagnoseUrlRejection(uri, schemeMatch[2]) }
   }
-  // Cross-check: WHATWG normalizes some forms in ways that change semantics
-  // (lowercasing the host, decoding percent-escapes). The authority we'd
-  // round-trip through buildProjectUri should still match the raw input for
-  // the authority slot.
-  if (url.username || url.password) {
-    return { valid: false, error: `Project URI "${uri}" must not include userinfo (user:pass@)` }
-  }
-  if (url.port) {
-    return { valid: false, error: `Project URI "${uri}" must not include a port` }
-  }
-  if (url.search) {
-    return { valid: false, error: `Project URI "${uri}" must not include a query string` }
-  }
+  const userinfoError = validateUserinfo(url, uri)
+  if (userinfoError) return { valid: false, error: userinfoError }
+  if (url.port) return { valid: false, error: `Project URI "${uri}" must not include a port` }
+  if (url.search) return { valid: false, error: `Project URI "${uri}" must not include a query string` }
   return { valid: true }
+}
+
+/** Best-effort explanation when WHATWG rejected the URI -- most commonly a
+ *  space or unencoded special char in the authority slot. */
+function diagnoseUrlRejection(uri: string, rest: string): string {
+  const slashIdx = rest.indexOf('/')
+  const authority = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest
+  if (authority && /[\s<>"`{}|\\^[\]]/.test(authority)) {
+    return `Project URI "${uri}" has an invalid authority "${authority}" (contains whitespace or illegal URL characters)`
+  }
+  return `Project URI "${uri}" is not a valid URL (rejected by WHATWG URL parser)`
+}
+
+/** Userinfo policy: no password, username must be a profile-shaped name. */
+function validateUserinfo(url: URL, uri: string): string | null {
+  if (url.password) return `Project URI "${uri}" must not include a password in userinfo`
+  if (!url.username) return null
+  const decoded = decodeURIComponent(url.username)
+  if (!PROFILE_NAME_RE.test(decoded)) {
+    return `Project URI "${uri}" has an invalid profile "${decoded}" (must match [a-z0-9-]{1,63})`
+  }
+  return null
 }
 
 export function buildProjectUri(parts: ProjectUriParts): string {
@@ -169,12 +217,16 @@ export function buildProjectUri(parts: ProjectUriParts): string {
   // forms ('claude:///path', 'opencode:///path') still parse fine -- they
   // get upgraded to the canonical form on normalize / match.
   const authority = parts.authority ?? DEFAULT_SENTINEL_NAME
+  // Profile (sentinel-profile name) lives in the URI userinfo slot:
+  // `claude://work@default/path`. Emitted only when explicitly set; an
+  // implicit default-profile URI never carries `default@`.
+  const profilePart = parts.profile ? `${parts.profile}@` : ''
   const fragment = parts.fragment ? `#${parts.fragment}` : ''
-  return `${scheme}://${authority}${parts.path}${fragment}`
+  return `${scheme}://${profilePart}${authority}${parts.path}${fragment}`
 }
 
-export function cwdToProjectUri(cwd: string, scheme = 'claude', authority?: string): string {
-  return buildProjectUri({ scheme, authority, path: cwd })
+export function cwdToProjectUri(cwd: string, scheme = 'claude', authority?: string, profile?: string): string {
+  return buildProjectUri({ scheme, authority, profile, path: cwd })
 }
 
 /** Authority for matching purposes: empty/undefined authority on any scheme
@@ -200,12 +252,17 @@ export function matchProjectUri(pattern: string, uri: string): boolean {
     const parsedUri = parseProjectUri(uri)
 
     if (parsedPattern.scheme !== parsedUri.scheme) return false
+    // Profile is NOT identity -- two conversations in the same dir under
+    // different profiles are the same project, so the pattern's profile (if
+    // any) is ignored, as is the URI's profile.
     if (authorityForMatch(parsedPattern) !== authorityForMatch(parsedUri)) return false
 
     return parsedUri.path.startsWith(`${parsedPattern.path}/`) || parsedUri.path === parsedPattern.path
   }
 
-  return normalizeProjectUri(pattern) === normalizeProjectUri(uri)
+  // Strip profile from both sides so a profile-bearing URI matches a
+  // profile-less permission grant (and vice versa).
+  return normalizeProjectUri(stripProfile(pattern)) === normalizeProjectUri(stripProfile(uri))
 }
 
 export function normalizeProjectUri(uri: string): string {
@@ -220,28 +277,63 @@ export function normalizeProjectUri(uri: string): string {
   } catch {
     return uri
   }
-  let path = parsed.path
-  // Collapse runs of leading slashes to a single slash. Pre-2026-04-25 data
-  // produced by `'claude:///' || cwd` concatenation (where cwd was already
-  // absolute) yields URIs like 'claude:////Users/...' which WHATWG URL parses
-  // as authority='' + path='//Users/...' -- canonical form is a single slash.
-  if (path.startsWith('//')) path = path.replace(/^\/+/, '/')
-  if (path !== '/' && path.endsWith('/')) {
-    path = path.slice(0, -1)
-  }
-
+  const path = canonicalPath(parsed.path)
   const fragment = parsed.fragment ? `#${parsed.fragment}` : ''
   // Upgrade empty authority to DEFAULT_SENTINEL_NAME on every scheme so
   // legacy ('claude:///path', 'opencode:///path') and current
   // ('claude://default/path', 'opencode://default/path') forms canonicalize
   // identically. The authority slot IS the sentinel name regardless of scheme.
   const authority = parsed.authority || DEFAULT_SENTINEL_NAME
-  return `${parsed.scheme}://${authority}${path}${fragment}`
+  // Profile is preserved through canonical form when set -- the conversation
+  // is permanently bound to its picked profile. Identity comparison strips it
+  // (via stripProfile), but the stored form keeps it so revive can pin the
+  // right CLAUDE_CONFIG_DIR.
+  const profilePart = parsed.profile ? `${parsed.profile}@` : ''
+  return `${parsed.scheme}://${profilePart}${authority}${path}${fragment}`
+}
+
+/** Collapse multi-slash leading scars and drop a trailing slash. Pre-2026-04-25
+ *  data produced by `'claude:///' || cwd` concatenation (where cwd was already
+ *  absolute) yielded URIs like 'claude:////Users/...' which WHATWG parses as
+ *  authority='' + path='//Users/...' -- canonical form is a single slash. */
+function canonicalPath(rawPath: string): string {
+  let path = rawPath
+  if (path.startsWith('//')) path = path.replace(/^\/+/, '/')
+  if (path !== '/' && path.endsWith('/')) path = path.slice(0, -1)
+  return path
 }
 
 function projectWithoutConversation(uri: string): string {
   const hashIdx = uri.indexOf('#')
   return hashIdx >= 0 ? uri.slice(0, hashIdx) : uri
+}
+
+/**
+ * Strip the sentinel-profile userinfo (`work@`) from a URI string, leaving
+ * the rest untouched. Mirrors `projectWithoutConversation()` for the
+ * `#fragment`.
+ *
+ * Used by identity-comparison helpers (compareProjectUri, matchProjectUri,
+ * isSameProject) because profile is NOT identity: two conversations in the
+ * same dir under different profiles are still the same project.
+ *
+ * Safe on wildcards, scheme-wildcards, and malformed input -- returns the
+ * string unchanged when there is no userinfo to strip.
+ */
+export function stripProfile(uri: string): string {
+  const schemeMatch = uri.match(/^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i)
+  if (!schemeMatch) return uri
+  const prefix = schemeMatch[1]
+  const rest = schemeMatch[2]
+  // Authority ends at the first '/' or '#'. The '@' we care about lives
+  // inside the authority slot; if it sits past the first '/', it's part of
+  // the path (e.g. `/Users/foo@example`) and must be left alone.
+  const authorityEndIdx = rest.search(/[/#]/)
+  const authority = authorityEndIdx >= 0 ? rest.slice(0, authorityEndIdx) : rest
+  const tail = authorityEndIdx >= 0 ? rest.slice(authorityEndIdx) : ''
+  const atIdx = authority.indexOf('@')
+  if (atIdx < 0) return uri
+  return `${prefix}${authority.slice(atIdx + 1)}${tail}`
 }
 
 export function extractProjectLabel(uri: string): string {
@@ -266,10 +358,11 @@ function cmp(a: string, b: string): number {
 /**
  * Compare two project URIs for equality / sorting at the PROJECT level.
  *
- * The conversation fragment (`#conv-xyz`) is irrelevant at the project level
- * and is stripped before comparison. Authority forms are equivalent
- * (`claude:///x` == `claude://default/x`). Scheme case, trailing slashes,
- * and multi-slash scars are all normalized.
+ * The conversation fragment (`#conv-xyz`) and the sentinel-profile userinfo
+ * (`work@`) are both irrelevant at the project level and are stripped before
+ * comparison. Authority forms are equivalent (`claude:///x` ==
+ * `claude://default/x`). Scheme case, trailing slashes, and multi-slash scars
+ * are all normalized.
  *
  * Returns -1 / 0 / 1 suitable for Array.sort(). Safe on both server and web.
  *
@@ -277,7 +370,10 @@ function cmp(a: string, b: string): number {
  * conversations for a project, permission scope matching, sidebar grouping.
  */
 export function compareProjectUri(a: string, b: string): number {
-  return cmp(normalizeProjectUri(projectWithoutConversation(a)), normalizeProjectUri(projectWithoutConversation(b)))
+  return cmp(
+    normalizeProjectUri(stripProfile(projectWithoutConversation(a))),
+    normalizeProjectUri(stripProfile(projectWithoutConversation(b))),
+  )
 }
 
 /**
@@ -285,13 +381,14 @@ export function compareProjectUri(a: string, b: string): number {
  * fragment. `claude://default/foo#conv-1` and `claude://default/foo#conv-2`
  * are distinct; `claude://default/foo` (no fragment) differs from either.
  *
- * Otherwise same normalization rules as compareProjectUri.
+ * Profile is still stripped (it's not identity); only the `#fragment` is
+ * preserved relative to compareProjectUri.
  *
  * Use this when matching a specific session (e.g. reconnect routing, live
  * session identity) where the conversation within a project matters.
  */
 export function compareProjectConversationUri(a: string, b: string): number {
-  return cmp(normalizeProjectUri(a), normalizeProjectUri(b))
+  return cmp(normalizeProjectUri(stripProfile(a)), normalizeProjectUri(stripProfile(b)))
 }
 
 export function isSameProject(a: string, b: string): boolean {
