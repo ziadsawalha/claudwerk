@@ -41,6 +41,7 @@ import { assignTranscriptSeqs, type ConversationStoreContext } from './conversat
 import { createListenerRegistry } from './conversation-store/listeners'
 import { createProjectLinkRegistry } from './conversation-store/project-links'
 import {
+  buildSentinelList,
   createSentinelState,
   isSentinelAlive as isSentinelAliveImpl,
   pushSentinelDiag as pushSentinelDiagImpl,
@@ -219,6 +220,7 @@ export interface ConversationStore {
   recordSentinelHeartbeat: (ws: ServerWebSocket<unknown>) => void
   isSentinelAlive: (sentinelId: string) => boolean
   hasSentinel: () => boolean
+  getSentinels: () => ReturnType<typeof buildSentinelList>
   // Sentinel diagnostics (structured log entries from sentinel)
   pushSentinelDiag: (entry: { t: number; type: string; msg: string; args?: unknown }) => void
   getSentinelDiag: () => Array<{ t: number; type: string; msg: string; args?: unknown }>
@@ -2159,6 +2161,10 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     return sentinelState.sentinels.size > 0
   }
 
+  function getSentinels(): ReturnType<typeof buildSentinelList> {
+    return buildSentinelList(sentinelState)
+  }
+
   function pushSentinelDiag(entry: { t: number; type: string; msg: string; args?: unknown }): void {
     pushSentinelDiagImpl(sentinelState, entry)
   }
@@ -2509,6 +2515,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     recordSentinelHeartbeat,
     isSentinelAlive,
     hasSentinel,
+    getSentinels,
     pushSentinelDiag,
     getSentinelDiag,
     setUsage,

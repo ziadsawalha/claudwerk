@@ -19,7 +19,26 @@ const subscribe: MessageHandler = (ctx, data) => {
   ctx.ws.data.isControlPanel = true
   const pv = (data.protocolVersion as number) || 1
   ctx.conversations.addSubscriber(ctx.ws, pv)
-  ctx.reply({ type: 'sentinel_status', connected: ctx.conversations.hasSentinel() })
+
+  // Initial sentinel snapshot for the new subscriber. Must include the full
+  // sentinels list (with profiles + pools) so the launch dialog's profile
+  // picker renders on first paint -- otherwise the store sits at sentinels=[]
+  // until a sentinel reconnect happens to re-broadcast. Bug history: prior
+  // versions sent only `{ connected }`, leaving the picker invisible until
+  // a sentinel flap.
+  const connected = ctx.conversations.hasSentinel()
+  const sentinels = ctx.conversations.getSentinels()
+  ctx.reply({ type: 'sentinel_status', connected, sentinels })
+
+  const profileCounts = sentinels.map(s => `${s.alias}(${s.profiles?.length ?? 0})`).join(',')
+  ctx.log.info(
+    `[channel] subscribe: pv=${pv} sentinel_status sent connected=${connected} sentinelCount=${sentinels.length} profiles=[${profileCounts || 'none'}]`,
+  )
+  if (connected && sentinels.length === 0) {
+    ctx.log.error(
+      `[channel] subscribe: DEGRADED sentinel_status -- hasSentinel=true but getSentinels()=[] (subscriber will not see launch-dialog profile picker until next sentinel reconnect)`,
+    )
+  }
 
   // Push current usage data if available
   const usage = ctx.conversations.getUsage()

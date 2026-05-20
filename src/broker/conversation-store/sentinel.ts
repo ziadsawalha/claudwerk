@@ -12,7 +12,7 @@ import type { ControlPanelMessage, SentinelStatusInfo } from './types'
 const SENTINEL_DIAG_MAX = 200
 const SENTINEL_STALE_MS = HEARTBEAT_INTERVAL_MS * 2.5
 
-function buildSentinelList(state: SentinelState): SentinelStatusInfo[] {
+export function buildSentinelList(state: SentinelState): SentinelStatusInfo[] {
   const list: SentinelStatusInfo[] = []
   for (const conn of state.sentinels.values()) {
     list.push({
