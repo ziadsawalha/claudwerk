@@ -34,17 +34,50 @@ describe('sentinel profile list', () => {
 })
 
 describe('sentinel profile add', () => {
-  test('creates a profile in a fresh file', async () => {
-    const code = await runProfileCli(
-      ['add', 'work', '--config-dir', join(scratch, 'cd-work'), '--label', 'Work', '--no-pool'],
-      { configPath },
-    )
+  test('creates a profile in a fresh file (omitted pool defaults to "default")', async () => {
+    const code = await runProfileCli(['add', 'work', '--config-dir', join(scratch, 'cd-work'), '--label', 'Work'], {
+      configPath,
+    })
     expect(code).toBe(0)
     expect(existsSync(configPath)).toBe(true)
     const written = JSON.parse(readFileSync(configPath, 'utf8'))
     expect(written.profiles.work.configDir).toBe(join(scratch, 'cd-work'))
     expect(written.profiles.work.label).toBe('Work')
-    expect(written.profiles.work.pooled).toBe(false)
+    // pool not written when omitted; loader synthesises "default".
+    expect(written.profiles.work.pool).toBeUndefined()
+  })
+
+  test('creates a profile with --pool <name>', async () => {
+    const code = await runProfileCli(['add', 'work-1', '--config-dir', join(scratch, 'cd-w1'), '--pool', 'work'], {
+      configPath,
+    })
+    expect(code).toBe(0)
+    const written = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(written.profiles['work-1'].pool).toBe('work')
+  })
+
+  test('creates a profile with --no-pool (excluded)', async () => {
+    const code = await runProfileCli(['add', 'priv', '--config-dir', join(scratch, 'cd-priv'), '--no-pool'], {
+      configPath,
+    })
+    expect(code).toBe(0)
+    const written = JSON.parse(readFileSync(configPath, 'utf8'))
+    expect(written.profiles.priv.pool).toBeNull()
+  })
+
+  test('rejects --pool together with --no-pool', async () => {
+    const code = await runProfileCli(
+      ['add', 'mix', '--config-dir', join(scratch, 'cd-mix'), '--pool', 'work', '--no-pool'],
+      { configPath },
+    )
+    expect(code).toBe(2)
+  })
+
+  test('rejects bad pool name', async () => {
+    const code = await runProfileCli(['add', 'work', '--config-dir', join(scratch, 'cd-w'), '--pool', 'Bad Pool'], {
+      configPath,
+    })
+    expect(code).toBe(2)
   })
 
   test('rejects duplicate add', async () => {
@@ -86,24 +119,43 @@ describe('sentinel profile rm', () => {
 })
 
 describe('sentinel profile pool', () => {
-  test('toggles pooled off then on', async () => {
+  test('--set moves a profile to a named pool', async () => {
     writeFileSync(configPath, JSON.stringify({ profiles: { work: { configDir: join(scratch, 'cd-work') } } }))
-    const off = await runProfileCli(['pool', 'work', '--off'], { configPath })
-    expect(off).toBe(0)
-    expect(JSON.parse(readFileSync(configPath, 'utf8')).profiles.work.pooled).toBe(false)
-    const on = await runProfileCli(['pool', 'work', '--on'], { configPath })
-    expect(on).toBe(0)
-    expect(JSON.parse(readFileSync(configPath, 'utf8')).profiles.work.pooled).toBe(true)
+    const code = await runProfileCli(['pool', 'work', '--set', 'alt'], { configPath })
+    expect(code).toBe(0)
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).profiles.work.pool).toBe('alt')
   })
 
-  test('rejects missing --on/--off', async () => {
+  test('--none excludes a profile from every pool', async () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({ profiles: { work: { configDir: join(scratch, 'cd-work'), pool: 'work' } } }),
+    )
+    const code = await runProfileCli(['pool', 'work', '--none'], { configPath })
+    expect(code).toBe(0)
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).profiles.work.pool).toBeNull()
+  })
+
+  test('rejects missing --set / --none', async () => {
     writeFileSync(configPath, JSON.stringify({ profiles: { work: { configDir: join(scratch, 'cd-work') } } }))
     const code = await runProfileCli(['pool', 'work'], { configPath })
     expect(code).toBe(2)
   })
 
+  test('rejects --set without a pool name', async () => {
+    writeFileSync(configPath, JSON.stringify({ profiles: { work: { configDir: join(scratch, 'cd-work') } } }))
+    const code = await runProfileCli(['pool', 'work', '--set'], { configPath })
+    expect(code).toBe(2)
+  })
+
+  test('rejects --set with a bad pool name', async () => {
+    writeFileSync(configPath, JSON.stringify({ profiles: { work: { configDir: join(scratch, 'cd-work') } } }))
+    const code = await runProfileCli(['pool', 'work', '--set', 'Bad Pool'], { configPath })
+    expect(code).toBe(2)
+  })
+
   test('reports unknown profile', async () => {
-    const code = await runProfileCli(['pool', 'no-such', '--on'], { configPath })
+    const code = await runProfileCli(['pool', 'no-such', '--set', 'work'], { configPath })
     expect(code).toBe(1)
   })
 })

@@ -36,22 +36,31 @@ import { resolveBackendByName, type SpawnDeps } from './backends'
 import type { ConversationStore } from './conversation-store'
 import type { GlobalSettings } from './global-settings'
 
-/** Selection-mode tokens that are NOT literal profile names. Phase 4 ships
- *  the picker behavior; Phase 3 just forwards these to the sentinel. */
+/** Selection-mode tokens that are NOT literal profile names. The sentinel
+ *  runs the picker; the broker forwards both `profile` and `pool` verbatim. */
 const SELECTION_MODE_TOKENS = new Set<string>(['default', 'balanced', 'random'])
 
 /**
- * Translate the wire-level `req.profile` (string | undefined) into the
- * persisted `LaunchConfig.sentinelProfile` tagged union (INTENT). Absent
- * input and the literal `'default'` token both yield undefined (default
- * profile is implicit on the conversation record). Phase 4 ships real
- * picker behavior; for now Phase 3 just persists the user's intent so it
- * round-trips across revive + launch-profile save.
+ * Translate the wire-level (`req.profile`, `req.pool`) pair into the
+ * persisted `LaunchConfig.sentinelProfile` tagged union (INTENT). The intent
+ * round-trips across revive + launch-profile save and feeds the conversation
+ * badge UX.
+ *
+ *  - Absent profile + absent pool                     -> undefined
+ *    (default profile is implicit on the conversation record)
+ *  - profile = literal name                           -> { kind: 'fixed', name }
+ *    (pool is ignored -- Fixed always wins)
+ *  - profile in {balanced, random}                    -> { kind: <m>, pool? }
+ *  - profile absent/`default` + pool present          -> { kind: 'balanced', pool }
+ *    (pool-only at launch implies Balanced from that pool)
  */
-function intentFromProfileField(profile?: string): LaunchConfig['sentinelProfile'] {
-  if (!profile || profile === 'default') return undefined
-  if (profile === 'balanced') return { kind: 'balanced' }
-  if (profile === 'random') return { kind: 'random' }
+function intentFromProfileField(profile?: string, pool?: string): LaunchConfig['sentinelProfile'] {
+  if (!profile || profile === 'default') {
+    return pool ? { kind: 'balanced', pool } : undefined
+  }
+  if (profile === 'balanced') return pool ? { kind: 'balanced', pool } : { kind: 'balanced' }
+  if (profile === 'random') return pool ? { kind: 'random', pool } : { kind: 'random' }
+  // Literal profile name -- Fixed wins, drop any pool.
   return { kind: 'fixed', name: profile }
 }
 
@@ -305,6 +314,26 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
     // rather than gating off a missing identify field.
   }
 
+  // Pool validation (Balanced/Random only -- Fixed wins and silently drops
+  // pool, so a Fixed launch with an unknown pool is not an error). When the
+  // target sentinel reports its pool registry, confirm the requested pool
+  // exists. Legacy sentinels without a `pools` slice pass through; the
+  // sentinel itself falls back to default-pool empty-fallback if needed.
+  const requestsPool = req.pool && (req.profile === undefined || req.profile === 'balanced' || req.profile === 'random')
+  if (requestsPool && resolvedSentinelId) {
+    const conn = deps.conversationStore.getSentinelConnection(resolvedSentinelId)
+    const reportedPools = conn?.pools
+    if (reportedPools && reportedPools.length > 0 && req.pool && !reportedPools.includes(req.pool)) {
+      const sentinelLabel = targetAlias ?? conn?.alias ?? 'default'
+      const known_list = reportedPools.join(', ') || 'none'
+      return {
+        ok: false,
+        error: `pool "${req.pool}" not configured on sentinel "${sentinelLabel}"; known: ${known_list}`,
+        statusCode: 400,
+      }
+    }
+  }
+
   if (req.mode === 'resume' && !req.resumeId) {
     return { ok: false, error: 'resumeId required for resume mode', statusCode: 400 }
   }
@@ -411,9 +440,9 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
       maxBudgetUsd,
       env: req.env || undefined,
       appendSystemPrompt: req.appendSystemPrompt || undefined,
-      // Sentinel-profile INTENT (broker-safe NAME / mode token only). Profile
-      // env stays sentinel-side (PROFILE-ENV BOUNDARY covenant).
-      sentinelProfile: intentFromProfileField(req.profile),
+      // Sentinel-profile INTENT (broker-safe NAME / mode / pool only).
+      // Profile env stays sentinel-side (PROFILE-ENV BOUNDARY covenant).
+      sentinelProfile: intentFromProfileField(req.profile, req.pool),
     })
 
     try {
@@ -456,6 +485,7 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
           env: req.env || undefined,
           appendSystemPrompt: req.appendSystemPrompt || undefined,
           profile: req.profile || undefined,
+          pool: req.pool || undefined,
         }),
       )
     } catch {

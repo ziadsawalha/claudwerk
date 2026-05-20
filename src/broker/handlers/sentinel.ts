@@ -10,7 +10,10 @@ import { ANY_ROLE, registerHandlers, SENTINEL_ONLY } from '../message-router'
 /** Validate the sentinel-reported profiles slice. PROFILE-ENV BOUNDARY: any
  *  field other than NAME + display metadata + flags is dropped here. If a
  *  malformed sentinel ever sent `configDir` / `env` in the profiles array,
- *  it would NOT survive this filter and never reach broker storage. */
+ *  it would NOT survive this filter and never reach broker storage.
+ *
+ *  The pool field accepts a string or null (excluded). Anything else is
+ *  coerced to the implicit "default" pool. */
 // fallow-ignore-next-line complexity
 function sanitizeReportedProfiles(raw: unknown): SentinelProfileInfo[] | undefined {
   if (!Array.isArray(raw)) return undefined
@@ -22,16 +25,35 @@ function sanitizeReportedProfiles(raw: unknown): SentinelProfileInfo[] | undefin
     if (!name) continue
     const label = typeof rec.label === 'string' ? rec.label : undefined
     const color = typeof rec.color === 'string' ? rec.color : undefined
-    const pooled = typeof rec.pooled === 'boolean' ? rec.pooled : true
+    const pool: string | null = typeof rec.pool === 'string' ? rec.pool : rec.pool === null ? null : 'default'
     const authed = typeof rec.authed === 'boolean' ? rec.authed : false
-    out.push({ name, label, color, pooled, authed })
+    out.push({ name, label, color, pool, authed })
   }
   return out
+}
+
+/** Sanitise the sentinel-reported `pools` slice -- distinct string entries
+ *  matching `[a-z0-9-]{1,63}`. Returns undefined when absent or empty. */
+function sanitizeReportedPools(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    if (!/^[a-z0-9-]{1,63}$/.test(entry)) continue
+    seen.add(entry)
+  }
+  if (seen.size === 0) return undefined
+  return Array.from(seen).sort()
 }
 
 function validatedSelectionMode(raw: unknown): SelectionMode | undefined {
   if (raw === 'default' || raw === 'balanced' || raw === 'random') return raw
   return undefined
+}
+
+function validatedPoolName(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  return /^[a-z0-9-]{1,63}$/.test(raw) ? raw : undefined
 }
 
 // fallow-ignore-next-line complexity
@@ -42,6 +64,8 @@ const sentinelIdentify: MessageHandler = (ctx, data) => {
   const authAlias = ctx.ws.data.sentinelAlias
   const profiles = sanitizeReportedProfiles(data.profiles)
   const defaultSelection = validatedSelectionMode(data.defaultSelection)
+  const pools = sanitizeReportedPools(data.pools)
+  const defaultPool = validatedPoolName(data.defaultPool)
 
   const sentinelMeta = {
     machineId: typeof data.machineId === 'string' ? data.machineId : undefined,
@@ -51,6 +75,8 @@ const sentinelIdentify: MessageHandler = (ctx, data) => {
     sentinelId: authSentinelId,
     profiles,
     defaultSelection,
+    pools,
+    defaultPool,
   }
   const accepted = ctx.conversations.setSentinel(ctx.ws, sentinelMeta)
   if (accepted) {
@@ -60,7 +86,7 @@ const sentinelIdentify: MessageHandler = (ctx, data) => {
     const aliasLabel = sentinelMeta.alias ? ` alias=${sentinelMeta.alias}` : ''
     const profilesLabel =
       profiles && profiles.length > 0
-        ? ` profiles=[${profiles.map(p => `${p.name}${p.authed ? '' : '?'}${p.pooled ? '' : '/np'}`).join(',')}] defaultSelection=${defaultSelection ?? 'default'}`
+        ? ` profiles=[${profiles.map(p => `${p.name}${p.authed ? '' : '?'}/${p.pool ?? '-'}`).join(',')}] pools=[${pools?.join(',') ?? '-'}] defaultSelection=${defaultSelection ?? 'default'} defaultPool=${defaultPool ?? 'default'}`
         : ''
     ctx.log.info(`Sentinel connected${label}${aliasLabel}${profilesLabel}`)
   } else {

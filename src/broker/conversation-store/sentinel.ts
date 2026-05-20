@@ -22,6 +22,8 @@ function buildSentinelList(state: SentinelState): SentinelStatusInfo[] {
       connected: true,
       profiles: conn.profiles,
       defaultSelection: conn.defaultSelection,
+      pools: conn.pools,
+      defaultPool: conn.defaultPool,
     })
   }
   return list
@@ -43,6 +45,11 @@ export interface SentinelConnection {
   profiles?: SentinelProfileInfo[]
   /** What the sentinel does on a no-profile spawn. */
   defaultSelection?: SelectionMode
+  /** Distinct pool NAMES across `profiles` (sorted; excludes the `null` pool). */
+  pools?: string[]
+  /** Pool the sentinel uses when a Balanced/Random launch omits a pool.
+   *  Defaults to `'default'`. */
+  defaultPool?: string
 }
 
 export interface SentinelIdentifyInfo {
@@ -54,6 +61,8 @@ export interface SentinelIdentifyInfo {
   /** Reported profile NAMES + display only -- NEVER configDir or env. */
   profiles?: SentinelProfileInfo[]
   defaultSelection?: SelectionMode
+  pools?: string[]
+  defaultPool?: string
 }
 
 export interface SentinelState {
@@ -105,6 +114,8 @@ export function setSentinel(
     lastHeartbeat: now,
     profiles: info?.profiles,
     defaultSelection: info?.defaultSelection,
+    pools: info?.pools,
+    defaultPool: info?.defaultPool,
   }
   state.sentinels.set(sentinelId, conn)
   state.sentinelsByAlias.set(alias, sentinelId)

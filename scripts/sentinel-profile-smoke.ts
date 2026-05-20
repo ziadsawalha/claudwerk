@@ -59,7 +59,7 @@ async function main(): Promise<number> {
             work: {
               configDir: '~/.claude-work',
               env: { ANTHROPIC_PROFILE_TAG: 'work-fixture' },
-              pooled: true,
+              pool: 'default',
               label: 'Work account',
             },
           },

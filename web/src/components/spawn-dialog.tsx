@@ -84,6 +84,10 @@ interface SpawnDialogOptions {
    *  `claude://profile@sentinel/...` URI. Pre-selects the Sentinel-profile
    *  radio in the launch modal. */
   profile?: string
+  /** Sentinel-pool name (e.g. `"work"`). Parsed from the `@sentinel#pool`
+   *  shorthand. Pre-selects Balanced + pool in the launch modal when present
+   *  without an explicit `profile`. Mutually exclusive with Fixed profile. */
+  pool?: string
 }
 
 interface HermesGateway {
@@ -155,6 +159,9 @@ export function SpawnDialog() {
    *  string falls back to the sentinel's `defaultSelection`. Wire field name:
    *  `SpawnRequest.profile`. */
   const [sentinelProfile, setSentinelProfile] = useState<string>('')
+  /** Sentinel-pool selection for Balanced/Random launches. Empty string =
+   *  use the sentinel's `defaultPool`. Wire field: `SpawnRequest.pool`. */
+  const [sentinelPool, setSentinelPool] = useState<string>('')
   const [phase, setPhase] = useState<'config' | 'launching'>('config')
   const [savedFeedback, setSavedFeedback] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -251,6 +258,12 @@ export function SpawnDialog() {
       // profile's saved sentinel-profile (if any) takes precedence and is
       // applied by `applyProfileToForm` below.
       setSentinelProfile(options.profile ?? '')
+      // Pool-only launch (palette `@sentinel#pool`) -> the dialog interprets
+      // it as Balanced from that pool: pre-select Balanced, pre-select the pool.
+      if (options.pool && !options.profile) {
+        setSentinelProfile('balanced')
+      }
+      setSentinelPool(options.pool ?? '')
       if (initialProfile) {
         applyProfileToForm(initialProfile, {
           setHeadless,
@@ -270,6 +283,7 @@ export function SpawnDialog() {
           setDaemonMode,
           setDaemonForm,
           setSentinelProfile,
+          setSentinelPool,
         })
       }
       // Fetch chat connections + gateway availability
@@ -383,6 +397,7 @@ export function SpawnDialog() {
         description: description.trim() || undefined,
         sentinel: (isAttach ? daemonAttach?.sentinelAlias : undefined) || state.options.sentinel || undefined,
         profile: sentinelProfile || undefined,
+        pool: sentinelPool || undefined,
         jobId: newJobId,
         ...buildDaemonSpawnFields({ mode: daemonMode, form: daemonForm, attachShort: daemonAttach?.short }),
       }
@@ -416,6 +431,7 @@ export function SpawnDialog() {
         includePartialMessages: includePartialMessages || undefined,
         sentinel: state.options.sentinel || undefined,
         profile: sentinelProfile || undefined,
+        pool: sentinelPool || undefined,
         env: parsedEnv || undefined,
         jobId: newJobId,
         backend: backend !== 'claude' ? backend : undefined,
@@ -667,6 +683,8 @@ export function SpawnDialog() {
   const targetSentinel = sentinelStatuses.find(s => s.alias.toLowerCase() === targetSentinelAlias)
   const targetProfiles = targetSentinel?.profiles ?? []
   const targetDefaultSelection = targetSentinel?.defaultSelection
+  const targetPools = targetSentinel?.pools ?? []
+  const targetDefaultPool = targetSentinel?.defaultPool
 
   const fieldsValue: LaunchFieldsValue = {
     model,
@@ -792,10 +810,17 @@ export function SpawnDialog() {
                 <div className="shrink-0 px-1.5">
                   <SentinelProfileRadio
                     profiles={targetProfiles}
+                    pools={targetPools}
                     defaultSelection={targetDefaultSelection}
+                    defaultPool={targetDefaultPool}
                     value={sentinelProfile}
                     onChange={v => {
                       setSentinelProfile(v)
+                      haptic('tick')
+                    }}
+                    poolValue={sentinelPool}
+                    onPoolChange={v => {
+                      setSentinelPool(v)
                       haptic('tick')
                     }}
                   />

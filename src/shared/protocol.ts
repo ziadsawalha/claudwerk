@@ -1965,11 +1965,16 @@ export interface Conversation {
  *
  * - 'default'  -- pick whatever the sentinel's `defaultSelection` says (the
  *                 no-input spawn behavior; usually the literal `default` profile).
- * - 'balanced' -- sentinel picks the least-loaded pooled profile.
- * - 'random'   -- sentinel picks a uniformly random pooled profile.
+ * - 'balanced' -- sentinel picks the least-loaded profile from a pool.
+ * - 'random'   -- sentinel picks a uniformly random profile from a pool.
  *
  * A literal profile NAME (e.g. `'work'`) lives alongside this type in fields
  * typed `SelectionMode | string`; the named-profile path is the "Fixed" mode.
+ *
+ * Balanced / Random pair with an optional `pool` field (see
+ * `LaunchConfig.sentinelProfile`). When the pool is omitted at launch, the
+ * sentinel substitutes its configured `defaultPool` (which itself defaults to
+ * `"default"`).
  */
 export type SelectionMode = 'default' | 'balanced' | 'random'
 
@@ -1987,8 +1992,14 @@ export interface SentinelProfileInfo {
   label?: string
   /** Optional tint for the profile badge. */
   color?: string
-  /** Whether this profile participates in `balanced` / `random` selection. */
-  pooled: boolean
+  /** Named pool this profile belongs to (e.g. `"work"`, `"alt"`). A profile
+   *  with `pool === null` is excluded from every Balanced/Random selection
+   *  (Fixed-only). When the sentinel's config omits the `pool` field for a
+   *  profile, the sentinel reports `pool: "default"`.
+   *
+   *  Balanced / Random launches filter profiles by `pool === requestedPool`
+   *  (or the sentinel's `defaultPool` when the launch omits a pool). */
+  pool: string | null
   /** Whether the sentinel believes this profile has valid Claude credentials
    *  in its `configDir`. Surfaced so the control panel can flag an un-authed
    *  profile before a spawn fails. */
@@ -2025,19 +2036,24 @@ export interface LaunchConfig {
    * Per-launch sentinel-profile INTENT -- what the user asked for at launch
    * time. Absent => `default` profile.
    *
-   * - `{ kind: 'fixed', name }` -- user pinned an explicit named profile.
-   * - `{ kind: 'balanced' }`    -- sentinel picks least-loaded pooled profile.
-   * - `{ kind: 'random' }`      -- sentinel picks a uniformly random pooled profile.
+   * - `{ kind: 'fixed', name }`              -- user pinned an explicit named profile.
+   * - `{ kind: 'balanced', pool? }`          -- sentinel picks least-loaded profile
+   *                                              from `pool` (or its `defaultPool`).
+   * - `{ kind: 'random',   pool? }`          -- sentinel picks a uniformly random
+   *                                              profile from `pool` (or its `defaultPool`).
    *
    * The RESOLVED profile name (what the sentinel actually picked) lives in
-   * the conversation's `projectUri` userinfo, not here. The intent stays
-   * around for display ("this was picked by random") and re-launch-as-new
-   * semantics.
+   * the conversation's `projectUri` userinfo, not here. The intent (including
+   * the requested pool) stays around for display ("this was picked by Random
+   * from the work pool") and re-launch-as-new semantics.
    *
    * Profile env (API keys, `configDir`) NEVER reaches this struct -- see
    * `.claude/docs/plan-sentinel-profiles.md` Profile-Env Boundary covenant.
    */
-  sentinelProfile?: { kind: 'fixed'; name: string } | { kind: 'balanced' } | { kind: 'random' }
+  sentinelProfile?:
+    | { kind: 'fixed'; name: string }
+    | { kind: 'balanced'; pool?: string }
+    | { kind: 'random'; pool?: string }
 }
 
 // ─── Launch Jobs (request-scoped event channels for spawn/revive) ────
@@ -2113,6 +2129,13 @@ export interface SentinelIdentify {
   /** What the sentinel does when a spawn arrives with no explicit profile.
    *  Defaults to `'default'` (use the `default` profile, today's behavior). */
   defaultSelection?: SelectionMode
+  /** Distinct pool names across `profiles` (sorted; excludes the `null` pool
+   *  i.e. excluded profiles). Sent pre-computed so the control panel can
+   *  populate the pool picker without re-scanning. */
+  pools?: string[]
+  /** Pool the sentinel uses for Balanced/Random launches that omit a pool.
+   *  Defaults to `'default'`. Configured by the sentinel's `sentinel.json`. */
+  defaultPool?: string
 }
 
 export interface ReviveResult {
@@ -2552,6 +2575,10 @@ export interface SpawnConversation {
    *  Profile env (configDir, API keys) is resolved sentinel-side from this
    *  name -- the broker never holds it (Profile-Env Boundary covenant). */
   profile?: SelectionMode | string
+  /** Pool name for Balanced/Random selection (`[a-z0-9-]{1,63}`). When
+   *  absent the sentinel substitutes its configured `defaultPool` (default
+   *  `"default"`). Ignored for Fixed (a literal profile name beats it). */
+  pool?: string
 }
 
 export interface ListDirs {

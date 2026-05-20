@@ -7,7 +7,7 @@ interface SentinelProfileInfoLite {
   name: string
   label?: string
   color?: string
-  pooled: boolean
+  pool: string | null
   authed: boolean
 }
 
@@ -25,6 +25,8 @@ interface SentinelEntry {
   createdAt: number
   profiles?: SentinelProfileInfoLite[]
   defaultSelection?: SelectionMode
+  pools?: string[]
+  defaultPool?: string
 }
 
 /** Per-(sentinelId, profile) usage breakdown row (matches
@@ -48,9 +50,11 @@ function fmtUsd(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
-function ProfilePoolBadge({ pooled }: { pooled: boolean }) {
-  const cls = pooled ? 'bg-accent/12 text-accent/80' : 'text-muted-foreground/40'
-  return <span className={`px-1 py-0.5 text-[8px] ${cls} rounded uppercase`}>{pooled ? 'pooled' : 'pinned'}</span>
+function ProfilePoolBadge({ pool }: { pool: string | null }) {
+  if (pool === null) {
+    return <span className="px-1 py-0.5 text-[8px] text-muted-foreground/40 rounded uppercase">pinned</span>
+  }
+  return <span className="px-1 py-0.5 text-[8px] bg-accent/12 text-accent/80 rounded lowercase">#{pool}</span>
 }
 
 function ProfileUsageSpan({ usage }: { usage?: ProfileUsageRow }) {
@@ -72,7 +76,7 @@ function ProfileBreakdownLine({ profile, usage }: { profile: SentinelProfileInfo
         {profile.name}
       </span>
       {profile.label && <span className="text-muted-foreground/50">{profile.label}</span>}
-      <ProfilePoolBadge pooled={profile.pooled} />
+      <ProfilePoolBadge pool={profile.pool} />
       <span className="flex-1" />
       <ProfileUsageSpan usage={usage} />
     </div>
@@ -89,6 +93,7 @@ function SentinelHeader({
   onRevoke: () => void
 }) {
   const showSelection = sentinel.defaultSelection && sentinel.defaultSelection !== 'default'
+  const showDefaultPool = sentinel.defaultPool && sentinel.defaultPool !== 'default'
   return (
     <div className="flex items-center gap-2 p-2">
       <span className={`text-sm ${sentinel.connected ? 'text-active' : 'text-muted-foreground/40'}`}>
@@ -102,6 +107,11 @@ function SentinelHeader({
       {showSelection && (
         <span className="px-1 py-0.5 text-[8px] bg-primary/12 text-primary/80 rounded uppercase">
           {sentinel.defaultSelection}
+        </span>
+      )}
+      {showDefaultPool && (
+        <span className="px-1 py-0.5 text-[8px] bg-accent/12 text-accent/80 rounded lowercase">
+          pool: {sentinel.defaultPool}
         </span>
       )}
       <span className="flex-1" />

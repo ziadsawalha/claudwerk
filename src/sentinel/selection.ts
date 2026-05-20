@@ -3,13 +3,27 @@
  *
  * Three modes:
  *   - Fixed:    a literal profile name. Short-circuits to that profile.
- *   - Balanced: from `pooled: true` profiles, pick the one with the fewest
- *               live agent hosts. Ties broken by name (stable).
- *   - Random:   uniform pick over `pooled: true` profiles.
+ *   - Balanced: from profiles whose `pool` matches the requested pool (or
+ *               the sentinel's `defaultPool`), pick the one with the fewest
+ *               live agent hosts. Ties broken by name (stable). FUTURE: also
+ *               consider per-profile rate-limit headroom -- fresh (non-stale)
+ *               5h / 7d quota collected per profile (see plan-sentinel-profiles
+ *               §"Per-Profile Usage Tracking" + Open Questions). Today the
+ *               sentinel only tracks live load.
+ *   - Random:   uniform pick over the same pool-filtered profiles.
  *
  * No-input spawn falls through to `config.defaultSelection` (default, balanced,
  * or random). Revive NEVER calls this -- revive always pins to a literal name
  * via the URI userinfo (see `case 'revive':` in `src/sentinel/index.ts`).
+ *
+ * Pool resolution:
+ *   - When the caller passes an explicit `pool`, that's the pool used.
+ *   - When the caller passes no pool (Balanced/Random no-input launch), the
+ *     sentinel uses `config.defaultPool` (which defaults to `"default"`).
+ *   - Profiles with `pool === null` are NEVER eligible for any pool (excluded
+ *     from every Balanced/Random selection; Fixed-only).
+ *   - An empty pool (no profiles match) falls back to the default profile so
+ *     the spawn still succeeds; the picker reports `fallback:empty-pool`.
  *
  * PROFILE-ENV BOUNDARY -- this module returns a `ResolvedProfile` for
  * sentinel-side use. The caller (sentinel spawn handler) reports only the
@@ -26,12 +40,14 @@ type SelectionToken = 'default' | 'balanced' | 'random'
 export interface PickResult {
   profile: ResolvedProfile
   /** Which lane the picker took. `fixed` -- literal name; `balanced` /
-   *  `random` -- pooled pick; `default` -- the default profile (config's
-   *  defaultSelection was 'default' or balanced/random pool was empty). */
+   *  `random` -- pool-filtered pick; `default` -- the default profile (config's
+   *  defaultSelection was 'default' or the requested pool was empty). */
   picker: 'fixed' | 'balanced' | 'random' | 'default'
-  /** Pool actually considered (pooled-only for balanced/random; empty for
-   *  fixed/default). Useful for logging. */
-  pool: string[]
+  /** Pool NAME actually considered. Empty string for `fixed` / `default`. */
+  requestedPool: string
+  /** Profile names actually considered (pool-filtered for balanced/random;
+   *  empty for fixed/default). Useful for logging. */
+  candidates: string[]
   /** Human-readable reason ("least-active", "random", "fallback:empty-pool",
    *  "literal", "default"). For LOG EVERYTHING covenant compliance. */
   reason: string
@@ -51,6 +67,9 @@ export interface PickOptions {
   /** Selection input from the spawn message: a literal profile name, a
    *  mode token (`'balanced'` / `'random'` / `'default'`), or `undefined`. */
   input?: string
+  /** Pool name to constrain Balanced/Random selection. When absent the
+   *  picker uses `config.defaultPool`. Ignored for Fixed. */
+  pool?: string
   /** Live load source (sentinel-local). Required for balanced; ignored otherwise. */
   liveLoad?: LiveLoadSource
   /** RNG seam (random only). */
@@ -63,9 +82,10 @@ export interface PickOptions {
  */
 // fallow-ignore-next-line complexity
 export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): PickResult {
-  const { input, liveLoad, rand } = opts
+  const { input, pool: requestedPoolInput, liveLoad, rand } = opts
 
-  // Literal name -- short-circuit. Validate against the known set.
+  // Literal name -- short-circuit. Validate against the known set. Fixed wins
+  // over pool: even if a pool was requested, an explicit name beats it.
   if (input && input !== 'default' && input !== 'balanced' && input !== 'random') {
     const profile = config.profiles[input]
     if (!profile) {
@@ -73,7 +93,7 @@ export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): Pic
         `sentinel selection: unknown profile "${input}" (known: ${Object.keys(config.profiles).join(', ')})`,
       )
     }
-    return { profile, picker: 'fixed', pool: [], reason: 'literal' }
+    return { profile, picker: 'fixed', requestedPool: '', candidates: [], reason: 'literal' }
   }
 
   // Mode resolution. Absent / 'default' input -> consult defaultSelection.
@@ -84,42 +104,51 @@ export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): Pic
     return {
       profile: requireProfile(config, DEFAULT_PROFILE_NAME),
       picker: 'default',
-      pool: [],
+      requestedPool: '',
+      candidates: [],
       reason: 'default',
     }
   }
 
-  const pool = pooledProfiles(config)
+  // Resolve which pool to filter by. Explicit takes priority, then the
+  // sentinel's configured defaultPool. (Configs without a defaultPool have
+  // already been normalised to `"default"` by loadSentinelConfig.)
+  const requestedPool = requestedPoolInput ?? config.defaultPool
 
-  if (pool.length === 0) {
+  const candidates = profilesInPool(config, requestedPool)
+
+  if (candidates.length === 0) {
     // Empty pool -- fall back to default. Logged so an operator notices a
-    // misconfiguration (e.g. every profile marked `pooled: false`).
+    // misconfiguration (e.g. requested pool name has zero members).
     return {
       profile: requireProfile(config, DEFAULT_PROFILE_NAME),
       picker: 'default',
-      pool: [],
+      requestedPool,
+      candidates: [],
       reason: 'fallback:empty-pool',
     }
   }
 
   if (mode === 'balanced') {
     const get = liveLoad ?? (() => 0)
-    const picked = pickLeastLoaded(pool, get)
+    const picked = pickLeastLoaded(candidates, get)
     return {
       profile: picked,
       picker: 'balanced',
-      pool: pool.map(p => p.name),
+      requestedPool,
+      candidates: candidates.map(p => p.name),
       reason: 'least-active',
     }
   }
 
   // mode === 'random'
   const r = rand ?? Math.random
-  const idx = Math.floor(r() * pool.length) % pool.length
+  const idx = Math.floor(r() * candidates.length) % candidates.length
   return {
-    profile: pool[idx],
+    profile: candidates[idx],
     picker: 'random',
-    pool: pool.map(p => p.name),
+    requestedPool,
+    candidates: candidates.map(p => p.name),
     reason: 'random',
   }
 }
@@ -135,22 +164,23 @@ function requireProfile(config: SentinelConfig, name: string): ResolvedProfile {
   return profile
 }
 
-/** Profiles with `pooled: true`, sorted by name (stable ordering for
- *  tie-breaking and reproducible random with a seeded RNG). */
-function pooledProfiles(config: SentinelConfig): ResolvedProfile[] {
+/** Profiles in the requested pool (`p.pool === pool`), sorted by name
+ *  (stable ordering for tie-breaking and reproducible random with a seeded
+ *  RNG). Profiles with `pool === null` are always excluded. */
+function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[] {
   return Object.values(config.profiles)
-    .filter(p => p.pooled)
+    .filter(p => p.pool === pool)
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Least-loaded profile from the pool. Ties broken by name (stable since
- *  the pool is pre-sorted by name -- the first profile in iteration order
- *  with the minimum load wins). */
-function pickLeastLoaded(pool: ResolvedProfile[], liveLoad: LiveLoadSource): ResolvedProfile {
-  let best: ResolvedProfile = pool[0]
+/** Least-loaded profile from the candidates. Ties broken by name (stable since
+ *  the candidate list is pre-sorted by name -- the first profile in iteration
+ *  order with the minimum load wins). */
+function pickLeastLoaded(candidates: ResolvedProfile[], liveLoad: LiveLoadSource): ResolvedProfile {
+  let best: ResolvedProfile = candidates[0]
   let bestLoad = liveLoad(best.name)
-  for (let i = 1; i < pool.length; i++) {
-    const candidate = pool[i]
+  for (let i = 1; i < candidates.length; i++) {
+    const candidate = candidates[i]
     const load = liveLoad(candidate.name)
     if (load < bestLoad) {
       best = candidate

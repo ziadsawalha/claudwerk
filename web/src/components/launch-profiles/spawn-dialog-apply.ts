@@ -33,10 +33,14 @@ export interface SpawnFormSetters {
   /** Daemon launch state -- only invoked when the profile's backend is daemon. */
   setDaemonMode?: (v: DaemonMode) => void
   setDaemonForm?: (v: DaemonModeFormValue) => void
-  /** Sentinel-profile INTENT (Phase 6) -- either a literal profile name or
-   *  a SelectionMode token (`default` | `balanced` | `random`). Optional so
+  /** Sentinel-profile INTENT -- either a literal profile name or a
+   *  SelectionMode token (`default` | `balanced` | `random`). Optional so
    *  callers that don't yet wire the radio can stay agnostic. */
   setSentinelProfile?: (v: string) => void
+  /** Sentinel-pool INTENT (Balanced/Random only) -- the named pool to draw
+   *  from. Optional; callers that don't yet render the pool picker can stay
+   *  agnostic and the sentinel falls back to its `defaultPool`. */
+  setSentinelPool?: (v: string) => void
 }
 
 export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSetters): void {
@@ -48,6 +52,7 @@ export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSet
     // Daemon launches also honor the sentinel-profile pick (the daemon worker
     // runs under the resolved profile's `CLAUDE_CONFIG_DIR`).
     if (setters.setSentinelProfile) setters.setSentinelProfile(s.profile ?? '')
+    if (setters.setSentinelPool) setters.setSentinelPool(s.pool ?? '')
     return
   }
   if (s.headless !== undefined) setters.setHeadless(s.headless)
@@ -64,8 +69,10 @@ export function applyProfileToForm(profile: LaunchProfile, setters: SpawnFormSet
   setters.setEnvText(envObjectToText(s.env))
   if (s.openCodeModel && setters.setOpenCodeModel) setters.setOpenCodeModel(s.openCodeModel)
   if (s.toolPermission && setters.setOpenCodeToolPermission) setters.setOpenCodeToolPermission(s.toolPermission)
-  // Sentinel-profile intent (Phase 6) -- empty string = follow sentinel default.
+  // Sentinel-profile intent -- empty string = follow sentinel default.
   if (setters.setSentinelProfile) setters.setSentinelProfile(s.profile ?? '')
+  // Sentinel-pool intent (Balanced/Random) -- empty string = follow defaultPool.
+  if (setters.setSentinelPool) setters.setSentinelPool(s.pool ?? '')
 }
 
 function envObjectToText(env: Record<string, string> | undefined): string {
@@ -137,10 +144,14 @@ export interface FormSnapshotInput {
   /** Daemon launch state -- read only when `backend === 'daemon'`. */
   daemonMode?: DaemonMode
   daemonForm?: DaemonModeFormValue
-  /** Sentinel-profile INTENT (Phase 6) -- empty string omits the field
-   *  (sentinel applies its `defaultSelection`). Stored verbatim on the
-   *  launch profile's `spawn.profile`. */
+  /** Sentinel-profile INTENT -- empty string omits the field (sentinel
+   *  applies its `defaultSelection`). Stored verbatim on the launch
+   *  profile's `spawn.profile`. */
   sentinelProfile?: string
+  /** Sentinel-pool INTENT (Balanced/Random only). Empty string omits the
+   *  field (sentinel applies its `defaultPool`). Stored verbatim on the
+   *  launch profile's `spawn.pool`. */
+  sentinelPool?: string
 }
 
 /**
@@ -154,6 +165,7 @@ export function formSnapshotToProfileSpawn(snap: FormSnapshotInput): LaunchProfi
   if (snap.backend === 'daemon') {
     const out = daemonFormToProfileSpawn(snap.daemonMode ?? 'new', snap.daemonForm ?? blankDaemonForm())
     if (snap.sentinelProfile) out.profile = snap.sentinelProfile
+    if (snap.sentinelPool) out.pool = snap.sentinelPool
     return out
   }
   const out: LaunchProfile['spawn'] = {}
@@ -176,6 +188,7 @@ export function formSnapshotToProfileSpawn(snap: FormSnapshotInput): LaunchProfi
   if (snap.openCodeModel) out.openCodeModel = snap.openCodeModel
   if (snap.toolPermission) out.toolPermission = snap.toolPermission
   if (snap.sentinelProfile) out.profile = snap.sentinelProfile
+  if (snap.sentinelPool) out.pool = snap.sentinelPool
   return out
 }
 

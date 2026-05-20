@@ -1,7 +1,7 @@
-import { FolderPlus, Server, User } from 'lucide-react'
+import { FolderPlus, Hash, Server, Star, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SpawnResultsProps } from './types'
-import type { ProfileSuggestion } from './use-spawn-mode'
+import type { PoolSuggestion, ProfileSuggestion } from './use-spawn-mode'
 
 function ProfileEntryRow({
   profile,
@@ -34,7 +34,8 @@ function ProfileEntryRow({
         {profile.name}
       </span>
       {profile.label && <span className="text-[9px] text-comment">{profile.label}</span>}
-      {profile.pooled === false && <span className="text-[9px] text-comment uppercase">pinned</span>}
+      {profile.pool === null && <span className="text-[9px] text-comment uppercase">pinned</span>}
+      {profile.pool && <span className="text-[9px] text-comment lowercase">#{profile.pool}</span>}
       {profile.authed === false && <span className="text-[9px] text-destructive/70 uppercase">not authed</span>}
     </button>
   )
@@ -75,14 +76,88 @@ function ProfileEntryList({
   )
 }
 
+function PoolEntryRow({
+  pool,
+  active,
+  onSelect,
+  onHover,
+}: {
+  pool: PoolSuggestion
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+}) {
+  return (
+    <button
+      type="button"
+      data-active={active}
+      onClick={onSelect}
+      onMouseEnter={onHover}
+      className={cn(
+        'w-full px-3 py-2 flex items-center gap-3 text-left transition-colors',
+        active ? 'bg-primary/20' : 'hover:bg-primary/10',
+      )}
+    >
+      <Hash className="w-3.5 h-3.5 shrink-0 text-active" />
+      <span className="text-xs text-foreground">#{pool.name}</span>
+      <span className="text-[9px] text-comment">
+        {pool.profileCount} profile{pool.profileCount === 1 ? '' : 's'}
+      </span>
+      {pool.isDefault && (
+        <span className="text-[9px] text-active uppercase tracking-wide flex items-center gap-0.5">
+          <Star className="w-2.5 h-2.5" /> default
+        </span>
+      )}
+    </button>
+  )
+}
+
+function PoolEntryList({
+  pools,
+  resolvedSentinel,
+  activeIndex,
+  setActiveIndex,
+  onPoolSelect,
+}: {
+  pools: PoolSuggestion[]
+  resolvedSentinel: string
+  activeIndex: number
+  setActiveIndex: (i: number) => void
+  onPoolSelect: (name: string) => void
+}) {
+  if (pools.length === 0) {
+    return (
+      <div className="px-3 py-4 text-center text-[10px] text-comment">
+        No matching pool on <span className="text-foreground">@{resolvedSentinel}</span>
+      </div>
+    )
+  }
+  return (
+    <>
+      {pools.map((p, i) => (
+        <PoolEntryRow
+          key={p.name}
+          pool={p}
+          active={i === activeIndex}
+          onSelect={() => onPoolSelect(p.name)}
+          onHover={() => setActiveIndex(i)}
+        />
+      ))}
+    </>
+  )
+}
+
 export function SpawnResults({
   dirs,
   sentinels,
   profiles,
+  pools,
   isSentinelEntry,
   isProfileEntry,
+  isPoolEntry,
   resolvedSentinel,
   resolvedProfile,
+  resolvedPool,
   loading,
   error,
   path,
@@ -94,6 +169,7 @@ export function SpawnResults({
   onDirSelect,
   onSentinelSelect,
   onProfileSelect,
+  onPoolSelect,
   onSpawn,
 }: SpawnResultsProps) {
   if (!sentinelConnected) {
@@ -101,7 +177,7 @@ export function SpawnResults({
   }
 
   // Profile autocomplete: user has typed `@sentinel:` and is filling in the
-  // profile-name suffix. Sourced from the sentinel's reported profile list.
+  // profile-name suffix.
   if (isProfileEntry) {
     return (
       <ProfileEntryList
@@ -110,6 +186,20 @@ export function SpawnResults({
         activeIndex={activeIndex}
         setActiveIndex={setActiveIndex}
         onProfileSelect={onProfileSelect}
+      />
+    )
+  }
+
+  // Pool autocomplete: user has typed `@sentinel#` and is filling in the
+  // pool-name suffix. Sourced from the sentinel's reported pools.
+  if (isPoolEntry) {
+    return (
+      <PoolEntryList
+        pools={pools}
+        resolvedSentinel={resolvedSentinel}
+        activeIndex={activeIndex}
+        setActiveIndex={setActiveIndex}
+        onPoolSelect={onPoolSelect}
       />
     )
   }
@@ -159,6 +249,12 @@ export function SpawnResults({
           <>
             {' '}
             with profile <span className="text-foreground">{resolvedProfile}</span>
+          </>
+        )}
+        {resolvedPool && (
+          <>
+            {' '}
+            from pool <span className="text-foreground">#{resolvedPool}</span>
           </>
         )}
       </div>

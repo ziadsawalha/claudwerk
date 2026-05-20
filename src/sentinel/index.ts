@@ -62,6 +62,7 @@ import {
   configDirFor,
   DEFAULT_PROFILE_NAME,
   defaultConfigPath,
+  getPools,
   loadSentinelConfig,
   profileSummaries,
   type ResolvedProfile,
@@ -1981,6 +1982,8 @@ function connect(
       spawnRoot,
       profiles: profileSummaries(config),
       defaultSelection: config.defaultSelection,
+      pools: getPools(config),
+      defaultPool: config.defaultPool,
     }
     ws.send(JSON.stringify(identify))
 
@@ -2330,22 +2333,26 @@ function connect(
             break
           }
 
-          // Resolve the sentinel profile. Phase 4: a literal name short-circuits
-          // (fixed); `balanced` / `random` mode tokens run the picker over the
-          // pooled set; absent / `default` consults config.defaultSelection.
-          // Unknown literal names abort with a structured spawn failure.
+          // Resolve the sentinel profile. A literal name short-circuits
+          // (fixed); `balanced` / `random` mode tokens run the picker over
+          // the requested pool (or `config.defaultPool` when absent);
+          // absent / `default` consults config.defaultSelection. Unknown
+          // literal names abort with a structured spawn failure.
           let resolvedSpawnProfile: ResolvedProfile
           let spawnPicker: 'fixed' | 'balanced' | 'random' | 'default' = 'default'
-          let spawnPickerPool: string[] = []
+          let spawnPickerCandidates: string[] = []
+          let spawnPickerPool = ''
           let spawnPickerReason = ''
           try {
             const picked = pickProfile(config, {
               input: spawnMsg.profile,
+              pool: typeof spawnMsg.pool === 'string' ? spawnMsg.pool : undefined,
               liveLoad: liveLoadForProfile,
             })
             resolvedSpawnProfile = picked.profile
             spawnPicker = picked.picker
-            spawnPickerPool = picked.pool
+            spawnPickerCandidates = picked.candidates
+            spawnPickerPool = picked.requestedPool
             spawnPickerReason = picked.reason
           } catch (e) {
             const errMsg = `spawn: profile resolution failed: ${(e as Error).message}`
@@ -2367,14 +2374,16 @@ function connect(
           // engineer can reconstruct why a given conversation landed on a
           // given profile from sentinel logs + diag alone.
           log(
-            `[picker] mode=${spawnMsg.profile ?? '<absent>'} -> picked=${resolvedSpawnProfile.name} via=${spawnPicker} reason=${spawnPickerReason} pool=[${spawnPickerPool.join(',')}] conv=${spawnMsg.conversationId.slice(0, 8)}`,
+            `[picker] mode=${spawnMsg.profile ?? '<absent>'} pool=${spawnMsg.pool ?? '<absent>'} -> picked=${resolvedSpawnProfile.name} via=${spawnPicker} reason=${spawnPickerReason} requestedPool=${spawnPickerPool || '<n/a>'} candidates=[${spawnPickerCandidates.join(',')}] conv=${spawnMsg.conversationId.slice(0, 8)}`,
           )
           diag('spawn', 'profile picked', {
             input: spawnMsg.profile ?? null,
+            requestedPoolInput: spawnMsg.pool ?? null,
             picker: spawnPicker,
             picked: resolvedSpawnProfile.name,
             reason: spawnPickerReason,
-            pool: spawnPickerPool,
+            requestedPool: spawnPickerPool || null,
+            candidates: spawnPickerCandidates,
             conversationId: spawnMsg.conversationId.slice(0, 8),
             liveLoadSnapshot: Object.fromEntries(profileLoad),
           })
@@ -2987,7 +2996,10 @@ if (config.sourcePath) {
   log(`No sentinel config at ${configPath ?? defaultConfigPath()} -- using implicit default profile only`)
 }
 const profileNames = Object.keys(config.profiles).sort()
-log(`Profiles: ${profileNames.join(', ')} (defaultSelection=${config.defaultSelection})`)
+const poolsList = getPools(config).join(',') || '-'
+log(
+  `Profiles: ${profileNames.join(', ')} (defaultSelection=${config.defaultSelection}, defaultPool=${config.defaultPool}, pools=[${poolsList}])`,
+)
 
 if (!secret) {
   console.error('ERROR: --secret or CLAUDWERK_SENTINEL_SECRET / RCLAUDE_SECRET is required')

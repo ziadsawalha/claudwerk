@@ -34,10 +34,20 @@ const PROFILE_NAME_RE = /^[a-z0-9-]{1,63}$/
 /** The implicit `default` profile name, used when a spawn carries no profile. */
 export const DEFAULT_PROFILE_NAME = 'default'
 
+/** Default pool name used when a profile omits `pool` and as the
+ *  sentinel-wide `defaultPool` fallback. */
+export const DEFAULT_POOL_NAME = 'default'
+
+/** Valid pool-name shape -- mirrors profile/sentinel-name shapes. */
+const POOL_NAME_RE = /^[a-z0-9-]{1,63}$/
+
 /** Raw config-file shape (JSON). Optional fields are validated in `loadConfig`. */
 export interface SentinelConfigFile {
   /** What the sentinel does on a no-profile spawn. Default `'default'`. */
   defaultSelection?: SelectionMode
+  /** Pool the sentinel uses for Balanced/Random launches that omit a pool.
+   *  Defaults to `'default'`. */
+  defaultPool?: string
   /** Profile registry, keyed by profile name. */
   profiles?: Record<string, SentinelProfileFile>
 }
@@ -48,7 +58,10 @@ export interface SentinelProfileFile {
   configDir: string
   env?: Record<string, string>
   spawnRoot?: string
-  pooled?: boolean
+  /** Named pool the profile belongs to (e.g. `"work"`). Omitted -> `"default"`.
+   *  Explicit `null` -> excluded from every Balanced/Random selection (Fixed
+   *  pin only). */
+  pool?: string | null
   label?: string
   color?: string
 }
@@ -63,7 +76,9 @@ export interface ResolvedProfile {
   configDir: string
   env: Record<string, string>
   spawnRoot?: string
-  pooled: boolean
+  /** Named pool this profile belongs to. `null` means excluded from every
+   *  Balanced/Random selection. Default profile is in pool `"default"`. */
+  pool: string | null
   label?: string
   color?: string
 }
@@ -73,6 +88,9 @@ export interface SentinelConfig {
   /** Absolute path the config was loaded from (`null` when no file). */
   sourcePath: string | null
   defaultSelection: SelectionMode
+  /** Pool the sentinel uses for Balanced/Random launches that omit a pool.
+   *  Default `'default'`. */
+  defaultPool: string
   /** All profiles by name. The `default` profile is always present (synthesised
    *  if the file did not list one). */
   profiles: Record<string, ResolvedProfile>
@@ -140,8 +158,9 @@ export function loadSentinelConfig(opts: LoadOptions = {}): SentinelConfig {
 
   const { raw, sourcePath } = readConfigFile(configPath)
   const defaultSelection = validateSelectionMode(raw.defaultSelection, configPath)
+  const defaultPool = validatePoolName(raw.defaultPool, configPath, 'defaultPool') ?? DEFAULT_POOL_NAME
   const profiles = buildProfileMap(raw.profiles, configPath, home)
-  return { sourcePath, defaultSelection, profiles }
+  return { sourcePath, defaultSelection, defaultPool, profiles }
 }
 
 /** Read + parse the JSON config file. Tolerates missing / empty file. */
@@ -194,7 +213,7 @@ function buildProfileMap(
       name: DEFAULT_PROFILE_NAME,
       configDir: join(home, '.claude'),
       env: {},
-      pooled: true,
+      pool: DEFAULT_POOL_NAME,
     }
   }
   return profiles
@@ -207,6 +226,36 @@ function validateSelectionMode(value: unknown, configPath: string): SelectionMod
   throw new Error(
     `sentinel config: defaultSelection in ${configPath} must be one of "default", "balanced", "random" (got ${JSON.stringify(value)})`,
   )
+}
+
+/** Validate a free-form pool name (`[a-z0-9-]{1,63}`). Returns the value when
+ *  set, `undefined` when absent. Used for both `defaultPool` and per-profile
+ *  `pool` fields. `null` is honoured by the caller (excluded-from-pools); this
+ *  helper only sees strings + undefined. */
+// fallow-ignore-next-line complexity
+function validatePoolName(value: unknown, configPath: string, field: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !POOL_NAME_RE.test(value)) {
+    throw new Error(
+      `sentinel config: ${field} in ${configPath} must match [a-z0-9-]{1,63} (got ${JSON.stringify(value)})`,
+    )
+  }
+  return value
+}
+
+/** Resolve the per-profile `pool` field. Returns the pool NAME (default
+ *  `"default"`) or `null` when the operator explicitly excluded the profile
+ *  with `pool: null`. */
+// fallow-ignore-next-line complexity
+function resolveProfilePool(name: string, raw: unknown, configPath: string): string | null {
+  if (raw === undefined) return DEFAULT_POOL_NAME
+  if (raw === null) return null
+  if (typeof raw !== 'string' || !POOL_NAME_RE.test(raw)) {
+    throw new Error(
+      `sentinel config: profile "${name}".pool in ${configPath} must be a string matching [a-z0-9-]{1,63}, or null to exclude from pools (got ${JSON.stringify(raw)})`,
+    )
+  }
+  return raw
 }
 
 // fallow-ignore-next-line complexity
@@ -227,7 +276,7 @@ function normalizeProfile(
     configDir: resolvePath(expandTilde(raw.configDir, home)),
     env: validateProfileEnv(name, raw.env, configPath),
     spawnRoot: validateSpawnRoot(name, raw.spawnRoot, home, configPath),
-    pooled: raw.pooled !== undefined ? Boolean(raw.pooled) : true,
+    pool: resolveProfilePool(name, raw.pool, configPath),
     label: typeof raw.label === 'string' ? raw.label : undefined,
     color: typeof raw.color === 'string' ? raw.color : undefined,
   }
@@ -305,7 +354,7 @@ export function configDirFor(config: SentinelConfig, name?: string): string {
 }
 
 /**
- * The broker-safe slice of profile data -- NAME + display + pooled + authed.
+ * The broker-safe slice of profile data -- NAME + display + pool + authed.
  * NEVER includes configDir or env. Used to build `SentinelIdentify.profiles`.
  *
  * Per the Profile-Env Boundary covenant: the broker stores the profile NAME
@@ -319,7 +368,17 @@ export function profileSummaries(config: SentinelConfig): SentinelProfileInfo[] 
       name: p.name,
       label: p.label,
       color: p.color,
-      pooled: p.pooled,
+      pool: p.pool,
       authed: profileIsAuthed(p.configDir),
     }))
+}
+
+/** Distinct pool NAMES across all profiles. Excludes `null` (excluded
+ *  profiles). Sorted for stable display + reproducible Random. */
+export function getPools(config: SentinelConfig): string[] {
+  const seen = new Set<string>()
+  for (const p of Object.values(config.profiles)) {
+    if (p.pool !== null) seen.add(p.pool)
+  }
+  return Array.from(seen).sort()
 }

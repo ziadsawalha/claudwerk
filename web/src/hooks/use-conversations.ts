@@ -98,6 +98,12 @@ export interface SentinelStatusInfo {
   profiles?: SentinelProfileInfo[]
   /** What the sentinel does on a no-profile spawn. */
   defaultSelection?: SelectionMode
+  /** Distinct pool NAMES across `profiles` (sorted; excludes the null pool).
+   *  Used by the launch dialog's pool picker. */
+  pools?: string[]
+  /** Pool the sentinel uses for Balanced/Random when the launch omits a pool.
+   *  Defaults to `'default'`. */
+  defaultPool?: string
 }
 
 interface ConversationsState {

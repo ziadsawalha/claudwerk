@@ -7,13 +7,16 @@
  * static for a sentinel's lifetime, like sentinel-settings.json).
  *
  * Subcommands:
- *   list                                 print configured profiles
- *   add <name> --config-dir <path>       create a profile
+ *   list                                       Print configured profiles + pools
+ *   add <name> --config-dir <path>             Create a profile
  *       [--label <text>] [--color <hex>]
- *       [--spawn-root <path>] [--no-pool]
- *   auth <name>                          run `claude auth login` for a profile
- *   rm <name>                            remove a profile (cannot remove `default`)
- *   pool <name> --on|--off               toggle the `pooled` flag
+ *       [--spawn-root <path>]
+ *       [--pool <name> | --no-pool]            Pool to join (default: "default";
+ *                                              --no-pool excludes from all pools)
+ *   auth <name>                                Run `claude auth login` for a profile
+ *   rm <name>                                  Remove a profile (cannot remove "default")
+ *   pool <name> --set <pool> | --none          Move a profile to a different pool
+ *                                              (or remove it from every pool)
  *
  * Per the Profile-Env Boundary covenant, NONE of this leaks over the wire --
  * the broker never sees configDir / env. The CLI's job is to edit the
@@ -25,8 +28,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import {
+  DEFAULT_POOL_NAME,
   DEFAULT_PROFILE_NAME,
   defaultConfigPath,
+  getPools,
   loadSentinelConfig,
   profileIsAuthed,
   type SentinelConfigFile,
@@ -34,6 +39,7 @@ import {
 } from './sentinel-config'
 
 const PROFILE_NAME_RE = /^[a-z0-9-]{1,63}$/
+const POOL_NAME_RE = /^[a-z0-9-]{1,63}$/
 
 interface CliOpts {
   configPath?: string
@@ -57,7 +63,6 @@ const SUBCOMMANDS: Record<string, SubcommandHandler> = {
  */
 // fallow-ignore-next-line complexity
 export async function runProfileCli(args: string[], opts: CliOpts = {}): Promise<number> {
-  // Strip an inline `--config <path>` (it may be before or after the subcommand).
   const { rest, configPath: inlineConfigPath } = extractInlineConfig(args)
   const configPath = opts.configPath ?? inlineConfigPath ?? defaultConfigPath()
   const subcommand = rest[0]
@@ -100,16 +105,19 @@ USAGE:
   sentinel profile [--config <path>] <subcommand> [args]
 
 SUBCOMMANDS:
-  list                                       List configured profiles
-  add <name> --config-dir <path> [--label <text>] [--color <#hex>]
-                                [--spawn-root <path>] [--no-pool]
-                                             Add a new profile
+  list                                       List configured profiles + pools
+  add <name> --config-dir <path>             Add a new profile
+      [--label <text>] [--color <#hex>]
+      [--spawn-root <path>]
+      [--pool <name> | --no-pool]            Pool to join (default: "default");
+                                              --no-pool excludes from every pool
   auth <name>                                Run \`claude auth login\` for a profile
   rm <name>                                  Remove a profile (not "default")
-  pool <name> --on|--off                     Toggle pooled flag
+  pool <name> --set <pool> | --none          Move a profile to a named pool
+                                              (or remove from every pool)
 
 The config file defaults to ${defaultConfigPath()}.
-The implicit "default" profile (${defaultConfigPath().replace(/config\/rclaude\/sentinel\.json$/, '') || '~'}${'/.claude'}) does not need to be listed.
+The implicit "default" profile (${defaultConfigPath().replace(/config\/rclaude\/sentinel\.json$/, '') || '~'}${'/.claude'}) joins the "default" pool unless overridden.
 `)
 }
 
@@ -121,14 +129,17 @@ function cmdList(configPath: string): number {
   const header = cfg.sourcePath
     ? `config: ${cfg.sourcePath}`
     : `config: ${configPath} (not present -- implicit default profile only)`
-  process.stdout.write(`${header}\ndefaultSelection: ${cfg.defaultSelection}\n\nPROFILES\n`)
-  const rows: string[][] = [['NAME', 'CONFIG_DIR', 'POOLED', 'AUTHED', 'LABEL']]
+  const pools = getPools(cfg).join(',') || '-'
+  process.stdout.write(
+    `${header}\ndefaultSelection: ${cfg.defaultSelection}\ndefaultPool: ${cfg.defaultPool}\npools: ${pools}\n\nPROFILES\n`,
+  )
+  const rows: string[][] = [['NAME', 'CONFIG_DIR', 'POOL', 'AUTHED', 'LABEL']]
   const sorted = Object.values(cfg.profiles).sort((a, b) => a.name.localeCompare(b.name))
   for (const p of sorted) {
     rows.push([
       p.name,
       p.configDir,
-      p.pooled ? 'yes' : 'no',
+      p.pool === null ? '-' : p.pool,
       profileIsAuthed(p.configDir) ? 'yes' : 'no',
       p.label ?? '',
     ])
@@ -157,12 +168,22 @@ function cmdAdd(configPath: string, args: string[]): number {
   if (nameCheck.code !== 0) return nameCheck.code
   const name = nameCheck.name
   const flags = parseFlags(args.slice(1), {
-    string: ['--config-dir', '--label', '--color', '--spawn-root'],
+    string: ['--config-dir', '--label', '--color', '--spawn-root', '--pool'],
     boolean: ['--no-pool'],
   })
   const configDir = stringFlag(flags, '--config-dir')
   if (!configDir) {
     process.stderr.write('add: --config-dir <path> is required\n')
+    return 2
+  }
+  const poolFlag = stringFlag(flags, '--pool')
+  const noPool = flags['--no-pool'] === true
+  if (poolFlag && noPool) {
+    process.stderr.write('add: --pool <name> and --no-pool are mutually exclusive\n')
+    return 2
+  }
+  if (poolFlag && !POOL_NAME_RE.test(poolFlag)) {
+    process.stderr.write(`add: --pool "${poolFlag}" must match [a-z0-9-]{1,63}\n`)
     return 2
   }
   const file = readRawConfig(configPath)
@@ -173,7 +194,8 @@ function cmdAdd(configPath: string, args: string[]): number {
   }
   profiles[name] = buildProfileEntry(configDir, flags)
   writeRawConfig(configPath, { ...file, profiles })
-  process.stdout.write(`added profile "${name}" -> ${configDir}\n`)
+  const poolLabel = poolFlag ?? (noPool ? '<excluded>' : DEFAULT_POOL_NAME)
+  process.stdout.write(`added profile "${name}" -> ${configDir} (pool: ${poolLabel})\n`)
   // Sanity round-trip: re-load so any rejection surfaces immediately.
   loadSentinelConfig({ configPath })
   return 0
@@ -197,10 +219,14 @@ function buildProfileEntry(configDir: string, flags: Record<string, string | tru
   const label = stringFlag(flags, '--label')
   const color = stringFlag(flags, '--color')
   const spawnRootArg = stringFlag(flags, '--spawn-root')
+  const poolFlag = stringFlag(flags, '--pool')
+  const noPool = flags['--no-pool'] === true
   if (label) entry.label = label
   if (color) entry.color = color
   if (spawnRootArg) entry.spawnRoot = spawnRootArg
-  if (flags['--no-pool'] === true) entry.pooled = false
+  if (poolFlag) entry.pool = poolFlag
+  else if (noPool) entry.pool = null
+  // No --pool / --no-pool -> omit, sentinel-config synthesises "default" pool.
   return entry
 }
 
@@ -217,8 +243,6 @@ async function cmdAuth(configPath: string, args: string[]): Promise<number> {
     process.stderr.write(`auth: unknown profile "${name}" (known: ${Object.keys(cfg.profiles).join(', ')})\n`)
     return 1
   }
-  // Run `claude auth login` with CLAUDE_CONFIG_DIR pinned to the profile.
-  // Interactive: inherit stdio so the user can complete the browser flow.
   const claudeBin = Bun.which('claude') ?? 'claude'
   process.stdout.write(`Running ${claudeBin} auth login with CLAUDE_CONFIG_DIR=${profile.configDir}\n`)
   if (!existsSync(profile.configDir)) mkdirSync(profile.configDir, { recursive: true })
@@ -273,37 +297,55 @@ function cmdRm(configPath: string, args: string[]): number {
 function cmdPool(configPath: string, args: string[]): number {
   const parsed = parsePoolArgs(args)
   if (parsed.code !== 0) return parsed.code
-  const { name, on } = parsed
+  const { name, pool } = parsed
   const file = readRawConfig(configPath)
   const profiles = file.profiles ?? {}
   const entry = profiles[name]
   if (!entry) {
     const defaultHint =
       name === DEFAULT_PROFILE_NAME
-        ? ' (the implicit default profile is always pooled -- add it explicitly to change)'
+        ? ' (the implicit default profile is in the "default" pool by default -- add it explicitly to change)'
         : ''
     process.stderr.write(`pool: profile "${name}" not found in ${configPath}${defaultHint}\n`)
     return 1
   }
-  entry.pooled = on
+  entry.pool = pool
   profiles[name] = entry
   writeRawConfig(configPath, { ...file, profiles })
-  process.stdout.write(`profile "${name}" pooled=${entry.pooled}\n`)
+  process.stdout.write(`profile "${name}" pool=${pool === null ? '<excluded>' : pool}\n`)
   return 0
 }
 
-function parsePoolArgs(args: string[]): { code: number; name: string; on: boolean } {
+/** Parse `pool <name> --set <pool>|--none`. */
+// fallow-ignore-next-line complexity
+function parsePoolArgs(args: string[]): { code: number; name: string; pool: string | null } {
   const name = args[0]
   if (!name) {
     process.stderr.write('pool: missing profile name\n')
-    return { code: 2, name: '', on: false }
+    return { code: 2, name: '', pool: null }
   }
   const flag = args[1]
-  if (flag !== '--on' && flag !== '--off') {
-    process.stderr.write('pool: expected --on or --off\n')
-    return { code: 2, name: '', on: false }
+  if (flag === '--none') {
+    if (args.length > 2) {
+      process.stderr.write('pool: --none takes no value\n')
+      return { code: 2, name: '', pool: null }
+    }
+    return { code: 0, name, pool: null }
   }
-  return { code: 0, name, on: flag === '--on' }
+  if (flag === '--set') {
+    const poolName = args[2]
+    if (!poolName) {
+      process.stderr.write('pool: --set requires a pool name\n')
+      return { code: 2, name: '', pool: null }
+    }
+    if (!POOL_NAME_RE.test(poolName)) {
+      process.stderr.write(`pool: pool name "${poolName}" must match [a-z0-9-]{1,63}\n`)
+      return { code: 2, name: '', pool: null }
+    }
+    return { code: 0, name, pool: poolName }
+  }
+  process.stderr.write('pool: expected --set <pool-name> or --none\n')
+  return { code: 2, name: '', pool: null }
 }
 
 function stringFlag(flags: Record<string, string | true>, name: string): string | undefined {
@@ -337,15 +379,11 @@ function readRawConfig(configPath: string): SentinelConfigFile {
 }
 
 function writeRawConfig(configPath: string, file: SentinelConfigFile): void {
-  // Ensure parent dir exists -- the user may not have created
-  // ~/.config/rclaude/ yet.
   mkdirSync(dirname(configPath), { recursive: true })
-  // Stable canonical formatting so a hand-edited file stays diffable.
   const text = `${JSON.stringify(file, null, 2)}\n`
   writeFileSync(configPath, text)
 }
 
-// `homedir` is intentionally imported (for future tilde-style sane defaults)
-// even though it isn't called yet -- avoids churn the next time a default is
-// added. Reference it so the import doesn't trigger an unused-import warning.
+// `homedir` import kept for future tilde-defaults; reference it so the
+// unused-import warning stays clean.
 void homedir

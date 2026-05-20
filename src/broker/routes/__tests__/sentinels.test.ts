@@ -88,12 +88,12 @@ describe('GET /api/sentinels', () => {
     expect(data[0].defaultSelection).toBeUndefined()
   })
 
-  it('surfaces reported profiles + defaultSelection from a connected sentinel', async () => {
+  it('surfaces reported profiles + pools + defaultPool from a connected sentinel', async () => {
     const record = sentinelRegistry.create({ alias: 'beast', generateSecret: true })
     const profiles: SentinelProfileInfo[] = [
-      { name: 'default', pooled: true, authed: true },
-      { name: 'work', label: 'Work org', color: '#f59e0b', pooled: false, authed: true },
-      { name: 'alt', label: 'Second account', pooled: true, authed: false },
+      { name: 'default', pool: 'default', authed: true },
+      { name: 'work', label: 'Work org', color: '#f59e0b', pool: null, authed: true },
+      { name: 'alt', label: 'Second account', pool: 'default', authed: false },
     ]
     conversationStore.setSentinel(makeFakeWs(), {
       sentinelId: record.sentinelId,
@@ -101,12 +101,16 @@ describe('GET /api/sentinels', () => {
       hostname: 'beast.local',
       profiles,
       defaultSelection: 'balanced',
+      pools: ['default'],
+      defaultPool: 'default',
     })
     const data = await listSentinels()
     expect(data).toHaveLength(1)
     expect(data[0].alias).toBe('beast')
     expect(data[0].profiles).toEqual(profiles)
     expect(data[0].defaultSelection).toBe('balanced')
+    expect(data[0].pools).toEqual(['default'])
+    expect(data[0].defaultPool).toBe('default')
   })
 
   it('drops profile data when a sentinel disconnects (live-only, not persisted)', async () => {
@@ -115,8 +119,10 @@ describe('GET /api/sentinels', () => {
     conversationStore.setSentinel(ws, {
       sentinelId: record.sentinelId,
       alias: record.aliases[0],
-      profiles: [{ name: 'default', pooled: true, authed: true }],
+      profiles: [{ name: 'default', pool: 'default', authed: true }],
       defaultSelection: 'random',
+      pools: ['default'],
+      defaultPool: 'default',
     })
     // Disconnect: removeSentinel clears the in-memory SentinelConnection.
     conversationStore.removeSentinel(ws)
@@ -125,5 +131,7 @@ describe('GET /api/sentinels', () => {
     expect(data[0].connected).toBe(false)
     expect(data[0].profiles).toBeUndefined()
     expect(data[0].defaultSelection).toBeUndefined()
+    expect(data[0].pools).toBeUndefined()
+    expect(data[0].defaultPool).toBeUndefined()
   })
 })

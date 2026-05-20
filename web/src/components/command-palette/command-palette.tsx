@@ -99,10 +99,13 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
               dirs={palette.filteredSpawnDirs}
               sentinels={palette.filteredSentinels}
               profiles={palette.filteredProfiles}
+              pools={palette.filteredPools}
               isSentinelEntry={palette.isSentinelEntry}
               isProfileEntry={palette.isProfileEntry}
+              isPoolEntry={palette.isPoolEntry}
               resolvedSentinel={palette.spawnSentinel}
               resolvedProfile={palette.spawnProfile}
+              resolvedPool={palette.spawnPool}
               loading={palette.spawnLoading}
               error={palette.spawnError}
               path={palette.spawnPath}
@@ -114,6 +117,7 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
               onDirSelect={palette.handleDirSelect}
               onSentinelSelect={palette.handleSentinelSelect}
               onProfileSelect={palette.handleProfileSelect}
+              onPoolSelect={palette.handlePoolSelect}
               onSpawn={palette.handleSpawn}
             />
           ) : palette.mode === 'task' ? (

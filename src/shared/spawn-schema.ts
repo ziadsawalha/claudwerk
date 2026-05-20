@@ -215,6 +215,16 @@ export const spawnRequestSchema = z.object({
         '(typically the implicit "default" profile = $HOME/.claude). Profile env (configDir, API keys) is ' +
         'resolved sentinel-side; the broker never holds it.',
     ),
+  pool: z
+    .string()
+    .regex(/^[a-z0-9-]{1,63}$/, 'pool must match [a-z0-9-]{1,63}')
+    .optional()
+    .describe(
+      'Named profile pool for Balanced/Random selection (e.g. "work"). Used together with profile=' +
+        '"balanced"|"random" to constrain which profiles the sentinel picks from. Ignored when profile is a ' +
+        'literal name (Fixed mode wins) or "default". When absent the sentinel substitutes its configured ' +
+        '`defaultPool` (which itself defaults to "default").',
+    ),
 })
 export type SpawnRequest = z.infer<typeof spawnRequestSchema>
 

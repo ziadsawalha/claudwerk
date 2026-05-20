@@ -8,8 +8,10 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   configDirFor,
+  DEFAULT_POOL_NAME,
   DEFAULT_PROFILE_NAME,
   defaultConfigPath,
+  getPools,
   loadSentinelConfig,
   profileIsAuthed,
   profileSummaries,
@@ -39,13 +41,14 @@ describe('defaultConfigPath', () => {
 })
 
 describe('loadSentinelConfig -- tolerant defaults', () => {
-  test('missing file yields implicit default profile', () => {
+  test('missing file yields implicit default profile in the default pool', () => {
     const cfg = loadSentinelConfig({ configPath: join(scratch, 'no-such.json') })
     expect(cfg.sourcePath).toBeNull()
     expect(cfg.defaultSelection).toBe('default')
+    expect(cfg.defaultPool).toBe(DEFAULT_POOL_NAME)
     expect(Object.keys(cfg.profiles)).toEqual([DEFAULT_PROFILE_NAME])
     expect(cfg.profiles[DEFAULT_PROFILE_NAME].configDir).toBe(join(homedir(), '.claude'))
-    expect(cfg.profiles[DEFAULT_PROFILE_NAME].pooled).toBe(true)
+    expect(cfg.profiles[DEFAULT_PROFILE_NAME].pool).toBe(DEFAULT_POOL_NAME)
   })
 
   test('empty file is treated as no profiles configured', () => {
@@ -62,12 +65,13 @@ describe('loadSentinelConfig -- tolerant defaults', () => {
     const cfg = loadSentinelConfig({ configPath: path })
     expect(cfg.sourcePath).toBe(path)
     expect(cfg.defaultSelection).toBe('default')
+    expect(cfg.defaultPool).toBe(DEFAULT_POOL_NAME)
     expect(Object.keys(cfg.profiles)).toEqual([DEFAULT_PROFILE_NAME])
   })
 })
 
 describe('loadSentinelConfig -- with profiles', () => {
-  test('parses a full profile entry', () => {
+  test('parses a full profile entry, omitted pool -> default pool', () => {
     const path = join(scratch, 'cfg.json')
     writeFileSync(
       path,
@@ -78,7 +82,6 @@ describe('loadSentinelConfig -- with profiles', () => {
             configDir: '~/.claude-work',
             env: { ANTHROPIC_API_KEY: 'sk-test' },
             spawnRoot: '~/work',
-            pooled: false,
             label: 'Work org',
             color: '#f59e0b',
           },
@@ -91,9 +94,31 @@ describe('loadSentinelConfig -- with profiles', () => {
     expect(work.configDir).toBe('/home/jonas/.claude-work')
     expect(work.env).toEqual({ ANTHROPIC_API_KEY: 'sk-test' })
     expect(work.spawnRoot).toBe('/home/jonas/work')
-    expect(work.pooled).toBe(false)
+    expect(work.pool).toBe(DEFAULT_POOL_NAME)
     expect(work.label).toBe('Work org')
     expect(work.color).toBe('#f59e0b')
+  })
+
+  test('explicit named pool round-trips', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        defaultPool: 'work',
+        profiles: {
+          'work-1': { configDir: '~/.claude-w1', pool: 'work' },
+          'work-2': { configDir: '~/.claude-w2', pool: 'work' },
+          private: { configDir: '~/.claude-priv', pool: null },
+        },
+      }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/j' })
+    expect(cfg.defaultPool).toBe('work')
+    expect(cfg.profiles['work-1'].pool).toBe('work')
+    expect(cfg.profiles['work-2'].pool).toBe('work')
+    expect(cfg.profiles.private.pool).toBeNull()
+    // Implicit default profile lands in the "default" pool, NOT the configured defaultPool.
+    expect(cfg.profiles[DEFAULT_PROFILE_NAME].pool).toBe(DEFAULT_POOL_NAME)
   })
 
   test('default profile remains implicit when only other profiles listed', () => {
@@ -129,6 +154,18 @@ describe('loadSentinelConfig -- with profiles', () => {
     expect(() => loadSentinelConfig({ configPath: path })).toThrow(/defaultSelection/)
   })
 
+  test('rejects bad defaultPool name', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ defaultPool: 'Bad Pool' }))
+    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/defaultPool/)
+  })
+
+  test('rejects bad per-profile pool name', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '~/.claude-work', pool: 'Bad Pool' } } }))
+    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/pool/)
+  })
+
   test('rejects non-string env value', () => {
     const path = join(scratch, 'cfg.json')
     writeFileSync(
@@ -159,7 +196,7 @@ describe('resolveProfile + configDirFor', () => {
     expect(resolveProfile(cfg, 'default').name).toBe(DEFAULT_PROFILE_NAME)
   })
 
-  test('selection mode tokens fall back to default in Phase 2', () => {
+  test('selection mode tokens fall back to default', () => {
     const cfg = loadSentinelConfig({ configPath: join(scratch, 'none.json') })
     expect(resolveProfile(cfg, 'balanced').name).toBe(DEFAULT_PROFILE_NAME)
     expect(resolveProfile(cfg, 'random').name).toBe(DEFAULT_PROFILE_NAME)
@@ -207,7 +244,7 @@ describe('profileIsAuthed', () => {
 })
 
 describe('profileSummaries -- broker-safe slice', () => {
-  test('NEVER includes configDir or env', () => {
+  test('emits pool (string|null) and NEVER includes configDir or env', () => {
     const path = join(scratch, 'cfg.json')
     mkdirSync(join(scratch, '.claude-work'), { recursive: true })
     writeFileSync(join(scratch, '.claude-work', '.credentials.json'), '{"x":1}')
@@ -220,7 +257,7 @@ describe('profileSummaries -- broker-safe slice', () => {
             env: { ANTHROPIC_API_KEY: 'sk-secret' },
             label: 'Work',
             color: '#f00',
-            pooled: false,
+            pool: null,
           },
         },
       }),
@@ -233,7 +270,7 @@ describe('profileSummaries -- broker-safe slice', () => {
       name: 'work',
       label: 'Work',
       color: '#f00',
-      pooled: false,
+      pool: null,
       authed: true,
     })
     // Boundary covenant -- no env, no configDir leak.
@@ -243,15 +280,37 @@ describe('profileSummaries -- broker-safe slice', () => {
     expect(JSON.stringify(work)).not.toContain('.claude-work')
   })
 
-  test('default profile reports unauthed when ~/.claude is bare', () => {
-    // We can't actually mutate the user's ~/.claude, so this just sanity-checks
-    // the shape -- the implicit default may be authed (the real user IS logged
-    // in) or unauthed (in CI). Either is a valid boolean.
+  test('default profile reports the default pool', () => {
     const cfg = loadSentinelConfig({ configPath: join(scratch, 'none.json') })
     const summaries = profileSummaries(cfg)
     expect(summaries).toHaveLength(1)
     expect(summaries[0].name).toBe(DEFAULT_PROFILE_NAME)
     expect(typeof summaries[0].authed).toBe('boolean')
-    expect(summaries[0].pooled).toBe(true)
+    expect(summaries[0].pool).toBe(DEFAULT_POOL_NAME)
+  })
+})
+
+describe('getPools -- distinct pool names', () => {
+  test('returns sorted unique pool names, excluding null', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        profiles: {
+          'w-1': { configDir: '~/.cw1', pool: 'work' },
+          'w-2': { configDir: '~/.cw2', pool: 'work' },
+          'alt-1': { configDir: '~/.ca1', pool: 'alt' },
+          private: { configDir: '~/.priv', pool: null },
+        },
+      }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/j' })
+    // Implicit default profile contributes "default" pool.
+    expect(getPools(cfg)).toEqual(['alt', 'default', 'work'])
+  })
+
+  test('returns just default when no profiles configured', () => {
+    const cfg = loadSentinelConfig({ configPath: join(scratch, 'none.json') })
+    expect(getPools(cfg)).toEqual([DEFAULT_POOL_NAME])
   })
 })

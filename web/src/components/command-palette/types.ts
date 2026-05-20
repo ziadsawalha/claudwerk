@@ -1,6 +1,6 @@
 import type { FileInfo } from '@/hooks/use-file-editor'
 import type { Conversation } from '@/lib/types'
-import type { ProfileSuggestion, SentinelSuggestion } from './use-spawn-mode'
+import type { PoolSuggestion, ProfileSuggestion, SentinelSuggestion } from './use-spawn-mode'
 
 export interface PaletteCommand {
   id: string
@@ -50,10 +50,13 @@ export interface SpawnResultsProps extends ResultListProps {
   dirs: string[]
   sentinels: SentinelSuggestion[]
   profiles: ProfileSuggestion[]
+  pools: PoolSuggestion[]
   isSentinelEntry: boolean
   isProfileEntry: boolean
+  isPoolEntry: boolean
   resolvedSentinel: string
   resolvedProfile: string
+  resolvedPool: string
   loading: boolean
   error: string | null
   path: string
@@ -63,6 +66,7 @@ export interface SpawnResultsProps extends ResultListProps {
   onDirSelect: (dir: string) => void
   onSentinelSelect: (alias: string) => void
   onProfileSelect: (name: string) => void
+  onPoolSelect: (name: string) => void
   onSpawn: (path: string, mkdir?: boolean) => void
 }
 

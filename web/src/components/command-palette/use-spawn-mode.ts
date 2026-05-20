@@ -19,10 +19,19 @@ export interface ProfileSuggestion {
   label?: string
   /** Optional color tint (hex, set by the sentinel). */
   color?: string
-  /** Whether the profile participates in `balanced` / `random` selection. */
-  pooled?: boolean
+  /** Pool the profile belongs to (`null` -- excluded from every pool). */
+  pool?: string | null
   /** Whether the sentinel believes credentials are present for this profile. */
   authed?: boolean
+}
+
+export interface PoolSuggestion {
+  /** Pool name (e.g. "work"). Selected with Enter / Tab. */
+  name: string
+  /** How many profiles in this pool. Displayed for context. */
+  profileCount: number
+  /** Whether this is the sentinel's `defaultPool` (used when `#pool` omitted). */
+  isDefault: boolean
 }
 
 export interface SpawnModeState {
@@ -32,15 +41,24 @@ export interface SpawnModeState {
   /** Resolved profile name (or selection-mode token), parsed from the
    *  `@sentinel:profile` shorthand. Empty when no profile token is present. */
   spawnProfile: string
+  /** Pool name parsed from `@sentinel#pool` shorthand. Empty when no
+   *  pool token is present. Mutually exclusive with `spawnProfile`. */
+  spawnPool: string
   filteredSpawnDirs: string[]
   filteredSentinels: SentinelSuggestion[]
   /** Profile-name suggestions surfaced after the user types `@sentinel:`.
    *  Sourced from the sentinel's reported profiles. */
   filteredProfiles: ProfileSuggestion[]
+  /** Pool-name suggestions surfaced after the user types `@sentinel#`.
+   *  Sourced from the sentinel's reported pools (including its defaultPool). */
+  filteredPools: PoolSuggestion[]
   isSentinelEntry: boolean
   /** True when the user has typed `@sentinel:` (and no space yet) -- the
    *  hook shows profile autocomplete instead of the dir listing. */
   isProfileEntry: boolean
+  /** True when the user has typed `@sentinel#` (and no space yet) -- the
+   *  hook shows pool autocomplete. Mutually exclusive with isProfileEntry. */
+  isPoolEntry: boolean
   spawnLoading: boolean
   spawnError: string | null
   spawning: boolean
@@ -49,6 +67,7 @@ export interface SpawnModeState {
   handleDirSelect: (dir: string) => void
   handleSentinelSelect: (alias: string) => void
   handleProfileSelect: (name: string) => void
+  handlePoolSelect: (name: string) => void
 }
 
 interface UseSpawnModeArgs {
@@ -93,19 +112,27 @@ export function useSpawnMode({
   // Always resolve to a concrete sentinel name. No `@` token => 'default'.
   const spawnSentinel = spawnParsed.sentinel || DEFAULT_SENTINEL
   const spawnProfile = spawnParsed.profile || ''
+  const spawnPool = spawnParsed.pool || ''
   // Sentinel-entry mode: input has a leading `@` token but no space yet, so
-  // the user is still typing the sentinel alias or the colon-profile suffix.
-  // Profile-entry mode is a sub-state where the user has typed `@alias:` and
-  // is now typing the profile name -- we swap dir completion for profile
-  // completion based on the sentinel's reported profiles.
-  const sentinelOrProfileToken =
+  // the user is still typing the sentinel alias / colon-profile / hash-pool
+  // suffix. Profile-entry mode -> `@alias:` -> profile completion. Pool-entry
+  // mode -> `@alias#` -> pool completion. The two are mutually exclusive;
+  // whichever delimiter appears first wins.
+  const sentinelOrPoolOrProfileToken =
     isSpawnMode && spawnRawInput.startsWith('@') && !spawnRawInput.includes(' ') ? spawnRawInput.slice(1) : ''
-  const colonIdx = sentinelOrProfileToken.indexOf(':')
-  const isSentinelEntry = sentinelOrProfileToken.length > 0 && colonIdx === -1
-  const isProfileEntry = sentinelOrProfileToken.length > 0 && colonIdx !== -1
-  const sentinelTypedPrefix = isSentinelEntry ? sentinelOrProfileToken.toLowerCase() : ''
-  const profileTypedPrefix = isProfileEntry ? sentinelOrProfileToken.slice(colonIdx + 1).toLowerCase() : ''
-  const profileEntrySentinelAlias = isProfileEntry ? sentinelOrProfileToken.slice(0, colonIdx).toLowerCase() : ''
+  const colonIdx = sentinelOrPoolOrProfileToken.indexOf(':')
+  const hashIdx = sentinelOrPoolOrProfileToken.indexOf('#')
+  const firstDelim = pickFirstDelim(colonIdx, hashIdx)
+  const isSentinelEntry = sentinelOrPoolOrProfileToken.length > 0 && firstDelim.kind === 'none'
+  const isProfileEntry = sentinelOrPoolOrProfileToken.length > 0 && firstDelim.kind === 'colon'
+  const isPoolEntry = sentinelOrPoolOrProfileToken.length > 0 && firstDelim.kind === 'hash'
+  const sentinelTypedPrefix = isSentinelEntry ? sentinelOrPoolOrProfileToken.toLowerCase() : ''
+  const profileTypedPrefix = isProfileEntry ? sentinelOrPoolOrProfileToken.slice(firstDelim.idx + 1).toLowerCase() : ''
+  const profileEntrySentinelAlias = isProfileEntry
+    ? sentinelOrPoolOrProfileToken.slice(0, firstDelim.idx).toLowerCase()
+    : ''
+  const poolTypedPrefix = isPoolEntry ? sentinelOrPoolOrProfileToken.slice(firstDelim.idx + 1).toLowerCase() : ''
+  const poolEntrySentinelAlias = isPoolEntry ? sentinelOrPoolOrProfileToken.slice(0, firstDelim.idx).toLowerCase() : ''
 
   const spawnParentDir = spawnPath.includes('/') ? spawnPath.slice(0, spawnPath.lastIndexOf('/') + 1) : '/'
   const spawnPartial = spawnPath.includes('/')
@@ -135,7 +162,7 @@ export function useSpawnMode({
   )
 
   useEffect(() => {
-    if (!isSpawnMode || isSentinelEntry || isProfileEntry) {
+    if (!isSpawnMode || isSentinelEntry || isProfileEntry || isPoolEntry) {
       setSpawnDirs([])
       setSpawnError(null)
       return
@@ -145,13 +172,14 @@ export function useSpawnMode({
     return () => {
       if (spawnFetchTimer.current) clearTimeout(spawnFetchTimer.current)
     }
-  }, [isSpawnMode, isSentinelEntry, isProfileEntry, spawnParentDir, spawnSentinel, fetchDirs])
+  }, [isSpawnMode, isSentinelEntry, isProfileEntry, isPoolEntry, spawnParentDir, spawnSentinel, fetchDirs])
 
   const filteredSpawnDirs = spawnPartial ? spawnDirs.filter(d => d.toLowerCase().startsWith(spawnPartial)) : spawnDirs
   const canCreateDir =
     isSpawnMode &&
     !isSentinelEntry &&
     !isProfileEntry &&
+    !isPoolEntry &&
     spawnPartial.length > 0 &&
     filteredSpawnDirs.length === 0 &&
     !spawnLoading
@@ -166,10 +194,21 @@ export function useSpawnMode({
     return buildProfileSuggestions(sentinels, profileEntrySentinelAlias, profileTypedPrefix)
   }, [isProfileEntry, sentinels, profileEntrySentinelAlias, profileTypedPrefix])
 
+  const filteredPools = useMemo<PoolSuggestion[]>(() => {
+    if (!isPoolEntry) return []
+    return buildPoolSuggestions(sentinels, poolEntrySentinelAlias, poolTypedPrefix)
+  }, [isPoolEntry, sentinels, poolEntrySentinelAlias, poolTypedPrefix])
+
   function handleSpawn(path: string, mkdir = false) {
     if (spawning || !path) return
     onClose()
-    openSpawnDialog({ path, mkdir, sentinel: spawnSentinel, profile: spawnProfile || undefined })
+    openSpawnDialog({
+      path,
+      mkdir,
+      sentinel: spawnSentinel,
+      profile: spawnProfile || undefined,
+      pool: spawnPool || undefined,
+    })
   }
 
   function handleDirSelect(dir: string) {
@@ -192,16 +231,26 @@ export function useSpawnMode({
     inputRef.current?.focus()
   }
 
+  function handlePoolSelect(name: string) {
+    const sentinelPart = poolEntrySentinelAlias || spawnSentinel
+    setFilter(`S:@${sentinelPart}#${name} `)
+    setActiveIndex(0)
+    inputRef.current?.focus()
+  }
+
   return {
     spawnPath,
     spawnParentDir,
     spawnSentinel,
     spawnProfile,
+    spawnPool,
     filteredSpawnDirs,
     filteredSentinels,
     filteredProfiles,
+    filteredPools,
     isSentinelEntry,
     isProfileEntry,
+    isPoolEntry,
     spawnLoading,
     spawnError,
     spawning,
@@ -210,19 +259,31 @@ export function useSpawnMode({
     handleDirSelect,
     handleSentinelSelect,
     handleProfileSelect,
+    handlePoolSelect,
   }
+}
+
+/** Pick the first delimiter encountered (`:` for fixed profile, `#` for pool).
+ *  The earlier index wins; equal-zero ties don't happen (one is -1). */
+function pickFirstDelim(colonIdx: number, hashIdx: number): { kind: 'none' | 'colon' | 'hash'; idx: number } {
+  if (colonIdx === -1 && hashIdx === -1) return { kind: 'none', idx: -1 }
+  if (colonIdx === -1) return { kind: 'hash', idx: hashIdx }
+  if (hashIdx === -1) return { kind: 'colon', idx: colonIdx }
+  return colonIdx < hashIdx ? { kind: 'colon', idx: colonIdx } : { kind: 'hash', idx: hashIdx }
 }
 
 interface SpawnInput {
   sentinel?: string
-  /** Optional sentinel-profile name parsed from the `@sentinel:profile`
-   *  shorthand. The colon separates sentinel from profile; everything before
-   *  the colon is the sentinel alias, everything after (up to the first
-   *  space) is the profile. */
+  /** Optional sentinel-profile name parsed from `@sentinel:profile` (Fixed
+   *  mode). Mutually exclusive with `pool`. */
   profile?: string
+  /** Optional pool name parsed from `@sentinel#pool` (Balanced/Random
+   *  filtered by pool). Mutually exclusive with `profile`. */
+  pool?: string
   path: string
 }
 
+// fallow-ignore-next-line complexity
 export function parseSpawnInput(input: string): SpawnInput {
   if (input.startsWith('claude://')) {
     try {
@@ -240,13 +301,24 @@ export function parseSpawnInput(input: string): SpawnInput {
     const spaceIdx = input.indexOf(' ')
     const head = spaceIdx === -1 ? input.slice(1) : input.slice(1, spaceIdx)
     const path = spaceIdx === -1 ? '' : input.slice(spaceIdx + 1)
-    // `@sentinel:profile` shorthand. The colon is reserved for this split --
-    // sentinel aliases and profile names share the same `[a-z0-9-]+` shape.
+    // First delimiter wins: `:` -> Fixed profile, `#` -> pool. Mutually
+    // exclusive within a single spawn line. Anything after the second
+    // delimiter is treated as part of the profile/pool name (so the user
+    // can't accidentally chain both).
     const colonIdx = head.indexOf(':')
-    if (colonIdx === -1) return { sentinel: head, path }
+    const hashIdx = head.indexOf('#')
+    if (colonIdx === -1 && hashIdx === -1) return { sentinel: head, path }
+    const useColon = colonIdx !== -1 && (hashIdx === -1 || colonIdx < hashIdx)
+    if (useColon) {
+      return {
+        sentinel: head.slice(0, colonIdx),
+        profile: head.slice(colonIdx + 1) || undefined,
+        path,
+      }
+    }
     return {
-      sentinel: head.slice(0, colonIdx),
-      profile: head.slice(colonIdx + 1) || undefined,
+      sentinel: head.slice(0, hashIdx),
+      pool: head.slice(hashIdx + 1) || undefined,
       path,
     }
   }
@@ -285,8 +357,37 @@ function buildProfileSuggestions(
       name: p.name,
       label: p.label,
       color: p.color,
-      pooled: p.pooled,
+      pool: p.pool,
       authed: p.authed,
+    })
+  }
+  return out
+}
+
+/** Build pool suggestion list for `@sentinel#` autocomplete. Sourced from
+ *  the sentinel's reported `pools[]`. Falls back to an empty list when the
+ *  sentinel is unknown or reports zero / one pool (no point completing). */
+function buildPoolSuggestions(
+  sentinels: SentinelStatusInfo[],
+  sentinelAlias: string,
+  prefix: string,
+): PoolSuggestion[] {
+  const lookup = sentinelAlias.toLowerCase()
+  const match = sentinels.find(s => s.alias.toLowerCase() === lookup)
+  const pools = match?.pools ?? []
+  if (pools.length <= 1) return []
+  const profilesByPool = new Map<string, number>()
+  for (const p of match?.profiles ?? []) {
+    if (p.pool === null) continue
+    profilesByPool.set(p.pool, (profilesByPool.get(p.pool) ?? 0) + 1)
+  }
+  const out: PoolSuggestion[] = []
+  for (const name of pools) {
+    if (prefix && !name.toLowerCase().startsWith(prefix)) continue
+    out.push({
+      name,
+      profileCount: profilesByPool.get(name) ?? 0,
+      isDefault: name === (match?.defaultPool ?? 'default'),
     })
   }
   return out

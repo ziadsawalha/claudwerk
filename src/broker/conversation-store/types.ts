@@ -26,6 +26,12 @@ export interface SentinelStatusInfo {
   /** What this sentinel does on a no-profile spawn (`default` | `balanced` |
    *  `random`). Read-only display; configured via the sentinel CLI. */
   defaultSelection?: SelectionMode
+  /** Distinct pool NAMES across `profiles` (sorted; excludes the null pool).
+   *  Used by the launch dialog's pool picker. */
+  pools?: string[]
+  /** Pool the sentinel uses for Balanced/Random when the launch omits a pool.
+   *  Defaults to `'default'`. */
+  defaultPool?: string
 }
 
 export interface ControlPanelMessage {

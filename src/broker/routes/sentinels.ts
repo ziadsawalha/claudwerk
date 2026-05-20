@@ -68,6 +68,8 @@ export function createSentinelRouter(
        *  profiles list. Stale offline sentinels do NOT carry profiles. */
       profiles?: SentinelProfileInfo[]
       defaultSelection?: SelectionMode
+      pools?: string[]
+      defaultPool?: string
     }> = []
 
     for (const [sentinelId, record] of all) {
@@ -84,6 +86,8 @@ export function createSentinelRouter(
         createdAt: record.createdAt,
         profiles: conn?.profiles,
         defaultSelection: conn?.defaultSelection,
+        pools: conn?.pools,
+        defaultPool: conn?.defaultPool,
       })
     }
 
