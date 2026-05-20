@@ -47,20 +47,24 @@ const SELECTION_MODE_TOKENS = new Set<string>(['default', 'balanced', 'random'])
  * badge UX.
  *
  *  - Absent profile + absent pool                     -> undefined
- *    (default profile is implicit on the conversation record)
- *  - profile = literal name                           -> { kind: 'fixed', name }
+ *    (no explicit pin; sentinel follows its defaultSelection)
+ *  - profile = literal name (incl. 'default')         -> { kind: 'fixed', name }
  *    (pool is ignored -- Fixed always wins)
  *  - profile in {balanced, random}                    -> { kind: <m>, pool? }
- *  - profile absent/`default` + pool present          -> { kind: 'balanced', pool }
+ *  - profile absent + pool present                    -> { kind: 'balanced', pool }
  *    (pool-only at launch implies Balanced from that pool)
+ *
+ * NOTE: `'default'` is a LITERAL profile name (the implicit default profile),
+ * not a selection-mode token. Picking the default pill in the UI must pin to
+ * the default profile, not delegate to the sentinel's defaultSelection.
  */
 function intentFromProfileField(profile?: string, pool?: string): LaunchConfig['sentinelProfile'] {
-  if (!profile || profile === 'default') {
+  if (!profile) {
     return pool ? { kind: 'balanced', pool } : undefined
   }
   if (profile === 'balanced') return pool ? { kind: 'balanced', pool } : { kind: 'balanced' }
   if (profile === 'random') return pool ? { kind: 'random', pool } : { kind: 'random' }
-  // Literal profile name -- Fixed wins, drop any pool.
+  // Literal profile name (incl. 'default') -- Fixed wins, drop any pool.
   return { kind: 'fixed', name: profile }
 }
 

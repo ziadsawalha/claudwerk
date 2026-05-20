@@ -975,6 +975,11 @@ async function dispatchDaemonWorker(opts: {
   appendSystemPrompt?: string
   env?: Record<string, string>
   jobId?: string
+  /** Resolved sentinel profile. Its `configDir` is injected as
+   *  `CLAUDE_CONFIG_DIR` on the `claude --bg` worker (skipped when it equals
+   *  the implicit `~/.claude` -- see `shouldInjectConfigDir`). Its `env`
+   *  (e.g. `ANTHROPIC_API_KEY` for alt accounts) is merged directly. */
+  profile?: ResolvedProfile
 }): Promise<{ short: string | null; output: string }> {
   let args: string[]
   try {
@@ -1002,11 +1007,22 @@ async function dispatchDaemonWorker(opts: {
     .filter(Boolean)
     .join(' ')
   launchLog(opts.jobId, `Dispatching claude --bg worker (${opts.mode})`, 'info', flags)
+  // Sentinel profile -- inject CLAUDE_CONFIG_DIR (skipped for the implicit
+  // default to preserve CC's Keychain credential fallback) + profile.env
+  // onto the `claude --bg` worker. Mirrors the headless/PTY paths.
+  const workerConfigDir = opts.profile?.configDir
+  const profileEnvBundle: Record<string, string> = {
+    ...(opts.profile?.env ?? {}),
+    ...(opts.env ?? {}),
+  }
+  if (shouldInjectConfigDir(workerConfigDir)) {
+    profileEnvBundle.CLAUDE_CONFIG_DIR = workerConfigDir
+  }
   let proc: Subprocess
   try {
     proc = Bun.spawn(args, {
       cwd: opts.cwd,
-      env: mergeDaemonWorkerEnv(cleanSentinelEnv(), opts.env),
+      env: mergeDaemonWorkerEnv(cleanSentinelEnv(), profileEnvBundle),
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -1043,6 +1059,11 @@ function spawnDaemonHostDirect(opts: {
   conversationName?: string
   conversationDescription?: string
   env?: Record<string, string>
+  /** Resolved sentinel profile. Its `configDir` is injected as
+   *  `CLAUDE_CONFIG_DIR` on the daemon-host process (skipped for the implicit
+   *  `~/.claude` default -- see `shouldInjectConfigDir`); `profile.env` is
+   *  merged directly. */
+  profile?: ResolvedProfile
 }): { success: boolean; error?: string; pid?: number } {
   const startTime = Date.now()
   launchLog(
@@ -1064,7 +1085,13 @@ function spawnDaemonHostDirect(opts: {
   }
   if (opts.conversationName) env.CLAUDWERK_CONVERSATION_NAME = opts.conversationName
   if (opts.conversationDescription) env.CLAUDWERK_CONVERSATION_DESCRIPTION = opts.conversationDescription
+  // Sentinel profile -- profile.env first (lowest precedence among per-spawn
+  // overrides), then user-supplied opts.env, then CLAUDE_CONFIG_DIR last so
+  // an explicit per-profile dir cannot be overridden by user env.
+  if (opts.profile?.env) Object.assign(env, opts.profile.env)
   if (opts.env) Object.assign(env, opts.env)
+  const hostConfigDir = opts.profile?.configDir
+  if (shouldInjectConfigDir(hostConfigDir)) env.CLAUDE_CONFIG_DIR = hostConfigDir
 
   let proc: Subprocess
   try {
@@ -2868,6 +2895,7 @@ function connect(
                 resumeSessionId: spawnMsg.daemonResumeSessionId,
                 model: spawnMsg.model,
                 name: spawnMsg.conversationName,
+                profile: resolvedSpawnProfile,
                 settingsPath: spawnMsg.daemonSettingsPath,
                 mcpConfigPath: spawnMsg.daemonMcpConfigPath,
                 appendSystemPrompt: spawnMsg.appendSystemPrompt,
@@ -2894,6 +2922,7 @@ function connect(
               conversationName: spawnMsg.conversationName,
               conversationDescription: spawnMsg.conversationDescription,
               env: spawnMsg.env,
+              profile: resolvedSpawnProfile,
             })
             ws.send(
               JSON.stringify({

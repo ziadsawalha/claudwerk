@@ -73,12 +73,11 @@ function buildBadgeTitle(resolvedProfile: string, metaLabel: string | undefined,
 // fallow-ignore-next-line complexity
 export function SentinelProfileBadge({ project, hostSentinelAlias, launchConfig }: SentinelProfileBadgeProps) {
   const sentinels = useConversationsStore(s => s.sentinels)
-  const resolvedProfile = extractProfileFromProjectUri(project)
-
-  // Skip rendering when the resolved profile is the implicit `default` -- the
-  // shuffle icon alone (without a profile badge) is also intentionally elided
-  // because the profile would be unknown, which is the more confusing UX.
-  if (!resolvedProfile || resolvedProfile === 'default') return null
+  // URIs without a userinfo slot represent the implicit default profile
+  // (see `cwdToProjectUri` -- `default` is omitted from the URI by design).
+  // Surface that explicitly so a conversation pinned to `default` is visibly
+  // distinct from "unknown profile" in the UI.
+  const resolvedProfile = extractProfileFromProjectUri(project) ?? 'default'
 
   const intent = launchConfig?.sentinelProfile
   const isShuffleIntent = intent?.kind === 'balanced' || intent?.kind === 'random'

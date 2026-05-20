@@ -251,15 +251,31 @@ describe('pickProfile -- defaultSelection drives no-input spawns', () => {
     expect(r.picker).toBe('random')
   })
 
-  test("input='default' token also routes through defaultSelection", () => {
+  test("input='default' is a LITERAL pin, NOT a selection-mode token", () => {
+    // Regression guard: picking the 'default' pill in the UI must pin to the
+    // default profile. Previously the picker treated 'default' as a synonym
+    // for the absent-input case and delegated to config.defaultSelection,
+    // which silently routed default-pinned launches through balanced/random.
     const cfg = mkConfig('balanced', [
       { name: 'default', pool: 'default' },
       { name: 'alt', pool: 'default' },
     ])
-    const loads: Record<string, number> = { default: 0, alt: 5 }
+    const loads: Record<string, number> = { default: 5, alt: 0 }
     const r = pickProfile(cfg, { input: 'default', liveLoad: n => loads[n] ?? 0 })
-    expect(r.picker).toBe('balanced')
+    expect(r.picker).toBe('fixed')
     expect(r.profile.name).toBe('default')
+    expect(r.reason).toBe('literal')
+  })
+
+  test('absent input still routes through defaultSelection (balanced)', () => {
+    const cfg = mkConfig('balanced', [
+      { name: 'default', pool: 'default' },
+      { name: 'alt', pool: 'default' },
+    ])
+    const loads: Record<string, number> = { default: 5, alt: 0 }
+    const r = pickProfile(cfg, { input: undefined, liveLoad: n => loads[n] ?? 0 })
+    expect(r.picker).toBe('balanced')
+    expect(r.profile.name).toBe('alt')
   })
 })
 

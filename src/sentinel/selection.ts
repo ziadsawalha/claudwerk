@@ -86,7 +86,11 @@ export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): Pic
 
   // Literal name -- short-circuit. Validate against the known set. Fixed wins
   // over pool: even if a pool was requested, an explicit name beats it.
-  if (input && input !== 'default' && input !== 'balanced' && input !== 'random') {
+  // 'default' IS a literal profile name (always present, synthesised when
+  // absent from the config file). Only 'balanced' / 'random' are reserved
+  // selection-mode tokens; everything else is a literal pin. Absent / empty
+  // input falls through to defaultSelection.
+  if (input && input !== 'balanced' && input !== 'random') {
     const profile = config.profiles[input]
     if (!profile) {
       throw new Error(
@@ -96,7 +100,7 @@ export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): Pic
     return { profile, picker: 'fixed', requestedPool: '', candidates: [], reason: 'literal' }
   }
 
-  // Mode resolution. Absent / 'default' input -> consult defaultSelection.
+  // Mode resolution. Absent input -> consult defaultSelection.
   // Explicit 'balanced' / 'random' override.
   const mode: SelectionToken = input === 'balanced' || input === 'random' ? input : config.defaultSelection
 
