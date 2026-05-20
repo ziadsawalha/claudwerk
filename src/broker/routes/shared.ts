@@ -3,6 +3,7 @@
  * used by all route sub-modules.
  */
 
+import { parseProjectUri } from '../../shared/project-uri'
 import type { Conversation, TeamInfo } from '../../shared/protocol'
 import { getUser } from '../auth'
 import { getAuthenticatedUser, resolveAuth } from '../auth-routes'
@@ -135,10 +136,22 @@ export interface ConversationOverview {
   agentName?: string
   prLinks?: Conversation['prLinks']
   lastEvent?: { hookEvent: string; timestamp: number }
+  // Flattened from `project` URI userinfo (`claude://profile@sentinel/path`).
+  // Absent for default-profile conversations. Denormalization: the URI stays
+  // canonical -- this saves every consumer (control panel, MCP
+  // list_conversations, third-party tools) from re-parsing the URI to find
+  // the resolved profile.
+  sentinelProfile?: string
 }
 
 export function conversationToOverview(conv: Conversation, conversationStore: ConversationStore): ConversationOverview {
   const lastEvent = conv.events[conv.events.length - 1]
+  let sentinelProfile: string | undefined
+  try {
+    sentinelProfile = parseProjectUri(conv.project).profile || undefined
+  } catch {
+    // Unparseable URI -- field stays absent.
+  }
   return {
     id: conv.id,
     project: conv.project,
@@ -156,6 +169,7 @@ export function conversationToOverview(conv: Conversation, conversationStore: Co
     agentName: conv.agentName,
     prLinks: conv.prLinks,
     lastEvent: lastEvent ? { hookEvent: lastEvent.hookEvent, timestamp: lastEvent.timestamp } : undefined,
+    sentinelProfile,
   }
 }
 
