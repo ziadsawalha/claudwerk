@@ -64,6 +64,12 @@ export interface SentinelProfileFile {
   pool?: string | null
   label?: string
   color?: string
+  /** Whether the control panel should render this profile's badge on
+   *  conversation items + the launch dialog's profile pill. Omitted -> `true`.
+   *  Set to `false` to suppress the badge for the user's "ambient" profile
+   *  (typically `default`) so it doesn't clutter every conversation row.
+   *  Non-default profiles stay visible by default. */
+  showLabel?: boolean
 }
 
 /**
@@ -81,6 +87,10 @@ export interface ResolvedProfile {
   pool: string | null
   label?: string
   color?: string
+  /** UI hint: hide this profile's badge / pill text when `false`. Omitted /
+   *  `true` -> render the badge normally. Sentinel-side passthrough; pure
+   *  display metadata, broker-safe. */
+  showLabel?: boolean
 }
 
 /** Loaded + normalized sentinel config. */
@@ -279,6 +289,10 @@ function normalizeProfile(
     pool: resolveProfilePool(name, raw.pool, configPath),
     label: typeof raw.label === 'string' ? raw.label : undefined,
     color: typeof raw.color === 'string' ? raw.color : undefined,
+    // showLabel: omitted | true -> render badge. false -> hide. Anything else
+    // is ignored (silently coerces to "render") to keep config tolerant of
+    // older sentinels writing the field.
+    showLabel: raw.showLabel === false ? false : undefined,
   }
 }
 
@@ -370,6 +384,9 @@ export function profileSummaries(config: SentinelConfig): SentinelProfileInfo[] 
       color: p.color,
       pool: p.pool,
       authed: profileIsAuthed(p.configDir),
+      // Only emit when explicitly hidden -- omitted on the wire means "render
+      // normally", saving bytes for the common case.
+      ...(p.showLabel === false ? { showLabel: false } : {}),
     }))
 }
 

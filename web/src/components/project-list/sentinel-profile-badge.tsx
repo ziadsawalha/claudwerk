@@ -82,6 +82,13 @@ export function SentinelProfileBadge({ project, hostSentinelAlias, launchConfig 
   const intent = launchConfig?.sentinelProfile
   const isShuffleIntent = intent?.kind === 'balanced' || intent?.kind === 'random'
   const profileMeta = findProfileMeta(sentinels, hostSentinelAlias, resolvedProfile)
+  // showLabel === false: explicit opt-out from the sentinel config. Skip the
+  // badge entirely so the "ambient" profile (typically `default`) doesn't
+  // clutter every conversation row. A Balanced/Random intent still earns a
+  // shuffle hint -- the user chose a non-fixed selection so the visual signal
+  // is meaningful even when the resolved profile is hidden.
+  if (profileMeta?.showLabel === false && !isShuffleIntent) return null
+
   const colorStyle = profileMeta?.color ? { color: profileMeta.color, borderColor: profileMeta.color } : undefined
   const title = buildBadgeTitle(resolvedProfile, profileMeta?.label, intentLabelFor(intent))
 
@@ -92,7 +99,7 @@ export function SentinelProfileBadge({ project, hostSentinelAlias, launchConfig 
       title={title}
     >
       {isShuffleIntent && <Shuffle className="w-2.5 h-2.5" />}
-      {resolvedProfile}
+      {profileMeta?.showLabel === false ? null : resolvedProfile}
     </span>
   )
 }

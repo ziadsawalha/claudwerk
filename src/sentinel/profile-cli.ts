@@ -13,10 +13,12 @@
  *       [--spawn-root <path>]
  *       [--pool <name> | --no-pool]            Pool to join (default: "default";
  *                                              --no-pool excludes from all pools)
+ *       [--hide-label]                         Suppress the profile's badge
+ *                                              in the control panel UI
  *   set <name> [--label <text>] [--color <hex>]   Update display metadata or
  *       [--config-dir <path>]                  filesystem fields on an existing
  *       [--spawn-root <path>]                  profile (use `pool` subcommand
- *                                              for pool changes -- it's its own
+ *       [--hide-label | --show-label]          for pool changes -- it's its own
  *                                              verb because pool=null is a real
  *                                              value that flag parsing can't
  *                                              distinguish from "unchanged")
@@ -177,7 +179,7 @@ function cmdAdd(configPath: string, args: string[]): number {
   const name = nameCheck.name
   const flags = parseFlags(args.slice(1), {
     string: ['--config-dir', '--label', '--color', '--spawn-root', '--pool'],
-    boolean: ['--no-pool'],
+    boolean: ['--no-pool', '--hide-label'],
   })
   const configDir = stringFlag(flags, '--config-dir')
   if (!configDir) {
@@ -227,8 +229,13 @@ function cmdSet(configPath: string, args: string[]): number {
   const name = nameCheck.name
   const flags = parseFlags(args.slice(1), {
     string: ['--label', '--color', '--config-dir', '--spawn-root'],
-    boolean: [],
+    boolean: ['--show-label', '--hide-label'],
   })
+
+  if (flags['--show-label'] === true && flags['--hide-label'] === true) {
+    process.stderr.write('set: --show-label and --hide-label are mutually exclusive\n')
+    return 2
+  }
 
   const touched: Array<{ field: string; from: string | undefined; to: string | undefined }> = []
   const file = readRawConfig(configPath)
@@ -245,6 +252,17 @@ function cmdSet(configPath: string, args: string[]): number {
   applyOptionalField(entry, 'color', flags['--color'], touched)
   applyOptionalField(entry, 'spawnRoot', flags['--spawn-root'], touched)
 
+  // showLabel is tri-state: `undefined` (omitted, default = render),
+  // `true` (explicit show -- clear any prior `false`), or `false` (hide).
+  // CLI exposes only the explicit forms so the user knows what they changed.
+  if (flags['--hide-label'] === true && entry.showLabel !== false) {
+    touched.push({ field: 'showLabel', from: String(entry.showLabel ?? true), to: 'false' })
+    entry.showLabel = false
+  } else if (flags['--show-label'] === true && entry.showLabel === false) {
+    touched.push({ field: 'showLabel', from: 'false', to: 'true' })
+    delete entry.showLabel
+  }
+
   const newConfigDir = stringFlag(flags, '--config-dir')
   if (newConfigDir !== undefined) {
     if (newConfigDir === '') {
@@ -258,7 +276,9 @@ function cmdSet(configPath: string, args: string[]): number {
   }
 
   if (touched.length === 0) {
-    process.stderr.write('set: no fields specified (use --label, --color, --config-dir, --spawn-root)\n')
+    process.stderr.write(
+      'set: no fields specified (use --label, --color, --config-dir, --spawn-root, --hide-label, --show-label)\n',
+    )
     return 2
   }
 
@@ -323,6 +343,7 @@ function buildProfileEntry(configDir: string, flags: Record<string, string | tru
   if (color) entry.color = color
   if (spawnRootArg) entry.spawnRoot = spawnRootArg
   if (poolFlag) entry.pool = poolFlag
+  if (flags['--hide-label'] === true) entry.showLabel = false
   else if (noPool) entry.pool = null
   // No --pool / --no-pool -> omit, sentinel-config synthesises "default" pool.
   return entry

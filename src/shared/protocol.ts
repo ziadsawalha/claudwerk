@@ -2005,6 +2005,12 @@ export interface SentinelProfileInfo {
    *  in its `configDir`. Surfaced so the control panel can flag an un-authed
    *  profile before a spawn fails. */
   authed: boolean
+  /** UI hint -- when `false`, the control panel suppresses this profile's
+   *  badge on conversation rows and the launch dialog's pill text. Omitted /
+   *  `true` -> render the badge normally. Set on the "ambient" profile
+   *  (typically `default`) so every conversation row isn't decorated.
+   *  Pure display metadata, broker-safe (no env, no configDir). */
+  showLabel?: boolean
 }
 
 /** Resolved launch configuration -- stored on the conversation at spawn time, reused on revive */
