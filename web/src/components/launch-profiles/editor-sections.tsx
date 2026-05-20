@@ -1,9 +1,12 @@
 import type { LaunchProfile } from '@shared/launch-profile'
 import { LAUNCH_PROFILE_MAX_APPEND_SP } from '@shared/launch-profile'
+import { DEFAULT_SENTINEL_NAME, parseProjectUri } from '@shared/project-uri'
 import type { ComponentProps } from 'react'
 import { LaunchConfigFields, type LaunchFieldsValue } from '@/components/launch-config-fields'
 import { type BackendKind, BackendSelect } from '@/components/spawn-dialog/backend-select'
+import { SentinelProfileRadio } from '@/components/spawn-dialog/sentinel-profile-radio'
 import { TogglePill } from '@/components/ui/toggle-pill'
+import type { SentinelStatusInfo } from '@/hooks/use-conversations'
 import { formatShortcut } from '@/lib/commands'
 import { LabeledRow, Section } from './editor-shell'
 import { ProjectUriField } from './project-uri-field'
@@ -203,6 +206,81 @@ export function DaemonConfigSection({
           maxWidth={260}
         />
       </LabeledRow>
+    </Section>
+  )
+}
+
+/**
+ * Resolve which sentinel a profile would route to so the Sentinel-profile
+ * radio knows which profiles to offer. A pinned URI's authority wins
+ * (`claude://{sentinel}/path`); otherwise we fall back to the legacy
+ * `profile.sentinel` field, finally to the broker's default sentinel.
+ */
+function resolveTargetSentinelAlias(profile: LaunchProfile): string {
+  if (profile.project) {
+    try {
+      const parsed = parseProjectUri(profile.project)
+      if (parsed.authority) return parsed.authority
+    } catch {
+      // fall through -- unparseable URI is handled elsewhere
+    }
+  }
+  if (profile.sentinel) return profile.sentinel
+  return DEFAULT_SENTINEL_NAME
+}
+
+export function SentinelProfileSection({
+  profile,
+  onPatchSpawn,
+  sentinels,
+}: {
+  profile: LaunchProfile
+  onPatchSpawn: (next: Partial<LaunchProfile['spawn']>) => void
+  sentinels: SentinelStatusInfo[]
+}) {
+  const targetAlias = resolveTargetSentinelAlias(profile)
+  const targetSentinel = sentinels.find(s => s.alias.toLowerCase() === targetAlias.toLowerCase())
+  const profiles = targetSentinel?.profiles ?? []
+  const pools = targetSentinel?.pools ?? []
+  const defaultSelection = targetSentinel?.defaultSelection
+  const defaultPool = targetSentinel?.defaultPool
+
+  const subtitle = targetSentinel
+    ? `Target sentinel: ${targetAlias}`
+    : `Sentinel "${targetAlias}" is not reporting -- selection follows its default at launch.`
+
+  return (
+    <Section title="Sentinel profile" subtitle={subtitle}>
+      {profiles.length > 1 ? (
+        <SentinelProfileRadio
+          profiles={profiles}
+          pools={pools}
+          defaultSelection={defaultSelection}
+          defaultPool={defaultPool}
+          value={profile.spawn.profile ?? ''}
+          onChange={v => onPatchSpawn({ profile: v || undefined })}
+          poolValue={profile.spawn.pool ?? ''}
+          onPoolChange={v => onPatchSpawn({ pool: v || undefined })}
+        />
+      ) : (
+        <div className="text-[11px] text-muted-foreground">
+          {targetSentinel
+            ? `Sentinel "${targetAlias}" reports ${profiles.length} profile${profiles.length === 1 ? '' : 's'} -- nothing to pick. Launches use the sentinel's default.`
+            : 'No profile choices available offline. Saved selection is preserved.'}
+          {(profile.spawn.profile || profile.spawn.pool) && (
+            <div className="mt-1 text-[10px] text-comment font-mono">
+              Saved: profile={profile.spawn.profile ?? '(default)'} pool={profile.spawn.pool ?? '(default)'}
+              <button
+                type="button"
+                className="ml-2 underline hover:text-foreground"
+                onClick={() => onPatchSpawn({ profile: undefined, pool: undefined })}
+              >
+                clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </Section>
   )
 }

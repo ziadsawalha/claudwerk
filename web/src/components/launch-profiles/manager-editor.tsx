@@ -1,6 +1,7 @@
 import type { LaunchProfile } from '@shared/launch-profile'
 import { backendSupportsAppendSystemPrompt } from '@shared/launch-profile'
 import type { BackendKind } from '@/components/spawn-dialog/backend-select'
+import { useConversationsStore } from '@/hooks/use-conversations'
 import { launchFieldsFromProfile, spawnPatchFromLaunchFields } from './editor-mapping'
 import {
   AppendSystemPromptSection,
@@ -11,6 +12,7 @@ import {
   IdentitySection,
   LaunchFieldsSection,
   PinningSection,
+  SentinelProfileSection,
 } from './editor-sections'
 
 interface Props {
@@ -23,6 +25,7 @@ export function ManagerEditor({ profile, onChange }: Props) {
   const isDaemon = backend === 'daemon'
   const showAppendSp = backendSupportsAppendSystemPrompt(backend)
   const hasIncompatibleFields = !showAppendSp ? false : hasBackendIncompatibleFields(profile, backend)
+  const sentinels = useConversationsStore(s => s.sentinels)
 
   function patch(next: Partial<LaunchProfile>) {
     onChange({ ...profile, ...next, updatedAt: Date.now() })
@@ -56,6 +59,7 @@ export function ManagerEditor({ profile, onChange }: Props) {
       <IdentitySection profile={profile} onPatch={patch} />
       <BehaviorSection profile={profile} onPatch={patch} />
       <BackendSection backend={backend} onChange={switchBackend} hasIncompatibleFields={hasIncompatibleFields} />
+      <SentinelProfileSection profile={profile} onPatchSpawn={patchSpawn} sentinels={sentinels} />
       {isDaemon && <DaemonConfigSection spawn={profile.spawn} onPatch={patchSpawn} />}
       <LaunchFieldsSection
         value={launchFieldsFromProfile(profile)}
