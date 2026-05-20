@@ -13,6 +13,13 @@
  *       [--spawn-root <path>]
  *       [--pool <name> | --no-pool]            Pool to join (default: "default";
  *                                              --no-pool excludes from all pools)
+ *   set <name> [--label <text>] [--color <hex>]   Update display metadata or
+ *       [--config-dir <path>]                  filesystem fields on an existing
+ *       [--spawn-root <path>]                  profile (use `pool` subcommand
+ *                                              for pool changes -- it's its own
+ *                                              verb because pool=null is a real
+ *                                              value that flag parsing can't
+ *                                              distinguish from "unchanged")
  *   auth <name>                                Run `claude auth login` for a profile
  *   rm <name>                                  Remove a profile (cannot remove "default")
  *   pool <name> --set <pool> | --none          Move a profile to a different pool
@@ -50,6 +57,7 @@ type SubcommandHandler = (configPath: string, args: string[]) => number | Promis
 const SUBCOMMANDS: Record<string, SubcommandHandler> = {
   list: (cp, _a) => cmdList(cp),
   add: cmdAdd,
+  set: cmdSet,
   auth: cmdAuth,
   rm: cmdRm,
   remove: cmdRm,
@@ -199,6 +207,94 @@ function cmdAdd(configPath: string, args: string[]): number {
   // Sanity round-trip: re-load so any rejection surfaces immediately.
   loadSentinelConfig({ configPath })
   return 0
+}
+
+/**
+ * Mutate display metadata or filesystem fields on an existing profile.
+ *
+ * Touches ONLY the fields the user explicitly passed -- omitted flags leave
+ * the existing value alone. To CLEAR `label` / `color` / `spawn-root`, pass
+ * an empty string (`--label ""`). `configDir` cannot be cleared (a profile
+ * without one is invalid).
+ *
+ * Pool changes go through the existing `pool` subcommand because `pool: null`
+ * is a meaningful state (excluded from every pool) that flag-style parsing
+ * can't distinguish from "field omitted".
+ */
+function cmdSet(configPath: string, args: string[]): number {
+  const nameCheck = validateProfileNameArg(args[0])
+  if (nameCheck.code !== 0) return nameCheck.code
+  const name = nameCheck.name
+  const flags = parseFlags(args.slice(1), {
+    string: ['--label', '--color', '--config-dir', '--spawn-root'],
+    boolean: [],
+  })
+
+  const touched: Array<{ field: string; from: string | undefined; to: string | undefined }> = []
+  const file = readRawConfig(configPath)
+  const profiles = file.profiles ?? {}
+  const entry = profiles[name]
+  if (!entry) {
+    process.stderr.write(`set: profile "${name}" not found in ${configPath} (known: ${Object.keys(profiles).join(', ') || 'none'})\n`)
+    return 1
+  }
+
+  applyOptionalField(entry, 'label', flags['--label'], touched)
+  applyOptionalField(entry, 'color', flags['--color'], touched)
+  applyOptionalField(entry, 'spawnRoot', flags['--spawn-root'], touched)
+
+  const newConfigDir = stringFlag(flags, '--config-dir')
+  if (newConfigDir !== undefined) {
+    if (newConfigDir === '') {
+      process.stderr.write('set: --config-dir cannot be empty (a profile without configDir is invalid)\n')
+      return 2
+    }
+    if (entry.configDir !== newConfigDir) {
+      touched.push({ field: 'configDir', from: entry.configDir, to: newConfigDir })
+      entry.configDir = newConfigDir
+    }
+  }
+
+  if (touched.length === 0) {
+    process.stderr.write('set: no fields specified (use --label, --color, --config-dir, --spawn-root)\n')
+    return 2
+  }
+
+  profiles[name] = entry
+  writeRawConfig(configPath, { ...file, profiles })
+
+  for (const t of touched) {
+    const from = t.from ?? '<unset>'
+    const to = t.to ?? '<cleared>'
+    process.stdout.write(`profile "${name}" ${t.field}: ${from} -> ${to}\n`)
+  }
+  process.stdout.write(`(restart the sentinel for changes to take effect -- SIGHUP reload not yet implemented)\n`)
+  // Sanity round-trip: re-load so any rejection surfaces immediately.
+  loadSentinelConfig({ configPath })
+  return 0
+}
+
+/**
+ * Apply a `--<field>` flag value to `entry[key]` if the flag was present.
+ *   - Flag absent (`raw === undefined`)            -> no-op.
+ *   - Flag with empty string (`--color ""`)         -> clear the field.
+ *   - Flag with non-empty string                    -> assign + record the diff.
+ * Skips no-op writes (current value === new value) so the touched log
+ * only reflects real changes.
+ */
+function applyOptionalField(
+  entry: SentinelProfileFile,
+  key: 'label' | 'color' | 'spawnRoot',
+  raw: string | true | undefined,
+  touched: Array<{ field: string; from: string | undefined; to: string | undefined }>,
+): void {
+  if (raw === undefined) return
+  const next = typeof raw === 'string' && raw !== '' ? raw : undefined
+  const prev = entry[key]
+  if (prev === next) return
+  touched.push({ field: key, from: prev, to: next })
+  if (next === undefined) delete entry[key]
+  else entry[key] = next
 }
 
 function validateProfileNameArg(name: string | undefined): { code: number; name: string } {
