@@ -28,11 +28,12 @@ import {
 import { hostname as osHostname } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { Subprocess } from 'bun'
-import { has } from '../shared/cc-daemon/ops'
+import { has, ping } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import { cwdToProjectUri, parseProjectUri } from '../shared/project-uri'
 import type {
   BrokerSentinelMessage,
+  CcVersionChanged,
   ExtraUsage,
   ListCcSessionsResult,
   ListDirsResult,
@@ -54,6 +55,11 @@ import {
   parseDaemonShort,
   validateDaemonConfigPaths,
 } from './daemon-dispatch'
+import {
+  type CcVersionWatcher,
+  createCcVersionWatcher,
+  type LastSeenCcVersion,
+} from './cc-version-watcher'
 import { startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
 import { type PreflightIssue, preflightSpawn } from './preflight'
 import { runProfileCli } from './profile-cli'
@@ -186,6 +192,41 @@ const TMUX_BIN = findTmuxBinary()
 // ─── PID Registry (headless child process tracking) ─────────────────
 const PID_REGISTRY_DIR = join(process.env.HOME || '/root', '.rclaude')
 const PID_REGISTRY_PATH = join(PID_REGISTRY_DIR, 'sentinel-sessions.json')
+const SENTINEL_SETTINGS_PATH = join(PID_REGISTRY_DIR, 'sentinel-settings.json')
+
+/** Read the persisted last-seen CC version/proto pair. Tolerant of a missing
+ *  or malformed file -- treats both as the first-observation case (null/null). */
+function loadCcVersionState(): LastSeenCcVersion {
+  try {
+    if (!existsSync(SENTINEL_SETTINGS_PATH)) return { version: null, proto: null }
+    const raw = JSON.parse(readFileSync(SENTINEL_SETTINGS_PATH, 'utf8')) as Record<string, unknown>
+    const version = typeof raw.lastSeenCcVersion === 'string' ? raw.lastSeenCcVersion : null
+    const proto = typeof raw.lastSeenCcProto === 'number' ? raw.lastSeenCcProto : null
+    return { version, proto }
+  } catch {
+    return { version: null, proto: null }
+  }
+}
+
+/** Persist the latest CC version/proto pair. Merges into any existing settings. */
+function saveCcVersionState(next: LastSeenCcVersion): void {
+  try {
+    mkdirSync(PID_REGISTRY_DIR, { recursive: true })
+    let current: Record<string, unknown> = {}
+    if (existsSync(SENTINEL_SETTINGS_PATH)) {
+      try {
+        current = JSON.parse(readFileSync(SENTINEL_SETTINGS_PATH, 'utf8')) as Record<string, unknown>
+      } catch {
+        current = {}
+      }
+    }
+    current.lastSeenCcVersion = next.version
+    current.lastSeenCcProto = next.proto
+    writeFileSync(SENTINEL_SETTINGS_PATH, JSON.stringify(current, null, 2))
+  } catch (e) {
+    log(`Failed to persist sentinel-settings.json: ${e}`)
+  }
+}
 
 interface PidRegistryEntry {
   conversationId: string
@@ -1212,6 +1253,7 @@ the target path to allow spawning. Only one sentinel can be connected at a time.
 
 // Module-level WS ref for diag()
 let activeWs: WebSocket | null = null
+let ccVersionWatcher: CcVersionWatcher | null = null
 
 function log(msg: string) {
   console.log(`[sentinel] ${msg}`)
@@ -1996,6 +2038,45 @@ function connect(
 
     // Start mirroring the Claude Code daemon roster (read-only native bg sessions)
     startDaemonRosterWatch(ws, { log, diag })
+
+    // Start the CC daemon version watcher. Pings every 60s; on diff, emits a
+    // `cc_version_changed` event. Sentinel id stamped from the auth-derived
+    // value where present, otherwise from the stable machine id (legacy
+    // shared-secret sentinels lack a snt_ id).
+    ccVersionWatcher = createCcVersionWatcher({
+      sentinelId: getMachineId(),
+      ping: async () => {
+        const sock = resolveControlSocket()
+        if (!sock) return null
+        try {
+          const resp = await ping(sock)
+          if (!resp.ok) return null
+          const version = typeof resp.version === 'string' ? resp.version : null
+          const proto = typeof resp.proto === 'number' ? resp.proto : null
+          if (!version || proto === null) return null
+          return { version, proto }
+        } catch {
+          return null
+        }
+      },
+      loadLastSeen: loadCcVersionState,
+      persistLastSeen: saveCcVersionState,
+      emit: event => {
+        log(
+          `[cc-version] changed sentinel=${event.sentinelId} ` +
+            `version ${event.fromVersion ?? '(first-seen)'} -> ${event.toVersion} ` +
+            `proto ${event.fromProto ?? '(first-seen)'} -> ${event.toProto} ` +
+            `at=${event.observedAt}`,
+        )
+        if (activeWs?.readyState === WebSocket.OPEN) {
+          try {
+            activeWs.send(JSON.stringify(event satisfies CcVersionChanged))
+          } catch {}
+        }
+      },
+      onError: err => diag('cc-version', `ping failed: ${err.message}`),
+    })
+    ccVersionWatcher.start()
 
     // Start heartbeat
     heartbeatTimer = setInterval(() => {
@@ -2952,6 +3033,10 @@ function connect(
     if (heartbeatTimer) clearInterval(heartbeatTimer)
     stopUsagePolling()
     stopDaemonRosterWatch()
+    if (ccVersionWatcher) {
+      ccVersionWatcher.stop()
+      ccVersionWatcher = null
+    }
 
     const detail = event.code ? ` (code=${event.code}${event.reason ? ` reason=${event.reason}` : ''})` : ''
     if (shouldReconnect) {

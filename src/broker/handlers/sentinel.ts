@@ -3,7 +3,7 @@
  * directory listing results, diagnostic entries.
  */
 
-import type { SelectionMode, SentinelProfileInfo, UsageUpdate } from '../../shared/protocol'
+import type { CcVersionChanged, SelectionMode, SentinelProfileInfo, UsageUpdate } from '../../shared/protocol'
 import type { MessageHandler } from '../handler-context'
 import { ANY_ROLE, registerHandlers, SENTINEL_ONLY } from '../message-router'
 
@@ -233,6 +233,63 @@ const spawnFailed: MessageHandler = (ctx, data) => {
   }
 }
 
+/**
+ * Validate + normalize a raw `cc_version_changed` wire payload. Returns null
+ * when required fields (sentinelId, toVersion, toProto, observedAt) are
+ * missing or malformed. Pure -- unit-testable without a HandlerContext.
+ *
+ * `fromVersion` / `fromProto` may legitimately be `null` (first observation
+ * after install); both must be either a string/number respectively or `null`.
+ */
+// fallow-ignore-next-line complexity
+export function normalizeCcVersionChanged(data: Record<string, unknown>): CcVersionChanged | null {
+  const { sentinelId, toVersion, toProto, observedAt } = data
+  if (typeof sentinelId !== 'string' || !sentinelId) return null
+  if (typeof toVersion !== 'string' || !toVersion) return null
+  if (typeof toProto !== 'number') return null
+  if (typeof observedAt !== 'number') return null
+  const fromVersion = typeof data.fromVersion === 'string' ? data.fromVersion : data.fromVersion === null ? null : null
+  const fromProto = typeof data.fromProto === 'number' ? data.fromProto : data.fromProto === null ? null : null
+  return {
+    type: 'cc_version_changed',
+    sentinelId,
+    fromVersion,
+    toVersion,
+    fromProto,
+    toProto,
+    observedAt,
+  }
+}
+
+/**
+ * Sentinel -> broker: the Claude Code daemon version / protocol number this
+ * sentinel observes changed. The broker logs it with full context and
+ * broadcasts the typed wire event to dashboard subscribers so the sentinel
+ * manager UI renders a "drain workers, CC was upgraded" banner.
+ *
+ * EVERYTHING IS A STRUCTURED MESSAGE -- no diag-only version flips.
+ * BOUNDARY-clean -- scoped to a sentinel, no conversationId, no ccSessionId.
+ */
+const ccVersionChanged: MessageHandler = (ctx, data) => {
+  const normalized = normalizeCcVersionChanged(data)
+  if (!normalized) {
+    ctx.log.debug('[cc-version] malformed cc_version_changed, ignoring')
+    return
+  }
+  // Prefer the auth-derived sentinelId (per-sentinel secret, snt_ prefix) when
+  // available -- it is the id the control panel uses to key its sentinel list.
+  // Fall back to the sentinel-supplied id (machine fingerprint) for legacy
+  // shared-rclaude-secret sentinels.
+  const sentinelId = ctx.ws.data.sentinelId ?? normalized.sentinelId
+  const event = { ...normalized, sentinelId }
+  ctx.log.info(
+    `[cc-version] sentinel=${sentinelId} version ${event.fromVersion ?? '(first-seen)'} -> ${event.toVersion}` +
+      ` proto ${event.fromProto ?? '(first-seen)'} -> ${event.toProto} observedAt=${event.observedAt}` +
+      ` reportedId=${normalized.sentinelId}`,
+  )
+  ctx.broadcast({ ...event })
+}
+
 const sentinelDiag: MessageHandler = (ctx, data) => {
   if (Array.isArray(data.entries)) {
     for (const entry of data.entries) {
@@ -270,6 +327,7 @@ export function registerSentinelHandlers(): void {
       launch_log: launchLog,
       sentinel_diag: sentinelDiag,
       usage_update: usageUpdate,
+      cc_version_changed: ccVersionChanged,
     },
     SENTINEL_ONLY,
   )

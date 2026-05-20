@@ -2432,6 +2432,30 @@ export interface DaemonPermissionResponse {
   scope?: 'once' | 'session'
 }
 
+/**
+ * Sentinel -> Broker: the Claude Code daemon version or control-protocol
+ * number observed on this sentinel changed. Fired on the very first successful
+ * ping after install (with `fromVersion: null` / `fromProto: null`) and on
+ * every subsequent diff. Drives the control-panel banner asking the user to
+ * drain in-flight workers.
+ *
+ * BOUNDARY-clean: scoped to a sentinel, not a conversation. The broker never
+ * routes by ccSessionId here -- this is sentinel-host metadata, not a per-
+ * conversation identity.
+ */
+export interface CcVersionChanged {
+  type: 'cc_version_changed'
+  sentinelId: string
+  /** Previous version. `null` on the first observation after install. */
+  fromVersion: string | null
+  toVersion: string
+  /** Previous control-protocol number. `null` on the first observation. */
+  fromProto: number | null
+  toProto: number
+  /** Epoch ms the sentinel observed the diff. */
+  observedAt: number
+}
+
 export type SentinelMessage =
   | SentinelIdentify
   | ReviveResult
@@ -2443,6 +2467,7 @@ export type SentinelMessage =
   | LaunchLog
   | DaemonRosterUpdate
   | DaemonJobState
+  | CcVersionChanged
 
 // Broker -> Sentinel messages
 //

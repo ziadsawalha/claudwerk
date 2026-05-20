@@ -174,15 +174,45 @@ function computeOrphans(
   return out
 }
 
+/** Latest CC version change observed for one sentinel. Surfaced inline so the
+ *  operator sees "drain in-flight workers, CC was upgraded" alongside the row.
+ *  Listens to the custom event the WS handler emits; no store coupling. */
+interface CcVersionChange {
+  sentinelId: string
+  fromVersion: string | null
+  toVersion: string
+  fromProto: number | null
+  toProto: number
+  observedAt?: number
+}
+
+function CcVersionBanner({ change }: { change: CcVersionChange }) {
+  const protoSuffix = change.fromProto !== change.toProto ? ` (proto ${change.fromProto ?? '-'} -> ${change.toProto})` : ''
+  const headline =
+    change.fromVersion === null
+      ? `First seen: ${change.toVersion}${protoSuffix}`
+      : `${change.fromVersion} -> ${change.toVersion}${protoSuffix}`
+  return (
+    <div className="px-2 py-1 border-t border-border/40 bg-warning/10 text-[10px] text-warning-foreground/90 font-mono">
+      <span className="font-bold uppercase tracking-wider text-warning">CC binary changed</span>{' '}
+      <span className="text-foreground">{headline}</span>{' '}
+      <span className="text-muted-foreground/80">-- drain in-flight workers</span>
+    </div>
+  )
+}
+
 function SentinelRow({
   sentinel,
   usage,
+  ccVersionChange,
   onSetDefault,
   onRevoke,
 }: {
   sentinel: SentinelEntry
   /** Per-profile usage map keyed by profile name. Only present for this sentinel. */
   usage: Map<string, ProfileUsageRow>
+  /** Latest CC version change observed for this sentinel, if any. */
+  ccVersionChange?: CcVersionChange
   onSetDefault: () => void
   onRevoke: () => void
 }) {
@@ -197,6 +227,7 @@ function SentinelRow({
   return (
     <div className="border border-border rounded text-xs font-mono">
       <SentinelHeader sentinel={sentinel} onSetDefault={onSetDefault} onRevoke={onRevoke} />
+      {ccVersionChange && <CcVersionBanner change={ccVersionChange} />}
       {profiles.length > 0 && (
         <div className="border-t border-border/40 py-1">
           {profiles.map(p => (
@@ -260,7 +291,24 @@ function SentinelList() {
   const [newAlias, setNewAlias] = useState('')
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
   const [profileUsage, setProfileUsage] = useState<ProfileUsageRow[]>([])
+  const [ccVersionChanges, setCcVersionChanges] = useState<Map<string, CcVersionChange>>(new Map())
   const connectedSentinels = useConversationsStore(s => s.sentinels)
+
+  // Subscribe to the `cc_version_changed` custom event the WS handler emits.
+  // Keeps the latest change per sentinelId; the SentinelRow renders the banner.
+  useEffect(() => {
+    function onChange(e: Event) {
+      const detail = (e as CustomEvent<CcVersionChange>).detail
+      if (!detail || !detail.sentinelId) return
+      setCcVersionChanges(prev => {
+        const next = new Map(prev)
+        next.set(detail.sentinelId, detail)
+        return next
+      })
+    }
+    window.addEventListener('rclaude-cc-version-changed', onChange)
+    return () => window.removeEventListener('rclaude-cc-version-changed', onChange)
+  }, [])
 
   const fetchSentinels = useCallback(() => {
     setLoading(true)
@@ -367,6 +415,7 @@ function SentinelList() {
               key={s.sentinelId}
               sentinel={s}
               usage={usageMap}
+              ccVersionChange={ccVersionChanges.get(s.sentinelId)}
               onSetDefault={() => handleSetDefault(s.sentinelId)}
               onRevoke={() => handleRevoke(s.sentinelId, s.alias)}
             />

@@ -543,6 +543,38 @@ function handleDaemonControlResult(msg: DashboardMessage) {
   if (toast) window.dispatchEvent(new CustomEvent('rclaude-toast', { detail: toast }))
 }
 
+/**
+ * `cc_version_changed` -- a sentinel observed a Claude Code version or
+ * control-protocol bump. Surfaced as a toast so the user notices and can
+ * drain in-flight workers; the SentinelManager subscribes to the same
+ * custom event to render an inline banner per sentinel row.
+ */
+function handleCcVersionChanged(msg: DashboardMessage) {
+  const sentinelId = typeof msg.sentinelId === 'string' ? msg.sentinelId : undefined
+  const toVersion = typeof msg.toVersion === 'string' ? msg.toVersion : undefined
+  const toProto = typeof msg.toProto === 'number' ? msg.toProto : undefined
+  if (!sentinelId || !toVersion || toProto === undefined) return
+  const fromVersion = typeof msg.fromVersion === 'string' ? msg.fromVersion : null
+  const fromProto = typeof msg.fromProto === 'number' ? msg.fromProto : null
+  const detail = {
+    title: 'Claude Code version changed',
+    meta: sentinelId,
+    body:
+      fromVersion === null
+        ? `First observed: ${toVersion} (proto ${toProto})`
+        : `${fromVersion} -> ${toVersion}${fromProto !== toProto ? ` (proto ${fromProto} -> ${toProto})` : ''}\nConsider draining in-flight workers.`,
+    variant: 'warning',
+    persistent: true,
+    toastId: `cc-version:${sentinelId}`,
+  }
+  window.dispatchEvent(new CustomEvent('rclaude-toast', { detail }))
+  window.dispatchEvent(
+    new CustomEvent('rclaude-cc-version-changed', {
+      detail: { sentinelId, fromVersion, toVersion, fromProto, toProto, observedAt: msg.observedAt },
+    }),
+  )
+}
+
 function handleUsageUpdate(msg: DashboardMessage) {
   if (msg.usage) {
     useConversationsStore.getState().setPlanUsage(msg.usage)
@@ -1082,6 +1114,7 @@ export const handlers: Record<string, MessageHandler> = {
   sentinel_status: handleSentinelStatus,
   daemon_roster: handleDaemonRoster,
   daemon_control_result: handleDaemonControlResult,
+  cc_version_changed: handleCcVersionChanged,
   usage_update: handleUsageUpdate,
   claude_health_update: handleClaudeHealthUpdate,
   claude_efficiency_update: handleClaudeEfficiencyUpdate,
