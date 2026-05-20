@@ -5,6 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { formatResetIn } from '../../shared/format-reset-time'
 import { resolveModelFamily } from '../../shared/models'
 import { getProfileFromUri } from '../../shared/project-uri'
 import type { AgentHostLaunchStep, TranscriptLaunchEntry, TranscriptSystemEntry } from '../../shared/protocol'
@@ -318,19 +319,31 @@ const streamDelta: MessageHandler = (ctx, data) => {
   }
 }
 
-function formatRateLimitMessage(rateLimitType: string | undefined, retryAfterMs: number | undefined): string {
+function formatRateLimitMessage(opts: {
+  rateLimitType: string | undefined
+  resetsAt: number | undefined
+  isNotice: boolean
+}): string {
+  const { rateLimitType, resetsAt, isNotice } = opts
   const typeSuffix = rateLimitType ? ` (${rateLimitType})` : ''
-  const retrySuffix = retryAfterMs ? ` - retry in ${Math.ceil(retryAfterMs / 1000)}s` : ''
-  return `Rate limited${typeSuffix}${retrySuffix}`
+  const resetSuffix = formatResetIn(resetsAt)
+  const tail = resetSuffix ? ` -- ${resetSuffix}` : ''
+  return isNotice ? `Rate limit notice${typeSuffix}${tail}` : `Rate limited${typeSuffix}${tail}`
 }
 
-// Rate limit status from headless backend. Only sets conversation.rateLimit
-// banner and creates a transcript entry when actually limited.
-// "allowed" status clears any existing rate limit state.
+// Rate limit status from headless backend.
 //
-// Phase 5 -- profile-tag the broadcast. Rate-limit telemetry is per-account
-// per-profile (each profile's configDir holds different creds), so the UI
-// can show per-profile headroom and the v2 balancer can consume it.
+// Three cases:
+//   - 'allowed'                 -> clear conversation.rateLimit, broadcast clear.
+//   - 'limited' + retryAfterMs  -> ACTUAL LIMIT: set conversation.rateLimit banner,
+//                                  emit transcript entry, broadcast.
+//   - 'limited' (no retryAfter) -> NOTICE (e.g. 7-day soft warning): do NOT set
+//                                  conversation.rateLimit (no banner), still emit
+//                                  transcript entry + broadcast for the toast.
+//
+// Phase 5 -- profile-tag + sentinel-tag the broadcast. Rate-limit telemetry is
+// per-account per-profile (each profile's configDir holds different creds), so
+// the UI can show per-profile headroom and the v2 balancer can consume it.
 const rateLimitStatusHandler: MessageHandler = (ctx, data) => {
   const conversationId = (data.conversationId || ctx.ws.data.conversationId) as string
   if (!conversationId) return
@@ -340,26 +353,43 @@ const rateLimitStatusHandler: MessageHandler = (ctx, data) => {
   const status = data.status as string
   const retryAfterMs = data.retryAfterMs as number | undefined
   const rateLimitType = data.rateLimitType as string | undefined
+  const resetsAt = data.resetsAt as number | undefined
   const profile = getProfileFromUri(conversation.project) || 'default'
   const sentinelId = conversation.hostSentinelId || ''
+  const sentinelAlias = conversation.hostSentinelAlias || ''
 
   if (status === 'allowed') {
     if (!conversation.rateLimit) return
     conversation.rateLimit = undefined
     ctx.conversations.broadcastConversationUpdate(conversationId)
-    ctx.broadcast({ type: 'rate_limit_status', conversationId, status: 'allowed', profile, sentinelId })
+    ctx.broadcast({
+      type: 'rate_limit_status',
+      conversationId,
+      status: 'allowed',
+      profile,
+      sentinelId,
+      sentinelAlias,
+    })
     return
   }
 
-  const message = formatRateLimitMessage(rateLimitType, retryAfterMs)
-  conversation.rateLimit = {
-    retryAfterMs: retryAfterMs || 5000,
-    message,
-    timestamp: Date.now(),
-    profile,
-    sentinelId,
+  // Notice = limit signal with no retry_after_ms. Actual block = has retry_after_ms.
+  const isNotice = retryAfterMs === undefined
+  const message = formatRateLimitMessage({ rateLimitType, resetsAt, isNotice })
+
+  if (!isNotice) {
+    // Actual block: set the per-conversation banner.
+    conversation.rateLimit = {
+      retryAfterMs,
+      resetsAt,
+      message,
+      timestamp: Date.now(),
+      profile,
+      sentinelId,
+      sentinelAlias,
+    }
+    ctx.conversations.broadcastConversationUpdate(conversationId)
   }
-  ctx.conversations.broadcastConversationUpdate(conversationId)
 
   ctx.broadcast({
     type: 'rate_limit_status',
@@ -367,10 +397,11 @@ const rateLimitStatusHandler: MessageHandler = (ctx, data) => {
     status: data.status,
     rateLimitType,
     retryAfterMs,
-    resetsAt: data.resetsAt,
+    resetsAt,
     raw: data.raw,
     profile,
     sentinelId,
+    sentinelAlias,
   })
 
   const entry = {
@@ -378,9 +409,12 @@ const rateLimitStatusHandler: MessageHandler = (ctx, data) => {
     subtype: 'rate_limit',
     content: message,
     retryAfterMs,
+    resetsAt,
+    isNotice,
     raw: data.raw as Record<string, unknown> | undefined,
     profile,
     sentinelId,
+    sentinelAlias,
     uuid: randomUUID(),
     timestamp: new Date().toISOString(),
   }

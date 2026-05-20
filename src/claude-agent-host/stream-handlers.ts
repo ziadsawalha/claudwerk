@@ -550,11 +550,15 @@ function handleRateLimitEvent(hctx: HandlerContext, msg: Record<string, unknown>
   const info = msg.rate_limit_info as Record<string, unknown> | undefined
   const isAllowed = info?.status === 'allowed'
   const rateLimitType = info?.rateLimitType as string | undefined
-  const resetsAt = info?.resetsAt as number | undefined
-  const retryMs = isAllowed ? undefined : (msg.retry_after_ms as number) || 5000
+  // resetsAt arrives from CC in seconds; normalize to epoch ms for downstream consumers.
+  const resetsAtRaw = info?.resetsAt as number | undefined
+  const resetsAt = resetsAtRaw && resetsAtRaw < 1e12 ? resetsAtRaw * 1000 : resetsAtRaw
+  // Pass retry_after_ms through if CC sent it. NO synthetic default -- absence
+  // means this is a NOTICE (e.g. 7-day soft warning), not an actual block.
+  const retryMs = isAllowed ? undefined : (msg.retry_after_ms as number | undefined)
 
   debug(
-    `Rate limit status: ${isAllowed ? 'allowed' : 'limited'}${rateLimitType ? ` (${rateLimitType})` : ''}${retryMs ? ` retry=${retryMs}ms` : ''}`,
+    `Rate limit status: ${isAllowed ? 'allowed' : 'limited'}${rateLimitType ? ` (${rateLimitType})` : ''}${retryMs ? ` retry=${retryMs}ms` : ' (notice)'}`,
   )
 
   hctx.callbacks.onRateLimitStatus?.({

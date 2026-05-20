@@ -716,14 +716,20 @@ export interface JsonStreamData {
 }
 
 // Rate limit status from headless stream-json backend.
-// CC emits rate_limit_event for both informational ("allowed") and actual
-// rate limiting. The agent host translates to this high-level message.
+// CC emits rate_limit_event for three cases:
+//   - 'allowed' (utilization cleared)
+//   - 'limited' WITH retry_after_ms (actual block -- CC tells us how long to wait)
+//   - 'limited' WITHOUT retry_after_ms (NOTICE -- e.g. 7-day soft warning at 80-85%)
+// The discriminator between actual-block vs notice is `retryAfterMs` presence.
+// The agent host translates to this high-level message.
 export interface AgentHostRateLimitStatus {
   type: 'rate_limit_status'
   conversationId: string
   status: 'limited' | 'allowed'
+  /** Present only when CC actually rate-limited (HTTP 429-equivalent). Absent for notices. */
   retryAfterMs?: number
   rateLimitType?: string
+  /** Epoch ms when the bucket resets. Agent host normalizes CC's seconds-resolution value. */
   resetsAt?: number
   raw?: Record<string, unknown>
 }
@@ -1834,14 +1840,22 @@ export interface Conversation {
   }
   permissionMode?: string // current CC permission mode (default/plan/acceptEdits/auto/bypassPermissions)
   lastError?: { stopReason?: string; errorType?: string; errorMessage?: string; timestamp: number }
+  /**
+   * Set ONLY for actual rate limits (CC sent retry_after_ms). NOT set for
+   * notices (7-day soft warnings) -- the toast surfaces those instead.
+   */
   rateLimit?: {
     retryAfterMs?: number
+    /** Epoch ms when the bucket resets (live formatter source). */
+    resetsAt?: number
     message: string
     timestamp: number
     /** Resolved sentinel-profile name -- which account hit the limit. */
     profile?: string
     /** Sentinel hosting that profile (broker-internal correlation key). */
     sentinelId?: string
+    /** Denormalized human-readable sentinel alias for UI display. */
+    sentinelAlias?: string
   }
   pendingAttention?: {
     type: 'permission' | 'elicitation' | 'ask' | 'dialog' | 'plan_approval' | 'spawn_approval'
