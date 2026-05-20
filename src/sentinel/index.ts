@@ -25,7 +25,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { hostname as osHostname } from 'node:os'
+import { homedir, hostname as osHostname } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { Subprocess } from 'bun'
 import { has, ping } from '../shared/cc-daemon/ops'
@@ -474,6 +474,21 @@ function cleanSentinelEnv(): Record<string, string | undefined> {
   return env
 }
 
+/**
+ * The implicit default Claude config dir is `~/.claude`. Setting
+ * `CLAUDE_CONFIG_DIR` explicitly -- even to that exact path -- puts CC into
+ * "custom configDir" mode, which expects file-based `.credentials.json` and
+ * SKIPS the macOS Keychain fallback (`Claude Code-credentials`). Users whose
+ * default account auth lives in Keychain therefore lose auth when the default
+ * profile injects `CLAUDE_CONFIG_DIR=~/.claude`. So: omit the var entirely
+ * when the resolved configDir IS the implicit default. Custom profiles (e.g.
+ * `~/.claude-work`) still get it injected.
+ */
+function shouldInjectConfigDir(configDir: string | undefined): configDir is string {
+  if (!configDir) return false
+  return configDir !== join(homedir(), '.claude')
+}
+
 // ─── Direct Headless Spawn ──────────────────────────────────────────
 
 /**
@@ -554,7 +569,10 @@ function buildHeadlessEnv(opts: {
   // Sentinel profile -- inject CLAUDE_CONFIG_DIR + profile.env DIRECTLY into
   // the child process env (not via RCLAUDE_CUSTOM_ENV). The agent host AND
   // the `claude` CLI it forks both need these in `process.env`.
-  if (opts.configDir) env.CLAUDE_CONFIG_DIR = opts.configDir
+  // For the implicit default profile (~/.claude), omit CLAUDE_CONFIG_DIR so
+  // CC falls through to its macOS Keychain credential lookup -- see
+  // `shouldInjectConfigDir` above.
+  if (shouldInjectConfigDir(opts.configDir)) env.CLAUDE_CONFIG_DIR = opts.configDir
   if (opts.profileEnv) {
     for (const [k, v] of Object.entries(opts.profileEnv)) env[k] = v
   }
@@ -1421,7 +1439,9 @@ async function reviveConversation(
       // Sentinel profile -- inject CLAUDE_CONFIG_DIR + profile.env DIRECTLY
       // so revive-session.sh, the tmux child, and the rclaude binary all see
       // them as real env. Profile-Env Boundary: never echo over the wire.
-      ...(profile?.configDir ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
+      // Implicit default (~/.claude): omit CLAUDE_CONFIG_DIR so CC's Keychain
+      // credential fallback still fires -- see `shouldInjectConfigDir`.
+      ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
       ...(profile?.env ?? {}),
     },
   })
@@ -1714,7 +1734,9 @@ async function spawnConversation(
     // Sentinel profile -- CLAUDE_CONFIG_DIR + profile.env injected DIRECTLY
     // so revive-session.sh, the tmux shell, and rclaude all see them as real
     // env vars. Profile-Env Boundary: never echo over the wire.
-    ...(profile?.configDir ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
+    // Implicit default (~/.claude): omit CLAUDE_CONFIG_DIR so CC's Keychain
+    // credential fallback still fires -- see `shouldInjectConfigDir`.
+    ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
     ...(profile?.env ?? {}),
   }
 
