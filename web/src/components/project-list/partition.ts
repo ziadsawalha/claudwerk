@@ -5,7 +5,9 @@ import { parseWorktreeUri } from '@/lib/utils'
  *  - worktrees / adhoc / normal: mutually exclusive, worktrees detected by URI,
  *    adhoc routed by capability, rest is normal
  *  - ended: status-based view, overlaps with all three (so DismissAllEndedButton
- *    sees the same conversations rendered in any list) */
+ *    sees the same conversations rendered in any list)
+ *
+ * Each bucket is sorted by startedAt descending (newest first) for stable display. */
 export function partitionConversations(conversations: Conversation[]) {
   const worktrees: Conversation[] = []
   const adhoc: Conversation[] = []
@@ -17,5 +19,11 @@ export function partitionConversations(conversations: Conversation[]) {
     else if (s.capabilities?.includes('ad-hoc')) adhoc.push(s)
     else normal.push(s)
   }
-  return { worktrees, adhoc, normal, ended }
+  const byStartedAt = (a: Conversation, b: Conversation) => b.startedAt - a.startedAt
+  return {
+    worktrees: worktrees.sort(byStartedAt),
+    adhoc: adhoc.sort(byStartedAt),
+    normal: normal.sort(byStartedAt),
+    ended,
+  }
 }

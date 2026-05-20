@@ -178,27 +178,25 @@ const ProjectConversationGroup = memo(
                 </div>
               </ConversationContextMenu>
             ))}
-            {worktrees.length > 0 && (
-              <>
-                <div className="flex items-center gap-2 px-3 py-1">
-                  <span className="flex-1 h-px bg-border" />
-                  <GitBranch className="w-2.5 h-2.5 text-muted-foreground/40" />
-                  <span className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">worktrees</span>
-                  <span className="flex-1 h-px bg-border" />
-                </div>
-                {worktrees.map(conversation => (
-                  <ConversationContextMenu
-                    key={conversation.id}
-                    conversation={conversation}
-                    onOpenSettings={() => setShowSettings(true)}
-                  >
-                    <div>
-                      <ConversationItemCompact conversation={conversation} />
-                    </div>
-                  </ConversationContextMenu>
-                ))}
-              </>
+            {worktrees.length > 0 && (normal.length > 0 || adhoc.length > 0) && (
+              <div className="flex items-center gap-2 px-3 py-1">
+                <span className="flex-1 h-px bg-border" />
+                <GitBranch className="w-2.5 h-2.5 text-muted-foreground/40" />
+                <span className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">worktrees</span>
+                <span className="flex-1 h-px bg-border" />
+              </div>
             )}
+            {worktrees.length > 0 && worktrees.map(conversation => (
+              <ConversationContextMenu
+                key={conversation.id}
+                conversation={conversation}
+                onOpenSettings={() => setShowSettings(true)}
+              >
+                <div>
+                  <ConversationItemCompact conversation={conversation} />
+                </div>
+              </ConversationContextMenu>
+            ))}
           </div>
         </div>
         {showSettings && <ProjectSettingsEditor project={project} onClose={() => setShowSettings(false)} />}
