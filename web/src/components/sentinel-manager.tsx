@@ -187,7 +187,8 @@ interface CcVersionChange {
 }
 
 function CcVersionBanner({ change }: { change: CcVersionChange }) {
-  const protoSuffix = change.fromProto !== change.toProto ? ` (proto ${change.fromProto ?? '-'} -> ${change.toProto})` : ''
+  const protoSuffix =
+    change.fromProto !== change.toProto ? ` (proto ${change.fromProto ?? '-'} -> ${change.toProto})` : ''
   const headline =
     change.fromVersion === null
       ? `First seen: ${change.toVersion}${protoSuffix}`

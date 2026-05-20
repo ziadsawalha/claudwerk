@@ -7,12 +7,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import type { CcVersionChanged } from '../shared/protocol'
-import {
-  createCcVersionWatcher,
-  diffCcVersion,
-  type LastSeenCcVersion,
-  type PingResult,
-} from './cc-version-watcher'
+import { createCcVersionWatcher, diffCcVersion, type LastSeenCcVersion, type PingResult } from './cc-version-watcher'
 
 describe('diffCcVersion', () => {
   it('returns null when both axes match', () => {

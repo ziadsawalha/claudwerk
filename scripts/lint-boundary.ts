@@ -27,6 +27,10 @@ const ALLOWED_FILES = new Set([
   'handlers/boot-lifecycle.ts',
   'handlers/conversation-lifecycle.ts',
   'handlers/sentinel.ts',
+  // handlers/daemon.ts: daemon_session_retired carries a forensic ccSessionId
+  // that the handler writes into the opaque agentHostMeta bag (write-only). The
+  // handler MUST NOT branch on it; the script enforces that below.
+  'handlers/daemon.ts',
   'build-revive.ts',
   'spawn-dispatch.ts',
   'conversation-store.ts',

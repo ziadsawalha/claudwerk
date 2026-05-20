@@ -47,6 +47,7 @@ import type {
 } from '../shared/protocol'
 import { DEFAULT_BROKER_URL, HEARTBEAT_INTERVAL_MS } from '../shared/protocol'
 import { getAcpRecipe, listAcpRecipes } from './acp-recipes'
+import { type CcVersionWatcher, createCcVersionWatcher, type LastSeenCcVersion } from './cc-version-watcher'
 import {
   buildDaemonDispatchArgs,
   type DaemonLaunchMode,
@@ -55,11 +56,6 @@ import {
   parseDaemonShort,
   validateDaemonConfigPaths,
 } from './daemon-dispatch'
-import {
-  type CcVersionWatcher,
-  createCcVersionWatcher,
-  type LastSeenCcVersion,
-} from './cc-version-watcher'
 import { startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
 import { type PreflightIssue, preflightSpawn } from './preflight'
 import { runProfileCli } from './profile-cli'

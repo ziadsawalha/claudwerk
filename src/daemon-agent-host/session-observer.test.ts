@@ -12,7 +12,13 @@
 import { describe, expect, test } from 'bun:test'
 import type { JobRecord, ListResponse } from '../shared/cc-daemon/types'
 import type { DaemonMode } from './cli-args'
-import { type DaemonSessionObserver, type JsonlEntry, observeDaemonSession } from './session-observer'
+import {
+  classifyVanish,
+  type DaemonSessionObserver,
+  type JsonlEntry,
+  observeDaemonSession,
+  SESSION_RETIRED_IDLE_MS,
+} from './session-observer'
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -271,5 +277,79 @@ describe('observeDaemonSession -- worker lifecycle', () => {
     const after = calls
     await sleep(40)
     expect(calls).toBe(after)
+  })
+})
+
+describe('observeDaemonSession -- lastObservation idle tracking', () => {
+  test('tracks idleSinceMs continuously across idle polls', async () => {
+    let state = 'idle'
+    const obs = observe({
+      onSessionId: () => {},
+      listFn: async () => listOf({ short: 'aaaa1111', sessionId: 's', state }),
+    })
+    await sleep(15)
+    const first = obs.lastObservation()
+    expect(first?.state).toBe('idle')
+    expect(first?.idleSinceMs).not.toBeNull()
+    await sleep(25)
+    const second = obs.lastObservation()
+    // idleSinceMs should be PINNED to the first idle observation, not updated.
+    expect(second?.idleSinceMs).toBe(first?.idleSinceMs)
+    state = 'busy'
+    await sleep(25)
+    const third = obs.lastObservation()
+    expect(third?.state).toBe('busy')
+    expect(third?.idleSinceMs).toBeNull()
+    obs.stop()
+  })
+
+  test('lastObservation null until the worker is seen', () => {
+    const obs = observe({
+      onSessionId: () => {},
+      listFn: async () => listOf(),
+    })
+    expect(obs.lastObservation()).toBeNull()
+    obs.stop()
+  })
+})
+
+describe('classifyVanish', () => {
+  test('null lastObservation -> not retired (worker never seen)', () => {
+    expect(classifyVanish(null, 1_000_000)).toEqual({ retired: false })
+  })
+
+  test('busy/done states -> not retired even if many minutes pass', () => {
+    expect(classifyVanish({ state: 'busy', idleSinceMs: null, at: 0 }, 600_000)).toEqual({
+      retired: false,
+      lastState: 'busy',
+    })
+    expect(classifyVanish({ state: 'done', idleSinceMs: null, at: 0 }, 600_000)).toEqual({
+      retired: false,
+      lastState: 'done',
+    })
+  })
+
+  test('idle but under threshold -> not retired, idleMs reported', () => {
+    const verdict = classifyVanish({ state: 'idle', idleSinceMs: 0, at: 0 }, 60_000)
+    expect(verdict.retired).toBe(false)
+    if (!verdict.retired) {
+      expect(verdict.lastState).toBe('idle')
+      expect(verdict.idleMs).toBe(60_000)
+    }
+  })
+
+  test('idle at exactly the threshold -> retired', () => {
+    const verdict = classifyVanish({ state: 'idle', idleSinceMs: 0, at: 0 }, SESSION_RETIRED_IDLE_MS)
+    expect(verdict.retired).toBe(true)
+    if (verdict.retired) {
+      expect(verdict.idleMs).toBe(SESSION_RETIRED_IDLE_MS)
+      expect(verdict.lastState).toBe('idle')
+    }
+  })
+
+  test('idle well past the threshold -> retired with correct idleMs', () => {
+    const verdict = classifyVanish({ state: 'idle', idleSinceMs: 1_000_000, at: 0 }, 1_000_000 + 10 * 60_000)
+    expect(verdict.retired).toBe(true)
+    if (verdict.retired) expect(verdict.idleMs).toBe(10 * 60_000)
   })
 })

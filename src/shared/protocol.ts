@@ -656,6 +656,7 @@ export type AgentHostMessage =
   | HostTransportReconnect
   | DaemonLaunchEvent
   | DaemonControlResult
+  | DaemonSessionRetired
 
 export interface ConversationNameUpdate {
   type: 'conversation_name'
@@ -2414,6 +2415,33 @@ export interface DaemonControlResult {
 export interface DaemonRespawnStaleRequest {
   type: 'daemon_respawn_stale'
   conversationId: string
+}
+
+/**
+ * Agent host -> broker: a daemon worker that was last seen idle vanished from
+ * the daemon roster after the long-idle retirement threshold, so the host
+ * reclassifies the vanish as a session retirement instead of a generic
+ * disconnect. Fired BEFORE the agent host's `shutdown('daemon-job-gone')`
+ * so the broker has a typed reason for the conversation end.
+ *
+ * BOUNDARY note: `ccSessionId` here is the agent host's last known id for
+ * the worker. The broker stores it in the opaque `agentHostMeta` bag; it is
+ * NEVER read back as a typed field. The broker key is `conversationId`.
+ */
+export interface DaemonSessionRetired {
+  type: 'daemon_session_retired'
+  conversationId: string
+  /** 8-hex daemon worker short id. Stable for the lifetime of the worker. */
+  short: string
+  /** Last `ccSessionId` the host observed for this worker, if any. Opaque to broker. */
+  ccSessionId: string | null
+  /** Daemon-side `JobRecord.state` value at the last successful observation.
+   *  `'idle'` is the retirement marker; other strings preserved for forensics. */
+  lastState: 'idle' | 'busy' | 'done' | 'failed' | string
+  /** Milliseconds the worker had been idle when it vanished. */
+  idleMs: number
+  /** Epoch ms the retirement was observed. */
+  retiredAt: number
 }
 
 /**

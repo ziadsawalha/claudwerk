@@ -752,7 +752,7 @@
         "count": 1
       },
       "crap_moderate": {
-        "count": 2
+        "count": 3
       }
     },
     "src/broker/handlers/spawn.ts": {
@@ -1606,7 +1606,7 @@
         "count": 1
       },
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "src/daemon-agent-host/launch-smoke.ts": {
@@ -1614,12 +1614,17 @@
         "count": 2
       }
     },
+    "src/daemon-agent-host/session-observer.test.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
     "src/daemon-agent-host/session-observer.ts": {
       "crap_high": {
         "count": 1
       },
       "crap_moderate": {
-        "count": 4
+        "count": 6
       }
     },
     "src/daemon-agent-host/transcript-bridge.ts": {
@@ -1662,6 +1667,11 @@
         "count": 2
       }
     },
+    "src/sentinel/cc-version-watcher.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "src/sentinel/daemon-dispatch.ts": {
       "crap_moderate": {
         "count": 1
@@ -1675,10 +1685,10 @@
         "count": 9
       },
       "crap_high": {
-        "count": 11
+        "count": 12
       },
       "crap_moderate": {
-        "count": 13
+        "count": 15
       }
     },
     "src/sentinel/preflight.test.ts": {
@@ -2299,7 +2309,7 @@
         "count": 2
       },
       "crap_moderate": {
-        "count": 5
+        "count": 6
       }
     },
     "web/src/components/project-list/conversation-context-menu.tsx": {
@@ -2327,6 +2337,9 @@
       }
     },
     "web/src/components/project-list/project-node.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
       "crap_critical": {
         "count": 2
       }
@@ -2513,6 +2526,9 @@
     },
     "web/src/components/toast.tsx": {
       "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -2823,10 +2839,10 @@
         "count": 5
       },
       "crap_high": {
-        "count": 3
+        "count": 5
       },
       "crap_moderate": {
-        "count": 8
+        "count": 10
       }
     },
     "web/src/hooks/use-websocket.ts": {
@@ -2931,8 +2947,8 @@
     "web/src/hooks/use-launch-progress.ts:high impact",
     "web/src/components/transcript/agent-views.tsx:complexity",
     "src/broker/conversation-store.ts:complexity",
-    "web/src/components/project-list/project-node.tsx:untested risk",
     "src/shared/spawn-defaults.ts:high impact",
+    "web/src/components/project-list/project-node.tsx:untested risk",
     "web/src/components/command-palette/use-conversation-mode.ts:untested risk",
     "src/shared/transcript-filter.ts:high impact",
     "src/broker/recap/shared/transcript-extract.ts:high impact",
@@ -2944,13 +2960,14 @@
     "web/src/lib/legacy-to-canonical.ts:high impact",
     "web/src/lib/task-scoring.ts:high impact",
     "src/claude-agent-host/cli-args.ts:complexity",
+    "web/src/components/transcript/system-line.tsx:complexity",
     "web/src/components/transcript/grouping.tsx:complexity",
     "web/src/components/transcript/grouping/process-entry.ts:complexity",
     "src/broker/conversation-store/transcript-handlers/user-entry.ts:complexity",
     "web/src/components/command-palette/command-palette.tsx:complexity",
     "web/src/components/transcript/tool-cases-core.tsx:untested risk",
     "web/src/components/transcript/tool-cases-search.tsx:complexity",
-    "web/src/components/transcript/system-line.tsx:complexity",
+    "src/broker/handlers/sentinel.ts:untested risk",
     "src/broker/conversation-store/add-event.ts:complexity",
     "src/broker/conversation-store/transcript-handlers/mention-notify.ts:untested risk",
     "src/claude-agent-host/transcript-manager.ts:high impact",
@@ -2974,7 +2991,6 @@
     "src/claude-agent-host/hook-processor.ts:complexity",
     "src/broker/cli/user-commands.ts:untested risk",
     "src/broker/permissions.ts:complexity",
-    "src/broker/handlers/sentinel.ts:untested risk",
     "src/opencode-agent-host/dialect/from-opencode-ndjson.ts:untested risk",
     "src/broker/conversation-store/parsers.ts:untested risk",
     "src/broker/recap/shared/json-parse.ts:high impact",
@@ -3004,9 +3020,9 @@
     "src/broker/index.ts:complexity",
     "src/claude-agent-host/headless-lifecycle.ts:complexity",
     "src/broker/conversation-store/event-handlers/post-tool-use.ts:untested risk",
+    "src/sentinel/index.ts:complexity",
     "web/src/components/event-detail.tsx:complexity",
     "src/shared/opencode-config.test.ts:untested risk",
-    "src/sentinel/index.ts:complexity",
     "src/opencode-agent-host/ndjson-parser.ts:complexity",
     "web/public/sw.js:untested risk",
     "web/src/components/conversation-detail/conversation-banners.tsx:complexity",

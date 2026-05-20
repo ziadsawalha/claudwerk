@@ -544,6 +544,35 @@ function handleDaemonControlResult(msg: DashboardMessage) {
 }
 
 /**
+ * `daemon_session_retired` -- a daemon worker was retired by the daemon
+ * after a long idle window (typically ~5min). Distinct from a crash. Surfaced
+ * as a toast and as a custom event the transcript view can consume to render
+ * the "Session retired by daemon -- idle 5m" inline marker.
+ */
+function handleDaemonSessionRetired(msg: DashboardMessage) {
+  const conversationId = typeof msg.conversationId === 'string' ? msg.conversationId : undefined
+  if (!conversationId) return
+  const short = typeof msg.short === 'string' ? msg.short : undefined
+  const idleMs = typeof msg.idleMs === 'number' ? msg.idleMs : 0
+  const idleMin = Math.round(idleMs / 60_000)
+  const detail = {
+    title: 'Session retired by daemon',
+    meta: short ? `worker ${short}` : 'daemon',
+    body: `Idle for ~${idleMin}min. The daemon retired the worker; revive to continue.`,
+    variant: 'info',
+    persistent: false,
+    conversationId,
+    toastId: `daemon-retired:${conversationId}`,
+  }
+  window.dispatchEvent(new CustomEvent('rclaude-toast', { detail }))
+  window.dispatchEvent(
+    new CustomEvent('rclaude-daemon-session-retired', {
+      detail: { conversationId, short, idleMs, lastState: msg.lastState, retiredAt: msg.retiredAt },
+    }),
+  )
+}
+
+/**
  * `cc_version_changed` -- a sentinel observed a Claude Code version or
  * control-protocol bump. Surfaced as a toast so the user notices and can
  * drain in-flight workers; the SentinelManager subscribes to the same
@@ -1114,6 +1143,7 @@ export const handlers: Record<string, MessageHandler> = {
   sentinel_status: handleSentinelStatus,
   daemon_roster: handleDaemonRoster,
   daemon_control_result: handleDaemonControlResult,
+  daemon_session_retired: handleDaemonSessionRetired,
   cc_version_changed: handleCcVersionChanged,
   usage_update: handleUsageUpdate,
   claude_health_update: handleClaudeHealthUpdate,

@@ -51,6 +51,12 @@ export const DAEMON_META = {
   appendPrompt: 'appendSystemPrompt',
   resume: 'daemonResumeSessionId',
   short: 'daemonShort',
+  /** Last `ccSessionId` observed for a daemon-hosted conversation at the time
+   *  the worker was retired by the daemon. Forensics only -- the broker never
+   *  reads this back, just stores it for diag inspection. */
+  retiredCcSessionId: 'retiredCcSessionId',
+  /** Epoch ms the daemon retired this conversation's worker. Forensics only. */
+  retiredAt: 'retiredAt',
 } as const
 
 function emitProgress(

@@ -81,14 +81,45 @@ export interface DaemonSessionObserverOptions {
   scanProjectDirFn?: (projectDir: string) => Promise<JsonlEntry[]>
 }
 
+/**
+ * The most recent observation made by the poller. Surfaced for the classifier
+ * that decides whether a "vanished from roster" event should be reclassified
+ * as `daemon_session_retired` (long-idle session retired by the daemon) vs. a
+ * generic disconnect.
+ */
+export interface LastObservation {
+  /** Last `JobRecord.state` value seen for this worker. Freeform daemon string. */
+  state: string
+  /** Epoch ms when state most recently entered `'idle'`. `null` when the last
+   *  observation was not `idle`. */
+  idleSinceMs: number | null
+  /** Epoch ms of the most recent observation. */
+  at: number
+}
+
 export interface DaemonSessionObserver {
   /** Stop polling. Idempotent. */
   stop(): void
+  /** Return the most recent observation (state + idleSinceMs). `null` until the
+   *  worker has been seen in the roster at least once. */
+  lastObservation(): LastObservation | null
 }
 
 /** Coerce an unknown thrown value into an Error. */
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err))
+}
+
+/**
+ * Advance the observation snapshot for a fresh poll. `'idle'` is the literal
+ * daemon state for a worker waiting for input; once the state leaves `'idle'`
+ * the idleSinceMs baseline clears so a back-to-busy worker is not counted as
+ * long-idle on its next vanish. Pure -- testable without the observer.
+ */
+function nextObservation(prev: LastObservation | null, state: string, now: number): LastObservation {
+  if (state !== 'idle') return { state, idleSinceMs: null, at: now }
+  const idleSinceMs = prev?.state === 'idle' && prev.idleSinceMs !== null ? prev.idleSinceMs : now
+  return { state, idleSinceMs, at: now }
 }
 
 /**
@@ -159,6 +190,9 @@ export function observeDaemonSession(opts: DaemonSessionObserverOptions): Daemon
   let goneFired = false
   let stopped = false
   let polling = false
+  /** Most recent `JobRecord.state` + idle-since timestamp for this worker.
+   *  Drives `lastObservation()` for the retirement classifier. */
+  let lastObservation: LastObservation | null = null
 
   /** Report a ccSessionId to the consumer, de-duped against the last one. */
   function report(id: string): void {
@@ -198,6 +232,7 @@ export function observeDaemonSession(opts: DaemonSessionObserverOptions): Daemon
       return null
     }
     everSeen = true
+    lastObservation = nextObservation(lastObservation, job.state, Date.now())
     return job.sessionId
   }
 
@@ -240,5 +275,33 @@ export function observeDaemonSession(opts: DaemonSessionObserverOptions): Daemon
       stopped = true
       clearInterval(timer)
     },
+    lastObservation(): LastObservation | null {
+      return lastObservation
+    },
   }
+}
+
+/** Threshold: a worker that has been idle this long before vanishing from the
+ *  daemon roster is classified as `daemon_session_retired` instead of crashed.
+ *  The daemon's own idle-retire policy is ~5min; we trip slightly under that. */
+export const SESSION_RETIRED_IDLE_MS = 4.5 * 60_000
+
+/**
+ * Classifier: did this worker vanish because the daemon retired a long-idle
+ * session, or because something else (crash, kill, daemon restart) ended it?
+ *
+ * Returns the classifier verdict and, for the retired case, the millisecond
+ * idle window. Pure -- testable without the observer.
+ */
+export function classifyVanish(
+  lastObservation: LastObservation | null,
+  nowMs: number,
+): { retired: true; idleMs: number; lastState: 'idle' } | { retired: false; lastState?: string; idleMs?: number } {
+  if (!lastObservation) return { retired: false }
+  if (lastObservation.state !== 'idle' || lastObservation.idleSinceMs === null) {
+    return { retired: false, lastState: lastObservation.state }
+  }
+  const idleMs = nowMs - lastObservation.idleSinceMs
+  if (idleMs < SESSION_RETIRED_IDLE_MS) return { retired: false, lastState: 'idle', idleMs }
+  return { retired: true, idleMs, lastState: 'idle' }
 }

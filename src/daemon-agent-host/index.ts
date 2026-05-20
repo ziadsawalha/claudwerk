@@ -60,6 +60,7 @@ import {
   type ConversationEnd,
   type ConversationMeta,
   type ConversationReset,
+  type DaemonSessionRetired,
   type SendInput,
 } from '../shared/protocol'
 import { BUILD_VERSION } from '../shared/version'
@@ -67,7 +68,7 @@ import { attachWithRetry } from './attach-retry'
 import { type BrokerBridge, createBrokerBridge } from './broker-bridge'
 import { type DaemonHostConfig, parseDaemonHostConfig } from './cli-args'
 import { createDaemonControl } from './daemon-control'
-import { type DaemonSessionObserver, observeDaemonSession } from './session-observer'
+import { classifyVanish, type DaemonSessionObserver, observeDaemonSession } from './session-observer'
 import { createTranscriptBridge, type TranscriptBridge } from './transcript-bridge'
 
 const log = (msg: string) => process.stderr.write(`[daemon-host] ${msg}\n`)
@@ -319,6 +320,7 @@ async function main(): Promise<void> {
     const present = probe.ok === true && probe.present === true
     if (!alive || !present) {
       log(`worker gone after attach drop: short=${cfg.daemonShort} alive=${alive} present=${present} reason=${reason}`)
+      maybeEmitRetired()
       shutdown('daemon-job-gone', true)
       return
     }
@@ -345,6 +347,38 @@ async function main(): Promise<void> {
     emitBoot('conversation_ready')
   }
 
+  /**
+   * Worker vanished from the roster. Consult the observer's last observation:
+   * a long-idle worker that disappears was retired by the daemon (a graceful
+   * end-of-life), not crashed. Emit a typed `daemon_session_retired` BEFORE
+   * the conversation_end so the broker has a structured reason for the end
+   * (EVERYTHING IS A STRUCTURED MESSAGE -- no diag-only retirement events).
+   */
+  function maybeEmitRetired(): void {
+    const verdict = classifyVanish(observer?.lastObservation() ?? null, Date.now())
+    if (!verdict.retired) {
+      log(
+        `worker vanish NOT classified as retired -- lastState=${verdict.lastState ?? '(never seen)'}` +
+          ` idleMs=${verdict.idleMs ?? 0}`,
+      )
+      return
+    }
+    const event: DaemonSessionRetired = {
+      type: 'daemon_session_retired',
+      conversationId: cfg.conversationId,
+      short: cfg.daemonShort,
+      ccSessionId,
+      lastState: verdict.lastState,
+      idleMs: verdict.idleMs,
+      retiredAt: Date.now(),
+    }
+    log(
+      `worker retired by daemon -- short=${cfg.daemonShort} ccSessionId=${ccSessionId ?? '-'}` +
+        ` lastState=${verdict.lastState} idleMs=${verdict.idleMs}`,
+    )
+    transport.send(event)
+  }
+
   emitBoot('awaiting_init')
   observer = observeDaemonSession({
     controlSock,
@@ -355,6 +389,7 @@ async function main(): Promise<void> {
     onGone: () => {
       if (!shuttingDown) {
         log('worker no longer in daemon roster')
+        maybeEmitRetired()
         shutdown('daemon-job-gone', true)
       }
     },

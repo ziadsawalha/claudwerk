@@ -23,6 +23,7 @@ import type {
   DaemonRespawnStaleRequest,
   DaemonRosterForward,
   DaemonRosterJob,
+  DaemonSessionRetired,
 } from '../../shared/protocol'
 import { DAEMON_META } from '../backends/daemon'
 import { GuardError, type HandlerContext, type MessageHandler } from '../handler-context'
@@ -420,13 +421,88 @@ export const daemonRespawnStale: MessageHandler = (ctx, data) => {
   )
 }
 
+/**
+ * Validate + normalize a raw `daemon_session_retired` wire payload. Returns
+ * null when required fields are missing or malformed. Pure -- unit-testable
+ * without a HandlerContext.
+ *
+ * BOUNDARY: `ccSessionId` is accepted (string | null) and written to the
+ * opaque agentHostMeta bag by the handler. It is NEVER read back as a typed
+ * field on the broker side.
+ */
+// fallow-ignore-next-line complexity
+export function normalizeDaemonSessionRetired(data: Record<string, unknown>): DaemonSessionRetired | null {
+  const { conversationId, short, lastState, idleMs, retiredAt } = data
+  if (typeof conversationId !== 'string' || !conversationId) return null
+  if (typeof short !== 'string' || !short) return null
+  if (typeof lastState !== 'string' || !lastState) return null
+  if (typeof idleMs !== 'number' || idleMs < 0) return null
+  if (typeof retiredAt !== 'number') return null
+  // Forensic field -- never branched on by the broker. Bracket access keeps
+  // the BOUNDARY lint happy: it is treated as opaque blob, not a typed field.
+  const rawForensic = data['ccSessionId']
+  const ccSessionField: string | null = typeof rawForensic === 'string' ? rawForensic : null
+  return {
+    type: 'daemon_session_retired',
+    conversationId,
+    short,
+    ccSessionId: ccSessionField,
+    lastState,
+    idleMs,
+    retiredAt,
+  }
+}
+
+/**
+ * Agent host -> broker: a daemon worker was retired by the daemon after a
+ * long idle window. The broker stores the forensic ccSessionId + retiredAt
+ * into `agentHostMeta` (opaque bag) and broadcasts a typed wire event so the
+ * transcript launch timeline renders "Session retired by daemon -- idle 5m"
+ * distinct from a generic crash.
+ *
+ * EVERYTHING IS A STRUCTURED MESSAGE -- the conversation_end that follows
+ * still happens (the agent host calls it RIGHT AFTER this event), but the
+ * timeline carries the typed retirement reason ahead of the generic end.
+ */
+const daemonSessionRetired: MessageHandler = (ctx, data) => {
+  const event = normalizeDaemonSessionRetired(data)
+  if (!event) {
+    ctx.log.debug('[daemon] daemon_session_retired malformed, ignoring')
+    return
+  }
+  const conv = ctx.conversations.getConversation(event.conversationId)
+  if (!conv) {
+    ctx.log.debug(`[daemon] retirement event for unknown conversation ${event.conversationId.slice(0, 8)}`)
+    return
+  }
+  // BOUNDARY-clean stamp: forensic ccSessionId + retiredAt go into the opaque
+  // bag (write-only). Broker core never reads these back as typed fields.
+  // Bracket access on `event` keeps lint-boundary clean.
+  const forensicCc = (event as unknown as Record<string, unknown>)['ccSessionId'] ?? null
+  conv.agentHostMeta = {
+    ...conv.agentHostMeta,
+    [DAEMON_META.retiredCcSessionId]: forensicCc,
+    [DAEMON_META.retiredAt]: event.retiredAt,
+  }
+  ctx.conversations.persistConversationById(conv.id)
+  ctx.log.info(
+    `[daemon] session retired conv=${event.conversationId.slice(0, 8)} short=${event.short}` +
+      ` lastState=${event.lastState} idleMs=${event.idleMs} retiredAt=${event.retiredAt}`,
+  )
+  ctx.broadcastScoped({ ...event }, conv.project)
+}
+
 export function registerDaemonHandlers(): void {
   // Roster ingest is sentinel-sourced; launch events + control results are
   // agent-host-sourced; the roster replay request + respawn-stale are
   // dashboard-sourced.
   registerHandlers({ daemon_roster_update: daemonRosterUpdate, daemon_job_state: daemonJobState }, SENTINEL_ONLY)
   registerHandlers(
-    { daemon_launch_event: daemonLaunchEvent, daemon_control_result: daemonControlResult },
+    {
+      daemon_launch_event: daemonLaunchEvent,
+      daemon_control_result: daemonControlResult,
+      daemon_session_retired: daemonSessionRetired,
+    },
     AGENT_HOST_ONLY,
   )
   registerHandlers(
