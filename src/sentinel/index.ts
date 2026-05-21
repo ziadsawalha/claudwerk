@@ -34,16 +34,14 @@ import { cwdToProjectUri, parseProjectUri } from '../shared/project-uri'
 import type {
   BrokerSentinelMessage,
   CcVersionChanged,
-  ExtraUsage,
   ListCcSessionsResult,
   ListDirsResult,
+  ProfileUsageSnapshot,
   ReviveConversation,
   ReviveResult,
   SpawnConversation,
   SpawnFailed,
   SpawnResult,
-  UsageUpdate,
-  UsageWindow,
 } from '../shared/protocol'
 import { DEFAULT_BROKER_URL, HEARTBEAT_INTERVAL_MS } from '../shared/protocol'
 import { getAcpRecipe, listAcpRecipes } from './acp-recipes'
@@ -71,6 +69,7 @@ import {
   resolveProfile,
   type SentinelConfig,
 } from './sentinel-config'
+import { buildSentinelUsageReport, pollProfileUsage, snapshotToLegacyUsageUpdate } from './usage-poller'
 
 /** Pre-flight warnings stashed per-conversation. Surfaced when CC dies early
  *  after spawn so the user sees a likely cause instead of a bare exit code. */
@@ -1832,203 +1831,110 @@ function listDirs(dirPath: string): { dirs: string[]; error?: string } {
   }
 }
 
-// ─── Credential Discovery ─────────────────────────────────────────
-// Priority: 1) macOS Keychain  2) ~/.claude/.credentials.json  3) ~/.claude.json
-
-function getOAuthToken(configDir: string): string | null {
-  const home = process.env.HOME || '/root'
-  const isDefaultProfile = configDir === join(home, '.claude')
-
-  // 1. macOS Keychain (default profile only). The keychain stores credentials
-  // for the user's primary Claude account; alternate-profile creds live
-  // exclusively in the profile's own configDir.
-  if (process.platform === 'darwin' && isDefaultProfile) {
-    try {
-      const result = Bun.spawnSync(['security', 'find-generic-password', '-s', 'Claude Code-credentials', '-w'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      if (result.success) {
-        const raw = result.stdout.toString().trim()
-        const data = JSON.parse(raw)
-        const token = data?.claudeAiOauth?.accessToken
-        if (token) return token
-      }
-    } catch {}
-  }
-
-  // 2. <configDir>/.credentials.json
-  const credPath = resolve(configDir, '.credentials.json')
-  try {
-    if (existsSync(credPath)) {
-      const data = JSON.parse(readFileSync(credPath, 'utf8'))
-      const token = data?.claudeAiOauth?.accessToken || data?.accessToken || data?.access_token
-      if (token) return token
-    }
-  } catch {}
-
-  // 3. ~/.claude.json (legacy single-file format at home root -- default
-  // profile only; alternate profiles don't share that file).
-  if (isDefaultProfile) {
-    const legacyPath = resolve(home, '.claude.json')
-    try {
-      if (existsSync(legacyPath)) {
-        const data = JSON.parse(readFileSync(legacyPath, 'utf8'))
-        const token = data?.oauthAccount?.accessToken || data?.primaryApiKey
-        if (token) return token
-      }
-    } catch {}
-  }
-
-  return null
-}
-
-// ─── Usage API Polling ────────────────────────────────────────────
+// ─── Per-Profile Usage Polling ────────────────────────────────────
+//
+// Token discovery + parser + per-profile poll all live in `./usage-poller`
+// (extracted for testability). This file just owns the timer + WS plumbing,
+// the cycle log lines, and the in-process snapshot map that Smart Balance
+// will read from in Phase 3.
+//
+// Each cycle iterates every profile in the sentinel config (default + alts),
+// emits ONE batched `sentinel_usage_report` upstream, and -- for one
+// release of back-compat -- also emits the legacy `usage_update` derived
+// from the default profile's snapshot so older brokers / panels keep working.
 
 const USAGE_POLL_INTERVAL_MS = 3 * 60 * 1000 // 3 minutes
-const USAGE_API_URL = 'https://api.anthropic.com/api/oauth/usage'
-
-interface RawUsageWindow {
-  utilization: number | null
-  resets_at: string
-}
-
-interface RawUsageResponse {
-  five_hour: RawUsageWindow
-  seven_day: RawUsageWindow
-  seven_day_opus: RawUsageWindow | null
-  seven_day_sonnet: RawUsageWindow | null
-  extra_usage: {
-    is_enabled: boolean
-    monthly_limit: number
-    used_credits: number
-    utilization: number | null
-  } | null
-}
-
-function parseWindow(raw: RawUsageWindow | null): UsageWindow | undefined {
-  if (!raw) return undefined
-  // After a reset the API returns utilization: null until usage accrues again.
-  // Treat that as 0% with the fresh resets_at, not "no data".
-  return { usedPercent: raw.utilization ?? 0, resetAt: raw.resets_at }
-}
-
-function parseUsageResponse(raw: RawUsageResponse): UsageUpdate | null {
-  const fiveHour = parseWindow(raw.five_hour)
-  const sevenDay = parseWindow(raw.seven_day)
-  if (!fiveHour || !sevenDay) return null
-
-  const update: UsageUpdate = {
-    type: 'usage_update',
-    fiveHour,
-    sevenDay,
-    polledAt: Date.now(),
-  }
-
-  const opus = parseWindow(raw.seven_day_opus)
-  if (opus) update.sevenDayOpus = opus
-
-  const sonnet = parseWindow(raw.seven_day_sonnet)
-  if (sonnet) update.sevenDaySonnet = sonnet
-
-  if (raw.extra_usage) {
-    update.extraUsage = {
-      isEnabled: raw.extra_usage.is_enabled,
-      monthlyLimit: raw.extra_usage.monthly_limit / 100,
-      usedCredits: raw.extra_usage.used_credits / 100,
-      utilization: raw.extra_usage.utilization,
-    } satisfies ExtraUsage
-  }
-
-  return update
-}
-
-async function fetchUsage(
-  token: string,
-): Promise<{ ok: true; data: RawUsageResponse } | { ok: false; status: number; body: string } | null> {
-  try {
-    const res = await fetch(USAGE_API_URL, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'anthropic-beta': 'oauth-2025-04-20',
-      },
-      signal: AbortSignal.timeout(15_000),
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      return { ok: false, status: res.status, body: body.slice(0, 200) }
-    }
-    return { ok: true, data: (await res.json()) as RawUsageResponse }
-  } catch (err) {
-    diag('usage', `Poll failed: ${err instanceof Error ? err.message : String(err)}`)
-    return null
-  }
-}
-
-async function pollUsage(defaultProfileConfigDir: string): Promise<UsageUpdate | null> {
-  // Re-read token every poll. The OAuth bearer rotates; capturing it once
-  // in a closure (the old behavior) silently 401'd until the next WS
-  // reconnect, which is the long lag the user was seeing.
-  let token = getOAuthToken(defaultProfileConfigDir)
-  if (!token) {
-    diag('usage', 'No OAuth token available at poll time')
-    return null
-  }
-
-  let res = await fetchUsage(token)
-  if (!res) return null
-
-  // On 401 (token rotated mid-session), re-read once and retry.
-  if (!res.ok && res.status === 401) {
-    diag('usage', '401 - re-reading token and retrying once')
-    const fresh = getOAuthToken(defaultProfileConfigDir)
-    if (fresh && fresh !== token) {
-      token = fresh
-      res = await fetchUsage(token)
-      if (!res) return null
-    }
-  }
-
-  if (!res.ok) {
-    diag('usage', `API error: ${res.status}`, { body: res.body })
-    return null
-  }
-
-  const usage = parseUsageResponse(res.data)
-  if (!usage) diag('usage', 'Failed to parse usage response', { data: res.data })
-  return usage
-}
 
 let usagePollTimer: ReturnType<typeof setInterval> | null = null
 
-function startUsagePolling(ws: WebSocket, verbose: boolean, defaultProfileConfigDir: string) {
-  stopUsagePolling() // clean up any previous timer
+/** In-process latest-per-profile snapshots, populated by the polling cycle.
+ *  Phase 3 reads this from `pickProfile` for Smart Balance. */
+const latestProfileUsage = new Map<string, ProfileUsageSnapshot>()
 
-  const token = getOAuthToken(defaultProfileConfigDir)
-  if (!token) {
-    log('No OAuth token found - usage polling disabled')
-    diag('usage', 'No OAuth token discovered (checked keychain + credential files)')
+/** Read-only view of the latest snapshots. Exported for Smart Balance + tests. */
+export function getLatestProfileUsage(): ReadonlyMap<string, ProfileUsageSnapshot> {
+  return latestProfileUsage
+}
+
+/** LOG-EVERYTHING covenant: one structured line per profile per cycle. */
+function logProfilePollResult(snap: ProfileUsageSnapshot): void {
+  if (snap.error) {
+    diag('usage', `[${snap.profile}] error`, {
+      kind: snap.error.kind,
+      status: snap.error.status,
+      detail: snap.error.detail,
+      authed: snap.authed,
+    })
     return
   }
+  diag('usage', `[${snap.profile}] 5h=${snap.fiveHour?.usedPercent}% 7d=${snap.sevenDay?.usedPercent}%`, {
+    authed: snap.authed,
+    opus: snap.sevenDayOpus?.usedPercent,
+    sonnet: snap.sevenDaySonnet?.usedPercent,
+  })
+}
+
+/** Run one profile's poll + record the result. Never throws -- a poll
+ *  failure becomes a structured snapshot so the cycle continues. */
+async function pollOneProfileSafely(
+  profile: { name: string; configDir: string },
+  cycleStart: number,
+): Promise<ProfileUsageSnapshot> {
+  try {
+    const snap = await pollProfileUsage(profile)
+    latestProfileUsage.set(profile.name, snap)
+    logProfilePollResult(snap)
+    return snap
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    diag('usage', `[${profile.name}] uncaught poll error: ${msg}`)
+    const errored: ProfileUsageSnapshot = {
+      profile: profile.name,
+      authed: false,
+      polledAt: cycleStart,
+      error: { kind: 'network', detail: msg },
+    }
+    latestProfileUsage.set(profile.name, errored)
+    return errored
+  }
+}
+
+function startProfileUsagePolling(ws: WebSocket, verbose: boolean, config: SentinelConfig) {
+  stopUsagePolling()
+
+  const profiles = Object.values(config.profiles).map(p => ({ name: p.name, configDir: p.configDir }))
   const intervalMin = USAGE_POLL_INTERVAL_MS / 60_000
-  log(`OAuth token found - starting usage polling (${intervalMin}min interval, configDir=${defaultProfileConfigDir})`)
-  diag('usage', 'Token discovered, polling started')
+  log(`Starting per-profile usage polling (${intervalMin}min interval, ${profiles.length} profile(s))`)
+  diag('usage', `Polling started`, { profiles: profiles.map(p => p.name) })
 
   async function doPoll() {
-    try {
-      const usage = await pollUsage(defaultProfileConfigDir)
-      if (usage && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(usage))
-        debug(`Usage sent: 5h=${usage.fiveHour.usedPercent}% 7d=${usage.sevenDay.usedPercent}%`, verbose)
-      }
-    } catch (err) {
-      // Never let a poll crash the sentinel
-      diag('usage', `Uncaught poll error: ${err instanceof Error ? err.message : String(err)}`)
+    const cycleStart = Date.now()
+    const snapshots: ProfileUsageSnapshot[] = []
+    for (const profile of profiles) {
+      snapshots.push(await pollOneProfileSafely(profile, cycleStart))
+    }
+
+    if (ws.readyState !== WebSocket.OPEN) return
+
+    const report = buildSentinelUsageReport(snapshots, cycleStart)
+    ws.send(JSON.stringify(report))
+    debug(`Usage report sent: ${snapshots.length} profile(s)`, verbose)
+
+    // Legacy back-compat: also emit the default profile's snapshot as
+    // `usage_update` so older brokers / panels keep showing the top bar.
+    // Remove once the v2 control panel has fully soaked.
+    const defaultSnap = snapshots.find(s => s.profile === DEFAULT_PROFILE_NAME)
+    if (defaultSnap) {
+      const legacy = snapshotToLegacyUsageUpdate(defaultSnap)
+      if (legacy) ws.send(JSON.stringify(legacy))
     }
   }
 
-  // Poll immediately on connect, then on interval
-  doPoll()
+  // Poll immediately on connect, then on interval. Errors inside doPoll are
+  // already caught per-profile -- the outer .catch is a safety net.
+  void doPoll().catch(err => {
+    diag('usage', `Cycle crashed: ${err instanceof Error ? err.message : String(err)}`)
+  })
   usagePollTimer = setInterval(doPoll, USAGE_POLL_INTERVAL_MS)
 }
 
@@ -2077,9 +1983,11 @@ function connect(
     // Report any dead PIDs from previous sentinel run
     reportDeadPids(ws)
 
-    // Start usage polling (default-profile credentials only -- per-profile
-    // polling rolls up in Phase 5 once usage tracking is profile-aware).
-    startUsagePolling(ws, verbose, config.profiles[DEFAULT_PROFILE_NAME].configDir)
+    // Start per-profile usage polling. Emits one batched
+    // `sentinel_usage_report` per cycle covering every configured profile,
+    // plus a back-compat `usage_update` derived from the default profile
+    // for one release. See `src/sentinel/usage-poller.ts`.
+    startProfileUsagePolling(ws, verbose, config)
 
     // Start mirroring the Claude Code daemon roster (read-only native bg sessions)
     startDaemonRosterWatch(ws, { log, diag })

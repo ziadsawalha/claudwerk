@@ -2239,6 +2239,50 @@ export interface UsageUpdate {
   polledAt: number // timestamp of last poll
 }
 
+/**
+ * Per-profile rollup of the OAuth usage endpoint. One snapshot per profile
+ * known to the sentinel -- authed or not -- so the broker can render
+ * "no telemetry" states without inventing data.
+ *
+ * See `.claude/docs/plan-sentinel-profile-usage.md`.
+ */
+export interface ProfileUsageSnapshot {
+  /** Profile name (e.g. "default", "work"). Matches SentinelProfileInfo.name. */
+  profile: string
+  /** OAuth token discoverable in the profile's credential store. False -> no
+   *  usage fields present; the row exists so the UI can show "not authed". */
+  authed: boolean
+  /** ms epoch of the most recent poll attempt (success or failure). */
+  polledAt: number
+  /** Usage windows -- present iff authed && fetch succeeded. */
+  fiveHour?: UsageWindow
+  sevenDay?: UsageWindow
+  sevenDayOpus?: UsageWindow
+  sevenDaySonnet?: UsageWindow
+  extraUsage?: ExtraUsage
+  /** Populated when authed but the fetch / parse failed. Mutually exclusive
+   *  with the usage-window fields above. */
+  error?: {
+    kind: 'http' | 'parse' | 'network' | 'no_token'
+    detail?: string
+    status?: number
+  }
+}
+
+/**
+ * Batched usage report sent by the sentinel once per poll cycle, covering
+ * every profile in its config. The sentinelId is NOT on the wire -- the
+ * broker stamps it from the authenticated connection.
+ *
+ * Replaces the per-default-profile-only `UsageUpdate` (which is kept emitting
+ * for one release for back-compat with old brokers / panels).
+ */
+export interface SentinelUsageReport {
+  type: 'sentinel_usage_report'
+  profiles: ProfileUsageSnapshot[]
+  polledAt: number // ms epoch of the polling cycle start
+}
+
 // External status data (broker polls clanker.watch + usage.report)
 export interface ClaudeHealthUpdate {
   type: 'claude_health_update'
@@ -2498,6 +2542,7 @@ export type SentinelMessage =
   | ListDirsResult
   | ListCcSessionsResult
   | UsageUpdate
+  | SentinelUsageReport
   | LaunchLog
   | DaemonRosterUpdate
   | DaemonJobState
