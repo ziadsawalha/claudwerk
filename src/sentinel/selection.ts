@@ -4,12 +4,10 @@
  * Three modes:
  *   - Fixed:    a literal profile name. Short-circuits to that profile.
  *   - Balanced: from profiles whose `pool` matches the requested pool (or
- *               the sentinel's `defaultPool`), pick the one with the fewest
- *               live agent hosts. Ties broken by name (stable). FUTURE: also
- *               consider per-profile rate-limit headroom -- fresh (non-stale)
- *               5h / 7d quota collected per profile (see plan-sentinel-profiles
- *               §"Per-Profile Usage Tracking" + Open Questions). Today the
- *               sentinel only tracks live load.
+ *               the sentinel's `defaultPool`), pick the one with the most
+ *               rate-limit headroom (Smart Balance, see `rankCandidate`).
+ *               Falls back to fewest live agent hosts when telemetry is
+ *               stale or missing. Ties broken by name (stable).
  *   - Random:   uniform pick over the same pool-filtered profiles.
  *
  * No-input spawn falls through to `config.defaultSelection` (default, balanced,
@@ -60,6 +58,24 @@ export interface PickResult {
  */
 export type LiveLoadSource = (profileName: string) => number
 
+/**
+ * Per-profile rate-limit telemetry the Balanced picker consumes. Profiles
+ * without an entry (no source, or `undefined` from the source) are treated
+ * as having no telemetry -- they rank purely on live-load.
+ */
+export interface UsageHeadroom {
+  /** `1 - max(fiveHour%, sevenDay%) / 100`, clamped to `[0, 1]`. Higher is
+   *  better. Computed by the caller from a `ProfileUsageSnapshot`. */
+  headroom: number
+  /** When `true`, the snapshot is too old to trust -- ranked via live-load
+   *  instead of headroom. Caller decides the staleness window. */
+  stale: boolean
+}
+
+/** Telemetry source. Returns `undefined` for profiles with no snapshot yet
+ *  (unauthed, polling never started, just-added profile). */
+export type UsageHeadroomSource = (profileName: string) => UsageHeadroom | undefined
+
 /** Optional RNG. Injected for deterministic tests. Defaults to `Math.random`. */
 export type Rng = () => number
 
@@ -72,6 +88,11 @@ export interface PickOptions {
   pool?: string
   /** Live load source (sentinel-local). Required for balanced; ignored otherwise. */
   liveLoad?: LiveLoadSource
+  /** Per-profile rate-limit headroom. When present, Balanced prefers profiles
+   *  with the most fresh headroom; stale / missing entries fall back to
+   *  live-load. Sourced from the in-process polling map populated by
+   *  `startProfileUsagePolling` (see `src/sentinel/usage-poller.ts`). */
+  usage?: UsageHeadroomSource
   /** RNG seam (random only). */
   rand?: Rng
 }
@@ -82,7 +103,7 @@ export interface PickOptions {
  */
 // fallow-ignore-next-line complexity
 export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): PickResult {
-  const { input, pool: requestedPoolInput, liveLoad, rand } = opts
+  const { input, pool: requestedPoolInput, liveLoad, usage, rand } = opts
 
   // Literal name -- short-circuit. Validate against the known set. Fixed wins
   // over pool: even if a pool was requested, an explicit name beats it.
@@ -134,14 +155,17 @@ export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): Pic
   }
 
   if (mode === 'balanced') {
-    const get = liveLoad ?? (() => 0)
-    const picked = pickLeastLoaded(candidates, get)
+    const getLoad = liveLoad ?? (() => 0)
+    const getUsage = usage ?? (() => undefined)
+    const { profile: picked, anyFresh } = pickBalanced(candidates, getLoad, getUsage)
     return {
       profile: picked,
       picker: 'balanced',
       requestedPool,
       candidates: candidates.map(p => p.name),
-      reason: 'least-active',
+      // Smart Balance reports which signal drove the pick so operators can
+      // distinguish "fresh-headroom" from "stale-fallback" in the logs.
+      reason: anyFresh ? 'smart-balance' : 'least-active',
     }
   }
 
@@ -177,19 +201,57 @@ function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[]
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Least-loaded profile from the candidates. Ties broken by name (stable since
- *  the candidate list is pre-sorted by name -- the first profile in iteration
- *  order with the minimum load wins). */
-function pickLeastLoaded(candidates: ResolvedProfile[], liveLoad: LiveLoadSource): ResolvedProfile {
+/**
+ * Smart Balance ranker. Returns a unified score in `[0, 1]` where higher is
+ * better. Two signals merged onto one axis so fresh and stale candidates can
+ * compete:
+ *   - Fresh telemetry: `rank = headroom` (e.g. 0.9 means 10% of quota used)
+ *   - Stale or missing: `rank = 1 / (1 + liveLoad)` (load 0 -> 1.0,
+ *     load 1 -> 0.5, load 5 -> 0.17)
+ *
+ * Consequences:
+ *   - All-fresh pool: highest-headroom profile wins (the intent).
+ *   - All-stale pool: lowest-load profile wins (the legacy least-active rule).
+ *   - Mixed: a fresh-but-burned account (headroom 0.05) loses to a stale-but-
+ *     idle account (load 0 -> rank 1.0). A fresh-and-fresh account
+ *     (headroom 0.9) beats a stale-and-loaded one (load 2 -> 0.33). This is
+ *     the desired bias: when in doubt, prefer demonstrably-idle.
+ */
+// fallow-ignore-next-line complexity
+function rankCandidate(profile: ResolvedProfile, liveLoad: LiveLoadSource, usage: UsageHeadroomSource): number {
+  const u = usage(profile.name)
+  if (u && !u.stale) {
+    // Clamp defensively -- callers compute headroom from external data.
+    if (u.headroom < 0) return 0
+    if (u.headroom > 1) return 1
+    return u.headroom
+  }
+  const load = liveLoad(profile.name)
+  return 1 / (1 + Math.max(0, load))
+}
+
+/** Smart Balance picker. Returns the chosen profile + whether ANY candidate
+ *  had fresh telemetry (so the caller can label the `reason` accordingly).
+ *  Tie-breaking is stable -- the first candidate (sorted by name) with the
+ *  highest rank wins. */
+// fallow-ignore-next-line complexity
+function pickBalanced(
+  candidates: ResolvedProfile[],
+  liveLoad: LiveLoadSource,
+  usage: UsageHeadroomSource,
+): { profile: ResolvedProfile; anyFresh: boolean } {
   let best: ResolvedProfile = candidates[0]
-  let bestLoad = liveLoad(best.name)
+  let bestRank = rankCandidate(best, liveLoad, usage)
+  let anyFresh = !!usage(best.name) && !usage(best.name)?.stale
   for (let i = 1; i < candidates.length; i++) {
-    const candidate = candidates[i]
-    const load = liveLoad(candidate.name)
-    if (load < bestLoad) {
-      best = candidate
-      bestLoad = load
+    const c = candidates[i]
+    const u = usage(c.name)
+    if (u && !u.stale) anyFresh = true
+    const rank = rankCandidate(c, liveLoad, usage)
+    if (rank > bestRank) {
+      best = c
+      bestRank = rank
     }
   }
-  return best
+  return { profile: best, anyFresh }
 }

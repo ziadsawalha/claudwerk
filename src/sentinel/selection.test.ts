@@ -312,3 +312,140 @@ describe('pickProfile -- balanced without a load source treats all as zero', () 
     expect(r.picker).toBe('balanced')
   })
 })
+
+// ─── Smart Balance (telemetry-aware Balanced) ──────────────────────
+//
+// Balanced now consumes an optional `usage` source (per-profile rate-limit
+// headroom). Fresh telemetry beats live-load; stale or missing entries fall
+// back to live-load. Mixed pools blend the two onto a unified rank.
+
+describe('pickProfile -- Smart Balance', () => {
+  const cfg = mkConfig('balanced', [
+    { name: 'alt', pool: 'default' },
+    { name: 'default', pool: 'default' },
+    { name: 'work', pool: 'default' },
+  ])
+
+  test('all-fresh pool: picks the profile with the most headroom', () => {
+    const usage = (name: string) => {
+      const tbl: Record<string, { headroom: number; stale: boolean }> = {
+        default: { headroom: 0.1, stale: false }, // 90% burned
+        alt: { headroom: 0.85, stale: false }, // 15% burned, winner
+        work: { headroom: 0.4, stale: false },
+      }
+      return tbl[name]
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('alt')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('all-stale telemetry falls back to least-active (legacy behaviour)', () => {
+    const usage = (name: string) => ({
+      // Stale -> rank uses -liveLoad, headroom value is ignored.
+      headroom: name === 'default' ? 0.05 : 0.9,
+      stale: true,
+    })
+    const load = (name: string) => (name === 'work' ? 5 : name === 'default' ? 0 : 2)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('default')
+    expect(r.reason).toBe('least-active')
+  })
+
+  test('no usage source at all: matches the legacy least-active path', () => {
+    const r = pickProfile(cfg, { input: 'balanced', liveLoad: name => (name === 'work' ? 0 : 3) })
+    expect(r.profile.name).toBe('work')
+    expect(r.reason).toBe('least-active')
+  })
+
+  test('partial telemetry: fresh-high-headroom beats stale-loaded', () => {
+    const usage = (name: string) => {
+      if (name === 'alt') return { headroom: 0.9, stale: false } // rank 0.9
+      return undefined // others have no snapshot -> rank by live-load
+    }
+    const load = (name: string) => (name === 'default' ? 5 : 4) // both stale -> 0.17, 0.2
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('alt')
+    expect(r.reason).toBe('smart-balance') // at least one fresh -> smart-balance label
+  })
+
+  test('partial telemetry: stale-but-idle beats fresh-low-headroom', () => {
+    // Documents the bias: a profile with zero load (rank 1/(1+0)=1.0) beats
+    // a fresh-but-99%-burned profile (rank 0.01). Demonstrably-idle wins.
+    const usage = (name: string) => {
+      if (name === 'work') return { headroom: 0.01, stale: false }
+      return undefined
+    }
+    const load = (name: string) => (name === 'default' ? 0 : 99)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('default')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('errored / unauthed snapshot is treated as no telemetry', () => {
+    // A profile that recently failed to poll has `undefined` from the source
+    // (the caller computes the snapshot to UsageHeadroom mapping). Confirm
+    // the selection works the same as "no source" for that profile.
+    const usage = (name: string) => (name === 'default' ? { headroom: 0.7, stale: false } : undefined)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    // 'default' has rank 0.7 (fresh). Others rank 1.0 (load 0, no telemetry).
+    // Tie-broken by name: 'alt' wins.
+    expect(r.profile.name).toBe('alt')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('headroom clamps gracefully outside [0,1]', () => {
+    const usage = (name: string) => {
+      if (name === 'default') return { headroom: 1.5, stale: false } // clamps to 1
+      if (name === 'alt') return { headroom: -0.3, stale: false } // clamps to 0
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('default')
+  })
+
+  test('tie on rank: alphabetical name wins (stable)', () => {
+    const usage = () => ({ headroom: 0.5, stale: false })
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('alt') // alphabetically first
+  })
+})
+
+// ─── Default-selection synth flip ──────────────────────────────────
+
+describe('loadSentinelConfig -- default defaultSelection is now "balanced"', () => {
+  test('config without defaultSelection synthesises "balanced"', async () => {
+    // Loaded via the real loader to exercise the synth path. Empty profiles
+    // section -> only `default` profile present; balanced over a single
+    // member is a no-op pick. The point is to pin the flipped default.
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { loadSentinelConfig } = await import('./sentinel-config')
+    const dir = mkdtempSync(join(tmpdir(), 'sel-default-'))
+    const cfgPath = join(dir, 'sentinel.json')
+    writeFileSync(cfgPath, JSON.stringify({}))
+    try {
+      const cfg = loadSentinelConfig({ configPath: cfgPath })
+      expect(cfg.defaultSelection).toBe('balanced')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('explicit defaultSelection: "default" is preserved', async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { loadSentinelConfig } = await import('./sentinel-config')
+    const dir = mkdtempSync(join(tmpdir(), 'sel-default-'))
+    const cfgPath = join(dir, 'sentinel.json')
+    writeFileSync(cfgPath, JSON.stringify({ defaultSelection: 'default' }))
+    try {
+      const cfg = loadSentinelConfig({ configPath: cfgPath })
+      expect(cfg.defaultSelection).toBe('default')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

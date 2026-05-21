@@ -276,6 +276,23 @@ function liveLoadForProfile(profileName: string): number {
   return profileLoad.get(profileName) ?? 0
 }
 
+/** Smart Balance treats a snapshot older than this as stale and falls back
+ *  to live-host count. Poll interval is 3min, so 3.3 missed cycles = stale. */
+const USAGE_STALE_MS = 10 * 60 * 1000
+
+/** Headroom source for `pickProfile` -- reads the latest per-profile poll
+ *  result and folds the worst (5h vs 7d) utilisation into a 0..1 score.
+ *  `undefined` for unauthed / errored / missing snapshots so the picker
+ *  falls through to live-load. */
+function usageHeadroomForProfile(profileName: string): { headroom: number; stale: boolean } | undefined {
+  const snap = getLatestProfileUsage().get(profileName)
+  if (!snap || !snap.authed || snap.error || !snap.fiveHour || !snap.sevenDay) return undefined
+  const worst = Math.max(snap.fiveHour.usedPercent, snap.sevenDay.usedPercent)
+  const headroom = Math.max(0, Math.min(1, 1 - worst / 100))
+  const stale = Date.now() - snap.polledAt > USAGE_STALE_MS
+  return { headroom, stale }
+}
+
 /** Dead PIDs discovered from registry on startup (reported once WS connects) */
 const deadPidsToReport: PidRegistryEntry[] = []
 
@@ -2382,6 +2399,7 @@ function connect(
               input: spawnMsg.profile,
               pool: typeof spawnMsg.pool === 'string' ? spawnMsg.pool : undefined,
               liveLoad: liveLoadForProfile,
+              usage: usageHeadroomForProfile,
             })
             resolvedSpawnProfile = picked.profile
             spawnPicker = picked.picker

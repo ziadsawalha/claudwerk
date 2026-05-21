@@ -44,7 +44,11 @@ describe('loadSentinelConfig -- tolerant defaults', () => {
   test('missing file yields implicit default profile in the default pool', () => {
     const cfg = loadSentinelConfig({ configPath: join(scratch, 'no-such.json') })
     expect(cfg.sourcePath).toBeNull()
-    expect(cfg.defaultSelection).toBe('default')
+    // Synth default flipped to 'balanced' in Phase 3 of
+    // plan-sentinel-profile-usage -- single-profile installs are unaffected
+    // (balanced over a one-member pool is a no-op pick), multi-profile
+    // installs get Smart Balance out of the box.
+    expect(cfg.defaultSelection).toBe('balanced')
     expect(cfg.defaultPool).toBe(DEFAULT_POOL_NAME)
     expect(Object.keys(cfg.profiles)).toEqual([DEFAULT_PROFILE_NAME])
     expect(cfg.profiles[DEFAULT_PROFILE_NAME].configDir).toBe(join(homedir(), '.claude'))
@@ -64,7 +68,8 @@ describe('loadSentinelConfig -- tolerant defaults', () => {
     writeFileSync(path, '{}')
     const cfg = loadSentinelConfig({ configPath: path })
     expect(cfg.sourcePath).toBe(path)
-    expect(cfg.defaultSelection).toBe('default')
+    // See sibling test above for the synth-default flip rationale.
+    expect(cfg.defaultSelection).toBe('balanced')
     expect(cfg.defaultPool).toBe(DEFAULT_POOL_NAME)
     expect(Object.keys(cfg.profiles)).toEqual([DEFAULT_PROFILE_NAME])
   })

@@ -231,7 +231,13 @@ function buildProfileMap(
 
 // fallow-ignore-next-line complexity
 function validateSelectionMode(value: unknown, configPath: string): SelectionMode {
-  if (value === undefined) return 'default'
+  // Synth default: Smart Balance is now the default no-input behaviour.
+  // Configs that explicitly pin `'default'` keep that behaviour. This flip
+  // means a fresh single-profile install behaves identically to the old
+  // 'default' synth (one-profile pool -> trivially picks the only member),
+  // while multi-profile installs benefit from rate-limit-aware spreading
+  // out of the box. See `.claude/docs/plan-sentinel-profile-usage.md`.
+  if (value === undefined) return 'balanced'
   if (value === 'default' || value === 'balanced' || value === 'random') return value
   throw new Error(
     `sentinel config: defaultSelection in ${configPath} must be one of "default", "balanced", "random" (got ${JSON.stringify(value)})`,
