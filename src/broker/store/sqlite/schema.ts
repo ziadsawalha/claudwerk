@@ -17,6 +17,105 @@ function addPhase5ProfileColumns(db: Database): void {
   if (!hourlyCols.has('profile')) db.run("ALTER TABLE hourly_stats ADD COLUMN profile TEXT NOT NULL DEFAULT 'default'")
 }
 
+/** profile-url-strip migration (2026-05-22): the URI format dropped its
+ *  `profile@host` userinfo. Cost-table `project_uri` rows persisted from before
+ *  this change still carry the userinfo. Rewrite to canonical form once.
+ *
+ *  Iterates rows in JS (bun:sqlite supports prepared transactions). Idempotent
+ *  -- re-runs are no-ops because the rewriter is identity on canonical URIs. */
+function stripProfileFromUri(uri: string): string {
+  const schemeMatch = uri.match(/^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i)
+  if (!schemeMatch) return uri
+  const prefix = schemeMatch[1]
+  const rest = schemeMatch[2]
+  const authorityEndIdx = rest.search(/[/#]/)
+  const authority = authorityEndIdx >= 0 ? rest.slice(0, authorityEndIdx) : rest
+  const tail = authorityEndIdx >= 0 ? rest.slice(authorityEndIdx) : ''
+  const atIdx = authority.indexOf('@')
+  if (atIdx < 0) return uri
+  return `${prefix}${authority.slice(atIdx + 1)}${tail}`
+}
+
+// fallow-ignore-next-line complexity
+function stripProfileFromCostTableUris(db: Database): void {
+  for (const table of ['turns', 'hourly_stats'] as const) {
+    const rows = db
+      .prepare(`SELECT DISTINCT project_uri AS uri FROM ${table} WHERE project_uri LIKE '%@%'`)
+      .all() as Array<{ uri: string }>
+    if (rows.length === 0) continue
+    const update = db.prepare(`UPDATE ${table} SET project_uri = $next WHERE project_uri = $prev`)
+    db.run('BEGIN')
+    try {
+      let touched = 0
+      for (const row of rows) {
+        const next = stripProfileFromUri(row.uri)
+        if (next !== row.uri) {
+          update.run({ prev: row.uri, next })
+          touched++
+        }
+      }
+      db.run('COMMIT')
+      if (touched > 0) {
+        console.log(`[profile-url-strip] rewrote ${touched} distinct ${table}.project_uri row(s) to canonical form`)
+      }
+    } catch (err) {
+      db.run('ROLLBACK')
+      throw err
+    }
+  }
+}
+
+/** profile-url-strip migration: rewrite `conversations.scope` rows that still
+ *  carry `profile@host` userinfo, AND backfill `meta.resolvedProfile` from the
+ *  extracted name (the conversation's pinned profile lives in the typed
+ *  Conversation.resolvedProfile field now, NOT in the URI). Idempotent. */
+// fallow-ignore-next-line complexity
+function stripProfileFromConversationScopes(db: Database): void {
+  const rows = db.prepare(`SELECT id, scope, meta FROM conversations WHERE scope LIKE '%@%'`).all() as Array<{
+    id: string
+    scope: string
+    meta: string | null
+  }>
+  if (rows.length === 0) return
+  const update = db.prepare(`UPDATE conversations SET scope = $scope, meta = $meta WHERE id = $id`)
+  db.run('BEGIN')
+  try {
+    let touched = 0
+    for (const row of rows) {
+      const nextScope = stripProfileFromUri(row.scope)
+      if (nextScope === row.scope) continue
+      // Extract profile name from the legacy URI for the backfill.
+      const userinfoMatch = row.scope.match(/^[a-z][a-z0-9+.-]*:\/\/([^/#@]+)@/i)
+      const profileName = userinfoMatch ? userinfoMatch[1] : undefined
+      let meta: Record<string, unknown> = {}
+      if (row.meta) {
+        try {
+          meta = JSON.parse(row.meta) as Record<string, unknown>
+        } catch {
+          // Malformed meta -- preserve the row's scope rewrite, leave meta untouched.
+          update.run({ id: row.id, scope: nextScope, meta: row.meta })
+          touched++
+          continue
+        }
+      }
+      if (profileName && profileName !== 'default' && !meta.resolvedProfile) {
+        meta.resolvedProfile = profileName
+      }
+      update.run({ id: row.id, scope: nextScope, meta: JSON.stringify(meta) })
+      touched++
+    }
+    db.run('COMMIT')
+    if (touched > 0) {
+      console.log(
+        `[profile-url-strip] rewrote ${touched} conversation scope row(s) to canonical form + backfilled resolvedProfile`,
+      )
+    }
+  } catch (err) {
+    db.run('ROLLBACK')
+    throw err
+  }
+}
+
 export function createSchema(db: Database) {
   db.run('PRAGMA journal_mode = WAL')
   db.run('PRAGMA foreign_keys = ON')
@@ -291,11 +390,15 @@ export function createSchema(db: Database) {
     )
   `)
   // Phase 5 (sentinel profiles): denormalised (sentinel_id, profile) columns on
-  // the cost tables. Project_uri already encodes profile via URI userinfo so
-  // the existing PK still separates profiles -- these columns are convenience
-  // for queryable per-profile breakdown (queryProfileBreakdown). The broker
+  // the cost tables. Since the URI no longer encodes profile (Phase 6 strip),
+  // the `profile` column is the authoritative per-row profile name. The broker
   // stores NAMES only -- never configDir or env (Profile-Env Boundary).
   addPhase5ProfileColumns(db)
+  // profile-url-strip (2026-05-22): rewrite any pre-existing `profile@host`
+  // project_uri rows to canonical form, AND backfill conversation.resolvedProfile
+  // from the extracted name. Idempotent.
+  stripProfileFromCostTableUris(db)
+  stripProfileFromConversationScopes(db)
 
   db.run('CREATE INDEX IF NOT EXISTS idx_turns_timestamp ON turns(timestamp)')
   db.run('CREATE INDEX IF NOT EXISTS idx_turns_account ON turns(account)')

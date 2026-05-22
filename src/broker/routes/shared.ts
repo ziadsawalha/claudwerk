@@ -3,7 +3,6 @@
  * used by all route sub-modules.
  */
 
-import { parseProjectUri } from '../../shared/project-uri'
 import type { Conversation, TeamInfo } from '../../shared/protocol'
 import { getUser } from '../auth'
 import { getAuthenticatedUser, resolveAuth } from '../auth-routes'
@@ -146,12 +145,7 @@ export interface ConversationOverview {
 
 export function conversationToOverview(conv: Conversation, conversationStore: ConversationStore): ConversationOverview {
   const lastEvent = conv.events[conv.events.length - 1]
-  let sentinelProfile: string | undefined
-  try {
-    sentinelProfile = parseProjectUri(conv.project).profile || undefined
-  } catch {
-    // Unparseable URI -- field stays absent.
-  }
+  const sentinelProfile = conv.resolvedProfile || undefined
   return {
     id: conv.id,
     project: conv.project,

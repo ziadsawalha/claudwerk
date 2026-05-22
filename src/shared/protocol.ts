@@ -1801,6 +1801,14 @@ export interface Conversation {
   id: string // conversationId -- stable primary key, survives /clear
   agentHostMeta?: Record<string, unknown> // opaque bag from agent host (ccSessionId lives here, broker never reads it)
   project: string // project URI identity (e.g. "claude:///Users/jonas/projects/foo")
+  /**
+   * Sentinel-profile NAME the sentinel resolved for this conversation. Set by
+   * spawn_result.resolvedProfile / revive_result.resolvedProfile. Pinned for
+   * the life of the conversation -- revive forwards this same name back.
+   * `undefined` means default profile (the implicit one when no profile is set).
+   * PROFILE-ENV BOUNDARY: the broker stores the NAME only, never configDir / env.
+   */
+  resolvedProfile?: string
   currentPath?: string // where Claude is currently working (CwdChanged hook)
   model?: string
   configuredModel?: string // the --model value passed to CC (preserves [1m] suffix that CC strips)
@@ -2041,26 +2049,22 @@ export interface LaunchConfig {
   daemonMcpConfigPath?: string
   /**
    * Per-launch sentinel-profile INTENT -- what the user asked for at launch
-   * time. Absent => `default` profile.
+   * time. Absent => no hint (sentinel picks least-loaded across all profiles).
    *
-   * - `{ kind: 'fixed', name }`              -- user pinned an explicit named profile.
-   * - `{ kind: 'balanced', pool? }`          -- sentinel picks least-loaded profile
-   *                                              from `pool` (or its `defaultPool`).
-   * - `{ kind: 'random',   pool? }`          -- sentinel picks a uniformly random
-   *                                              profile from `pool` (or its `defaultPool`).
+   * - `{ kind: 'profile', name }` -- user pinned an explicit named profile.
+   *                                   Sentinel denies the spawn if missing.
+   * - `{ kind: 'pool',    name }` -- user asked for a named pool. Sentinel
+   *                                   picks the least-loaded profile within it
+   *                                   and denies if the pool is empty/absent.
    *
-   * The RESOLVED profile name (what the sentinel actually picked) lives in
-   * the conversation's `projectUri` userinfo, not here. The intent (including
-   * the requested pool) stays around for display ("this was picked by Random
-   * from the work pool") and re-launch-as-new semantics.
+   * The RESOLVED profile name (what the sentinel actually picked) lives on
+   * the conversation record as `resolvedProfile`. The intent stays around for
+   * display ("this was picked from the work pool") and re-launch-as-new.
    *
    * Profile env (API keys, `configDir`) NEVER reaches this struct -- see
    * `.claude/docs/plan-sentinel-profiles.md` Profile-Env Boundary covenant.
    */
-  sentinelProfile?:
-    | { kind: 'fixed'; name: string }
-    | { kind: 'balanced'; pool?: string }
-    | { kind: 'random'; pool?: string }
+  sentinelProfile?: { kind: 'profile'; name: string } | { kind: 'pool'; name: string }
 }
 
 // ─── Launch Jobs (request-scoped event channels for spawn/revive) ────

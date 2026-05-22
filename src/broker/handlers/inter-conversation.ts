@@ -111,13 +111,16 @@ function parseCallerProject(callerProject: string | null): ReturnType<typeof par
   }
 }
 
-function inheritProfileFromCaller(req: SpawnRequest, callerProject: string | null): string | undefined {
+function inheritProfileFromCaller(
+  req: SpawnRequest,
+  callerProject: string | null,
+  callerResolvedProfile: string | undefined,
+): string | undefined {
   if (req.profile || req.pool) return undefined
+  if (!callerResolvedProfile || callerResolvedProfile === 'default') return undefined
   const parsed = parseCallerProject(callerProject)
-  const callerProfile = parsed?.profile
-  if (!callerProfile || callerProfile === 'default') return undefined
   const sentinelMatches = !req.sentinel || req.sentinel === parsed?.authority
-  return sentinelMatches ? callerProfile : undefined
+  return sentinelMatches ? callerResolvedProfile : undefined
 }
 
 const handleChannelSpawn: MessageHandler = (ctx, data) => {
@@ -156,8 +159,9 @@ const handleChannelSpawn: MessageHandler = (ctx, data) => {
 
   const callerProject = ctx.caller?.project ?? null
   const callerTrust = callerProject ? mapProjectTrust(getProjectSettings(callerProject)?.trustLevel) : 'trusted'
+  const callerConv = ctx.conversations.getConversation(callerConversationId)
 
-  const inheritedProfile = inheritProfileFromCaller(req, callerProject)
+  const inheritedProfile = inheritProfileFromCaller(req, callerProject, callerConv?.resolvedProfile)
   if (inheritedProfile) {
     req.profile = inheritedProfile
     ctx.log.debug(

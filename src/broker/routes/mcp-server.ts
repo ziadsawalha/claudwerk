@@ -195,7 +195,7 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
   // ─── spawn_conversation ──────────────────────────────────────────────────
   mcp.tool(
     'spawn_conversation',
-    'Spawn a new conversation (a fresh Claude Code session or chat-api worker). Use when the user asks to "delegate this", "start a new session", or when a task needs an isolated context. Returns the conversationId so you can send_message to coordinate with it.',
+    'Spawn a new conversation (a fresh Claude Code session or chat-api worker). Use when the user asks to "delegate this", "start a new session", or when a task needs an isolated context. Returns the conversationId so you can send_message to coordinate with it. The optional `profile` / `pool` params pin which sentinel-profile the worker runs under -- ONLY set them if the user explicitly asks for a specific profile or pool ("run on the work profile", "use pool X"); otherwise leave both unset and the sentinel will pick.',
     {
       cwd: z.string().describe('Absolute working directory for the spawned session.'),
       prompt: z.string().optional().describe('Initial user prompt for the spawned agent.'),
@@ -207,8 +207,20 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
         .describe('claude=Claude Code (with tools); chat-api=plain LLM via OpenRouter/etc.'),
       chatConnectionId: z.string().optional().describe('For backend=chat-api, which configured connection to use.'),
       headless: z.boolean().optional().describe('Default true. Headless sessions run without a visible terminal.'),
+      profile: z
+        .string()
+        .optional()
+        .describe(
+          'Sentinel-profile name to pin this conversation to. ONLY set when the user explicitly asks for a specific profile. Mutually exclusive with `pool`.',
+        ),
+      pool: z
+        .string()
+        .optional()
+        .describe(
+          'Sentinel-pool name to pick from (sentinel resolves least-loaded profile). ONLY set when the user explicitly asks for a pool. Mutually exclusive with `profile`.',
+        ),
     },
-    async ({ cwd, prompt, name, model, backend, chatConnectionId, headless }) => {
+    async ({ cwd, prompt, name, model, backend, chatConnectionId, headless, profile, pool }) => {
       const callerContext = {
         kind: 'mcp' as const,
         hasSpawnPermission: true,
@@ -230,6 +242,8 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
           backend,
           chatConnectionId,
           headless: headless ?? true,
+          profile,
+          pool,
         },
         deps,
       )

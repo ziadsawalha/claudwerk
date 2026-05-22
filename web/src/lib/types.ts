@@ -47,6 +47,9 @@ export function canJsonStream(s: Conversation): boolean {
 export interface Conversation {
   id: string
   project: string
+  /** Sentinel-profile NAME the sentinel resolved at spawn time. `undefined`
+   *  means default profile. Mirrors `Conversation.resolvedProfile` server-side. */
+  resolvedProfile?: string
   model?: string
   capabilities?: AgentHostCapability[]
   version?: string

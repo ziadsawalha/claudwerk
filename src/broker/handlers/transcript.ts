@@ -7,7 +7,6 @@
 import { randomUUID } from 'node:crypto'
 import { formatResetIn } from '../../shared/format-reset-time'
 import { resolveModelFamily } from '../../shared/models'
-import { getProfileFromUri } from '../../shared/project-uri'
 import type { AgentHostLaunchStep, TranscriptLaunchEntry, TranscriptSystemEntry } from '../../shared/protocol'
 import { filterDisplayEntries } from '../../shared/transcript-filter'
 import type { MessageHandler } from '../handler-context'
@@ -338,12 +337,12 @@ interface RateLimitTags {
 }
 
 function rateLimitTagsFor(conversation: {
-  project: string
+  resolvedProfile?: string
   hostSentinelId?: string
   hostSentinelAlias?: string
 }): RateLimitTags {
   return {
-    profile: getProfileFromUri(conversation.project) || 'default',
+    profile: conversation.resolvedProfile || 'default',
     sentinelId: conversation.hostSentinelId || '',
     sentinelAlias: conversation.hostSentinelAlias || '',
   }
@@ -463,11 +462,11 @@ const turnCost: MessageHandler = (ctx, data) => {
     ctx.conversations.broadcastConversationUpdate(conversationId)
 
     // Record to persistent cost store (delta computed internally). The profile
-    // is the resolved name from the URI userinfo (RESOLVED, not the intent
-    // tagged union on launchConfig.sentinelProfile -- see plan-sentinel-profiles
+    // is the RESOLVED name from `conversation.resolvedProfile` (not the intent
+    // tagged union on `launchConfig.sentinelProfile` -- see plan-sentinel-profiles
     // "Conversation -- intent vs resolved").
     const now = Date.now()
-    const profile = getProfileFromUri(conversation.project) || 'default'
+    const profile = conversation.resolvedProfile || 'default'
     const sentinelId = conversation.hostSentinelId || ''
     ctx.store.costs.recordTurnFromCumulatives({
       timestamp: now,

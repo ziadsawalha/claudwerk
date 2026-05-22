@@ -36,36 +36,24 @@ import { resolveBackendByName, type SpawnDeps } from './backends'
 import type { ConversationStore } from './conversation-store'
 import type { GlobalSettings } from './global-settings'
 
-/** Selection-mode tokens that are NOT literal profile names. The sentinel
- *  runs the picker; the broker forwards both `profile` and `pool` verbatim. */
-const SELECTION_MODE_TOKENS = new Set<string>(['default', 'balanced', 'random'])
-
 /**
  * Translate the wire-level (`req.profile`, `req.pool`) pair into the
  * persisted `LaunchConfig.sentinelProfile` tagged union (INTENT). The intent
  * round-trips across revive + launch-profile save and feeds the conversation
  * badge UX.
  *
- *  - Absent profile + absent pool                     -> undefined
- *    (no explicit pin; sentinel follows its defaultSelection)
- *  - profile = literal name (incl. 'default')         -> { kind: 'fixed', name }
- *    (pool is ignored -- Fixed always wins)
- *  - profile in {balanced, random}                    -> { kind: <m>, pool? }
- *  - profile absent + pool present                    -> { kind: 'balanced', pool }
- *    (pool-only at launch implies Balanced from that pool)
+ *  - Absent profile + absent pool   -> undefined (sentinel decides)
+ *  - profile = literal name         -> { kind: 'profile', name }
+ *                                       (pool is ignored when both are set)
+ *  - pool = literal pool name       -> { kind: 'pool', name }
  *
- * NOTE: `'default'` is a LITERAL profile name (the implicit default profile),
- * not a selection-mode token. Picking the default pill in the UI must pin to
- * the default profile, not delegate to the sentinel's defaultSelection.
+ * Profile and pool are mutually exclusive at the intent layer. The wire
+ * accepts both for ergonomics, but profile wins when both are present.
  */
 function intentFromProfileField(profile?: string, pool?: string): LaunchConfig['sentinelProfile'] {
-  if (!profile) {
-    return pool ? { kind: 'balanced', pool } : undefined
-  }
-  if (profile === 'balanced') return pool ? { kind: 'balanced', pool } : { kind: 'balanced' }
-  if (profile === 'random') return pool ? { kind: 'random', pool } : { kind: 'random' }
-  // Literal profile name (incl. 'default') -- Fixed wins, drop any pool.
-  return { kind: 'fixed', name: profile }
+  if (profile) return { kind: 'profile', name: profile }
+  if (pool) return { kind: 'pool', name: pool }
+  return undefined
 }
 
 /**
@@ -290,14 +278,13 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
     }
   }
 
-  // Sentinel-profile validation. When `req.profile` is a LITERAL name (not a
-  // selection-mode token, not absent), confirm the target sentinel actually
-  // reported that profile. Unknown -> structured spawn failure with the known
-  // list so the caller can correct it. Selection-mode tokens (balanced/random)
-  // and absent profile pass through -- the sentinel does the picking. The
-  // PROFILE-ENV BOUNDARY covenant means the broker validates by NAME only;
-  // configDir / env never reach this code path.
-  if (req.profile && !SELECTION_MODE_TOKENS.has(req.profile) && resolvedSentinelId) {
+  // Sentinel-profile validation. When `req.profile` is set, confirm the target
+  // sentinel actually reported that profile. Unknown -> structured spawn
+  // failure with the known list so the caller can correct it. Absent profile
+  // passes through (the sentinel does the picking, balanced over all profiles
+  // or within `req.pool` if set). The PROFILE-ENV BOUNDARY covenant means the
+  // broker validates by NAME only; configDir / env never reach this code path.
+  if (req.profile && resolvedSentinelId) {
     const conn = deps.conversationStore.getSentinelConnection(resolvedSentinelId)
     const reported = conn?.profiles
     if (reported && reported.length > 0) {
@@ -318,12 +305,12 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
     // rather than gating off a missing identify field.
   }
 
-  // Pool validation (Balanced/Random only -- Fixed wins and silently drops
-  // pool, so a Fixed launch with an unknown pool is not an error). When the
-  // target sentinel reports its pool registry, confirm the requested pool
-  // exists. Legacy sentinels without a `pools` slice pass through; the
-  // sentinel itself falls back to default-pool empty-fallback if needed.
-  const requestsPool = req.pool && (req.profile === undefined || req.profile === 'balanced' || req.profile === 'random')
+  // Pool validation. When the target sentinel reports its pool registry,
+  // confirm the requested pool exists. Legacy sentinels without a `pools`
+  // slice pass through; the sentinel itself falls back to default-pool
+  // empty-fallback if needed. Pool is only consulted when profile is absent
+  // (profile wins on the wire).
+  const requestsPool = req.pool && !req.profile
   if (requestsPool && resolvedSentinelId) {
     const conn = deps.conversationStore.getSentinelConnection(resolvedSentinelId)
     const reportedPools = conn?.pools

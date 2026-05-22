@@ -1,4 +1,3 @@
-import { getProfileFromUri } from '../shared/project-uri'
 import type { Conversation, ReviveConversation } from '../shared/protocol'
 
 export interface ReviveOverrides {
@@ -16,9 +15,9 @@ export interface ReviveOverrides {
   openCodeModel?: string
   acpAgent?: string
   toolPermission?: 'none' | 'safe' | 'full'
-  /** Profile pin -- ALWAYS a literal NAME, never `balanced`/`random`. Revive
-   *  never re-rolls. The default comes from the stored projectUri userinfo;
-   *  overriding is only useful for tests or recovery flows. */
+  /** Profile pin -- ALWAYS a literal NAME. Revive never re-rolls. The default
+   *  comes from the conversation's `resolvedProfile` field; overriding is only
+   *  useful for tests or recovery flows. */
   profile?: string
 }
 
@@ -35,12 +34,11 @@ export function buildReviveMessage(
   const lc = conversation.launchConfig
   const meta = conversation.agentHostMeta || {}
   // Sentinel-profile pin: revive ALWAYS forwards the literal NAME stored in
-  // the conversation's projectUri userinfo. Revive never re-rolls balanced /
-  // random -- the conversation is permanently bound to the originally-resolved
-  // profile (its CC transcripts live under that profile's $CLAUDE_CONFIG_DIR).
-  // The `default` profile is implicit and omitted on the wire.
-  const profileFromUri = getProfileFromUri(conversation.project)
-  const profilePin = overrides?.profile ?? profileFromUri
+  // `conversation.resolvedProfile`. Revive never re-rolls -- the conversation
+  // is permanently bound to the originally-resolved profile (its CC transcripts
+  // live under that profile's $CLAUDE_CONFIG_DIR). The `default` profile is
+  // implicit and omitted on the wire (stored as undefined).
+  const profilePin = overrides?.profile ?? conversation.resolvedProfile
   return {
     type: 'revive',
     conversationId: newConversationId,

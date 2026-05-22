@@ -1,14 +1,12 @@
 /**
- * Tests for the Phase 3 sentinel-profiles slice of the spawn dispatch path:
+ * Tests for the sentinel-profiles slice of the spawn dispatch path:
  *   - validating `req.profile` against the target sentinel's reported list
- *   - forwarding the profile name on the wire to the sentinel
- *   - stashing `spawn_result.resolvedProfile` for boot/meta to write into the
- *     stored projectUri userinfo
- *   - persisting `launchConfig.sentinelProfile` (INTENT tagged union) on
- *     the conversation
- *
- * Selection-mode tokens (balanced/random) pass through unchanged; full
- * picker behaviour ships in Phase 4.
+ *   - forwarding the profile / pool fields on the wire to the sentinel
+ *   - stashing `spawn_result.resolvedProfile` for boot/meta to write onto
+ *     `Conversation.resolvedProfile`
+ *   - persisting `launchConfig.sentinelProfile` (INTENT tagged union -- either
+ *     `{ kind: 'profile', name }` or `{ kind: 'pool', name }`) on the
+ *     conversation
  */
 
 import { beforeEach, describe, expect, it } from 'bun:test'
@@ -84,11 +82,7 @@ async function dispatchWithSpawnReply(
   req: SpawnRequest,
   reply: (requestId: string) => SpawnResult,
 ): Promise<Awaited<ReturnType<typeof dispatchSpawn>>> {
-  // dispatchSpawn awaits an in-process listener keyed by requestId. The fake
-  // sentinel's send() captures the request; we then synchronously resolve the
-  // listener with whatever reply the caller wants.
   const dispatched = dispatchSpawn(req, deps)
-  // Drain the microtask queue so the spawn message is in the outbox.
   await new Promise(r => setTimeout(r, 5))
   const last = sentinelOutbox[sentinelOutbox.length - 1]
   if (last) conversationStore.resolveSpawn(last.requestId, reply(last.requestId))
@@ -133,29 +127,16 @@ describe('spawn dispatch -- sentinel-profile validation', () => {
   it('accepts a known literal profile name and forwards it on the wire', async () => {
     attachSentinel('beast')
     const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work@beast/tmp/test', 'work'))
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'work'))
     expect(result.ok).toBe(true)
     expect(sentinelOutbox).toHaveLength(1)
     expect(sentinelOutbox[0].profile).toBe('work')
   })
 
-  it('passes selection-mode tokens through without validation', async () => {
-    // Pass an empty profiles list -- balanced still forwards (sentinel does
-    // the picking; broker stays out of the way).
-    attachSentinel('beast', undefined)
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://alt@beast/tmp/test', 'alt'))
-    expect(result.ok).toBe(true)
-    expect(sentinelOutbox[0].profile).toBe('balanced')
-  })
-
   it('forwards profile when the sentinel reports no profiles (legacy host)', async () => {
-    // A legacy sentinel that has not yet learned to report profiles MUST not
-    // be hard-blocked from spawning -- the broker forwards the name and the
-    // sentinel itself does the rejection if it doesn't recognize it.
     attachSentinel('beast', undefined)
     const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work@beast/tmp/test'))
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test'))
     expect(result.ok).toBe(true)
     expect(sentinelOutbox[0].profile).toBe('work')
   })
@@ -170,16 +151,16 @@ describe('spawn dispatch -- sentinel-profile validation', () => {
 
   it('forwards pool on the wire and accepts a known pool', async () => {
     attachSentinel('beast', undefined, ['work', 'default'])
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced', pool: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work-1@beast/tmp/test', 'work-1'))
+    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', pool: 'work' }
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'work-1'))
     expect(result.ok).toBe(true)
     expect(sentinelOutbox[0].pool).toBe('work')
-    expect(sentinelOutbox[0].profile).toBe('balanced')
+    expect(sentinelOutbox[0].profile).toBeUndefined()
   })
 
   it('rejects an unknown pool when the sentinel reported its pool registry', async () => {
     attachSentinel('beast', undefined, ['default'])
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced', pool: 'ghost' }
+    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', pool: 'ghost' }
     const result = await dispatchSpawn(req, deps)
     expect(result.ok).toBe(false)
     if (result.ok) return
@@ -188,90 +169,65 @@ describe('spawn dispatch -- sentinel-profile validation', () => {
   })
 
   it('forwards pool when the sentinel reports no pools (legacy host)', async () => {
-    // Legacy sentinel that has not learned to report `pools` -- store empty
-    // list so the broker validator falls through.
     attachSentinel('beast', undefined, [])
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced', pool: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://w-1@beast/tmp/test', 'w-1'))
+    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', pool: 'work' }
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'w-1'))
     expect(result.ok).toBe(true)
     expect(sentinelOutbox[0].pool).toBe('work')
   })
 
-  it('ignores pool validation for Fixed (Fixed wins, pool dropped)', async () => {
+  it('does not validate pool when profile is also set (profile wins)', async () => {
     attachSentinel('beast', undefined, ['default'])
     const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'work', pool: 'ghost' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work@beast/tmp/test', 'work'))
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'work'))
     expect(result.ok).toBe(true)
     // Wire still carries pool (broker forwards what was sent); sentinel ignores
-    // it once Fixed wins. The launch INTENT however drops the pool -- see below.
+    // it when profile is set. The INTENT however picks profile.
     expect(sentinelOutbox[0].profile).toBe('work')
-    if (!result.ok) return
-    const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
-    expect(lc?.sentinelProfile).toEqual({ kind: 'fixed', name: 'work' })
   })
 })
 
 describe('spawn dispatch -- resolved profile + launchConfig intent', () => {
-  it('stashes the resolved profile so boot can pin it into projectUri', async () => {
+  it('stashes the resolved profile so boot can pin it on the conversation', async () => {
     attachSentinel('beast')
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://alt@beast/tmp/test', 'alt'))
+    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', pool: 'default' }
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'alt'))
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(conversationStore.consumePendingResolvedProfile(result.conversationId)).toBe('alt')
   })
 
-  it('persists the INTENT tagged union on launchConfig (fixed)', async () => {
+  it('persists the INTENT tagged union on launchConfig (profile)', async () => {
     attachSentinel('beast')
     const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work@beast/tmp/test', 'work'))
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'work'))
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
-    expect(lc?.sentinelProfile).toEqual({ kind: 'fixed', name: 'work' })
+    expect(lc?.sentinelProfile).toEqual({ kind: 'profile', name: 'work' })
   })
 
-  it('persists the INTENT tagged union on launchConfig (balanced)', async () => {
-    attachSentinel('beast')
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://alt@beast/tmp/test', 'alt'))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
-    expect(lc?.sentinelProfile).toEqual({ kind: 'balanced' })
-  })
-
-  it('persists balanced + pool on launchConfig INTENT', async () => {
-    attachSentinel('beast', undefined, ['work', 'default'])
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'balanced', pool: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work-1@beast/tmp/test', 'work-1'))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
-    expect(lc?.sentinelProfile).toEqual({ kind: 'balanced', pool: 'work' })
-  })
-
-  it('persists random + pool on launchConfig INTENT', async () => {
-    attachSentinel('beast', undefined, ['work', 'default'])
-    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'random', pool: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://work-2@beast/tmp/test', 'work-2'))
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
-    expect(lc?.sentinelProfile).toEqual({ kind: 'random', pool: 'work' })
-  })
-
-  it('pool-only launch (no profile) becomes Balanced + pool', async () => {
+  it('persists the INTENT tagged union on launchConfig (pool)', async () => {
     attachSentinel('beast', undefined, ['work', 'default'])
     const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', pool: 'work' }
-    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://w-2@beast/tmp/test', 'w-2'))
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'work-1'))
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
-    expect(lc?.sentinelProfile).toEqual({ kind: 'balanced', pool: 'work' })
+    expect(lc?.sentinelProfile).toEqual({ kind: 'pool', name: 'work' })
   })
 
-  it('omits launchConfig.sentinelProfile when the spawn is default-profile', async () => {
+  it('profile wins when both are set (pool dropped from INTENT)', async () => {
+    attachSentinel('beast', undefined, ['work', 'default'])
+    const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast', profile: 'work', pool: 'default' }
+    const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test', 'work'))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const lc = conversationStore.consumePendingLaunchConfig(result.conversationId)
+    expect(lc?.sentinelProfile).toEqual({ kind: 'profile', name: 'work' })
+  })
+
+  it('omits launchConfig.sentinelProfile when no hint is given', async () => {
     attachSentinel('beast')
     const req: SpawnRequest = { cwd: '/tmp/test', sentinel: 'beast' }
     const result = await dispatchWithSpawnReply(req, id => okResult(id, 'claude://beast/tmp/test'))

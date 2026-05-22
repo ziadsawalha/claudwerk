@@ -2085,13 +2085,12 @@ function connect(
           const reviveCwd = parsedRevive.path
           const aht = reviveMsg.agentHostType || 'claude'
 
-          // Resolve the sentinel profile. Revive always pins -- the URI
-          // userinfo carries the RESOLVED profile name written at spawn
-          // time, and `reviveMsg.profile` echoes it back. balanced/random
-          // never reach revive (the broker strips mode tokens at spawn_result
-          // time per Phase 3); guard defensively here. Falls through to
-          // `default` when absent.
-          let reviveProfileInput = reviveMsg.profile ?? parsedRevive.profile
+          // Resolve the sentinel profile. Revive always pins -- the broker
+          // sends the RESOLVED profile NAME in `reviveMsg.profile` (read from
+          // `Conversation.resolvedProfile`). Selection-mode tokens
+          // (balanced/random) must NEVER reach revive; guard defensively.
+          // Falls through to `default` when absent.
+          let reviveProfileInput = reviveMsg.profile
           if (reviveProfileInput === 'balanced' || reviveProfileInput === 'random') {
             // Defensive: a buggy broker or test harness should NEVER trigger
             // a re-roll on revive. Log loud + drop the token to fall back to
@@ -2445,12 +2444,11 @@ function connect(
           // never reaches the broker; the resolved cwd does.
           const effectiveSpawnRoot = resolvedSpawnProfile.spawnRoot ?? spawnRoot
           const expandedCwd = expandPath(spawnCwdRaw, effectiveSpawnRoot)
-          // Carry the resolved profile name through to the stored URI so
-          // revive can pin the same profile forever. Default profile is
-          // implicit (no userinfo emitted).
-          const profileForUri =
-            resolvedSpawnProfile.name !== DEFAULT_PROFILE_NAME ? resolvedSpawnProfile.name : undefined
-          const resolvedProject = cwdToProjectUri(expandedCwd, 'claude', undefined, profileForUri)
+          // The resolved profile NAME is reported back to the broker as
+          // `spawn_result.resolvedProfile` (sibling field, NOT in the URI).
+          // The URI is pure location -- broker pins the profile on the
+          // conversation record itself.
+          const resolvedProject = cwdToProjectUri(expandedCwd, 'claude')
           launchLog(spawnMsg.jobId, 'Sentinel received spawn request', 'ok', expandedCwd.split('/').pop())
           diag('spawn', 'Spawn request received', {
             requestId: spawnMsg.requestId,

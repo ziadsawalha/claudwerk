@@ -257,13 +257,10 @@ export function SpawnDialog() {
       setProfileId(initialProfile?.id)
       // Sentinel-profile pre-selection from URI / shorthand. The launch
       // profile's saved sentinel-profile (if any) takes precedence and is
-      // applied by `applyProfileToForm` below.
+      // applied by `applyProfileToForm` below. Profile and pool are mutually
+      // exclusive at the wire layer; the dialog keeps both fields for UI
+      // ergonomics but only one ends up on the spawn request.
       setSentinelProfile(options.profile ?? '')
-      // Pool-only launch (palette `@sentinel#pool`) -> the dialog interprets
-      // it as Balanced from that pool: pre-select Balanced, pre-select the pool.
-      if (options.pool && !options.profile) {
-        setSentinelProfile('balanced')
-      }
       setSentinelPool(options.pool ?? '')
       if (initialProfile) {
         applyProfileToForm(initialProfile, {
@@ -683,7 +680,6 @@ export function SpawnDialog() {
   const targetSentinelAlias = (state.options?.sentinel || 'default').toLowerCase()
   const targetSentinel = sentinelStatuses.find(s => s.alias.toLowerCase() === targetSentinelAlias)
   const targetProfiles = targetSentinel?.profiles ?? []
-  const targetDefaultSelection = targetSentinel?.defaultSelection
   const targetPools = targetSentinel?.pools ?? []
   const targetDefaultPool = targetSentinel?.defaultPool
   // Build the per-profile usage map for the radio's inline mini-bars. Map
@@ -824,7 +820,6 @@ export function SpawnDialog() {
                   <SentinelProfileRadio
                     profiles={targetProfiles}
                     pools={targetPools}
-                    defaultSelection={targetDefaultSelection}
                     defaultPool={targetDefaultPool}
                     value={sentinelProfile}
                     onChange={v => {

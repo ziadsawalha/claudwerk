@@ -1,31 +1,25 @@
 /**
  * Sentinel-profile picker for the spawn dialog.
  *
- * Three modes (mutually exclusive radio) per the sentinel-profiles plan:
- *
- *   - Fixed N: pick a specific named profile (one option per reported profile)
- *   - Balanced: sentinel picks the least-loaded profile from a pool
- *   - Random:   sentinel picks a uniformly random profile from a pool
- *
- * When the user selects Balanced or Random AND the sentinel reports >1 pool,
- * a Pool dropdown appears. With a single pool the dropdown is hidden (no
- * choice to make) and the sentinel's `defaultPool` is used implicitly.
+ * Two mutually-exclusive launch hints:
+ *   - Profile pill:  pin to a specific named profile (one pill per reported profile)
+ *   - Pool pill:     pick from a named pool -- sentinel resolves least-loaded at spawn
+ *   - Default pill:  no hint -- sentinel picks across all profiles
  *
  * Rendered only when the target sentinel reports >1 profile -- single-profile
  * (or unknown) sentinels have nothing to choose between, so the field hides
  * entirely. The user's choice is the launch INTENT; the sentinel resolves it
- * at spawn time and the resolved name lands in the conversation URI userinfo.
+ * at spawn time and the resolved NAME lands on `Conversation.resolvedProfile`
+ * (NOT in the URI).
  *
  * PROFILE-ENV BOUNDARY: this component renders NAME + label + color + pool +
  * authed only. configDir / env are sentinel-local and never reach the UI.
  */
 
 import type { ProfileUsageSnapshot, SentinelProfileInfo } from '@shared/protocol'
-import { Hash, Shuffle, User } from 'lucide-react'
+import { Hash, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-/** Pct -> tailwind text color. Mirrors usage-bar.tsx so the launch modal +
- *  top bar speak the same visual language. */
 function usageTextColor(pct: number): string {
   if (pct < 50) return 'text-emerald-400'
   if (pct < 75) return 'text-amber-400'
@@ -37,20 +31,16 @@ interface SentinelProfileRadioProps {
   /** Profiles reported by the target sentinel (NAMES + display only). */
   profiles: SentinelProfileInfo[]
   /** Pools reported by the target sentinel (distinct, sorted). When length
-   *  > 1 and Balanced/Random is selected, a pool picker is rendered. */
+   *  > 0 and `pool` mode makes sense, pool pills are rendered. */
   pools: string[]
-  /** Sentinel's `defaultSelection` -- used as the default radio when the
-   *  user hasn't explicitly chosen. */
-  defaultSelection?: 'default' | 'balanced' | 'random'
-  /** Sentinel's `defaultPool` -- the pool used when Balanced/Random is
-   *  selected without an explicit pool. Defaults to `"default"`. */
+  /** Sentinel's `defaultPool` -- shown as the suggested pool when no pool
+   *  has been picked. Defaults to `"default"`. */
   defaultPool?: string
-  /** Current profile selection. `''` = follow sentinel default. Otherwise
-   *  either a literal profile name (Fixed) or `'balanced'` / `'random'`. */
+  /** Current profile selection. `''` = no profile pinned. */
   value: string
   onChange: (next: string) => void
-  /** Current pool selection (only meaningful for Balanced/Random). `''` =
-   *  use the sentinel's defaultPool. */
+  /** Current pool selection. `''` = no pool selected. Mutually exclusive with
+   *  `value` -- setting one clears the other in the parent. */
   poolValue: string
   onPoolChange: (next: string) => void
   disabled?: boolean
@@ -63,7 +53,6 @@ interface SentinelProfileRadioProps {
 export function SentinelProfileRadio({
   profiles,
   pools,
-  defaultSelection,
   defaultPool,
   value,
   onChange,
@@ -74,57 +63,40 @@ export function SentinelProfileRadio({
 }: SentinelProfileRadioProps) {
   if (profiles.length < 2) return null
 
-  const hasAnyPool = profiles.some(p => p.pool !== null)
-  const showSelectionModes = hasAnyPool
-  const resolvedValue = value || (defaultSelection && defaultSelection !== 'default' ? defaultSelection : '')
-  const showPoolPicker = (resolvedValue === 'balanced' || resolvedValue === 'random') && pools.length > 1
-  const resolvedPool = poolValue || defaultPool || 'default'
+  const noHint = !value && !poolValue
+  const onPickDefault = () => {
+    onChange('')
+    onPoolChange('')
+  }
+  const onPickProfile = (name: string) => {
+    onChange(name)
+    onPoolChange('')
+  }
+  const onPickPool = (name: string) => {
+    onChange('')
+    onPoolChange(name)
+  }
 
   return (
     <div className="space-y-1.5">
       <div className="text-[10px] font-mono text-muted-foreground">
         Sentinel profile
-        {defaultSelection && defaultSelection !== 'default' && !value && (
-          <span className="ml-1.5 text-[9px] text-comment">
-            (sentinel default:{' '}
-            <span className="text-foreground" style={{ textTransform: 'lowercase' }}>
-              {defaultSelection}
-            </span>
-            )
-          </span>
-        )}
+        {noHint && <span className="ml-1.5 text-[9px] text-comment">(no hint - sentinel picks)</span>}
       </div>
       <div className="flex flex-wrap gap-1.5">
+        <DefaultPill active={noHint} disabled={disabled} onClick={onPickDefault} />
         {profiles.map(p => (
           <ProfilePill
             key={p.name}
             profile={p}
-            active={resolvedValue === p.name}
+            active={value === p.name}
             disabled={disabled}
-            onClick={() => onChange(p.name)}
+            onClick={() => onPickProfile(p.name)}
             usage={profileUsage?.get(p.name)}
           />
         ))}
       </div>
-      {showSelectionModes && (
-        <div className="flex flex-wrap gap-1.5 pt-0.5">
-          <SelectionPill
-            label="Balanced"
-            title="Sentinel picks the least-loaded profile from the pool"
-            active={resolvedValue === 'balanced'}
-            disabled={disabled}
-            onClick={() => onChange('balanced')}
-          />
-          <SelectionPill
-            label="Random"
-            title="Uniformly random profile from the pool each launch"
-            active={resolvedValue === 'random'}
-            disabled={disabled}
-            onClick={() => onChange('random')}
-          />
-        </div>
-      )}
-      {showPoolPicker && (
+      {pools.length > 0 && (
         <div className="pt-0.5">
           <div className="text-[10px] font-mono text-muted-foreground mb-1">
             Pool
@@ -137,9 +109,9 @@ export function SentinelProfileRadio({
               <PoolPill
                 key={name}
                 name={name}
-                active={resolvedPool === name}
+                active={poolValue === name}
                 disabled={disabled}
-                onClick={() => onPoolChange(name)}
+                onClick={() => onPickPool(name)}
               />
             ))}
           </div>
@@ -154,16 +126,12 @@ interface ProfilePillProps {
   active: boolean
   disabled?: boolean
   onClick: () => void
-  /** Latest usage snapshot for this profile (when telemetry is available). */
   usage?: ProfileUsageSnapshot
 }
 
 // fallow-ignore-next-line complexity
 function buildProfilePillTitle(profile: SentinelProfileInfo, usage?: ProfileUsageSnapshot): string {
   const poolPart = profile.pool === null ? 'pinned (no pool)' : `pool: ${profile.pool}`
-  // Auth detection is best-effort -- sentinel only looks for credential
-  // files at the configDir root. macOS keychain-stored creds yield a
-  // false-negative, so surface as "auth unknown" instead of "not authed".
   const authPart = profile.authed ? 'authed' : 'auth unknown (run `sentinel profile auth`)'
   let usagePart = ''
   if (usage?.error) usagePart = `usage: ${usage.error.kind}`
@@ -211,21 +179,19 @@ function ProfilePill({ profile, active, disabled, onClick, usage }: ProfilePillP
   )
 }
 
-interface SelectionPillProps {
-  label: string
-  title: string
+interface DefaultPillProps {
   active: boolean
   disabled?: boolean
   onClick: () => void
 }
 
-function SelectionPill({ label, title, active, disabled, onClick }: SelectionPillProps) {
+function DefaultPill({ active, disabled, onClick }: DefaultPillProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title}
+      title="No hint -- sentinel picks across all profiles"
       className={cn(
         'px-2 py-1 text-[10px] font-mono border rounded flex items-center gap-1.5 cursor-pointer transition-colors',
         active
@@ -234,8 +200,7 @@ function SelectionPill({ label, title, active, disabled, onClick }: SelectionPil
         disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
-      <Shuffle className="w-3 h-3" />
-      <span>{label}</span>
+      <span>Default</span>
     </button>
   )
 }

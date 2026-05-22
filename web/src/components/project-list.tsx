@@ -8,7 +8,6 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { stripProfile } from '@shared/project-uri'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   type ConversationStructure,
@@ -67,14 +66,12 @@ export function ProjectList() {
 
   // Track which projects are in the organized tree (by project URI).
   // Defined before idsByProject because idsByProject uses it for worktree re-keying.
-  // Stored stripped of any `profile@` userinfo so a tree organized under
-  // `claude://default/...` matches conversations on `claude://work@default/...`.
   const treeProjects = useMemo(() => {
     const projects = new Set<string>()
     function walk(nodes: ProjectOrderNode[]) {
       for (const n of nodes) {
         if (n.type === 'project') {
-          projects.add(stripProfile(n.id))
+          projects.add(n.id)
         } else if (n.type === 'group') {
           walk(n.children)
         }
@@ -89,16 +86,11 @@ export function ProjectList() {
   // so worktree conversations appear nested under the parent project group.
   // Exception: if the worktree URI itself is explicitly in the organized tree,
   // the user has placed it there intentionally -- don't move it.
-  // Profile-bearing URIs (claude://work@default/...) collapse onto the
-  // profile-stripped form (claude://default/...) so conversations on different
-  // sentinel profiles cluster under the same project node. Profile is a
-  // routing attribute, not a project identity (see project-uri covenant).
   const idsByProject = useMemo(() => {
     const map = new Map<string, string[]>()
     for (const s of structure) {
       const wt = parseWorktreeUri(s.project)
-      const rawKey = wt && !treeProjects.has(stripProfile(s.project)) ? wt.parentUri : s.project
-      const key = stripProfile(rawKey)
+      const key = wt && !treeProjects.has(s.project) ? wt.parentUri : s.project
       const group = map.get(key) || []
       group.push(s.id)
       map.set(key, group)
@@ -121,9 +113,8 @@ export function ProjectList() {
   const pinnedNotInTree = useMemo(() => {
     const result: string[] = []
     for (const [uri, ps] of Object.entries(projectSettings)) {
-      const key = stripProfile(uri)
-      if (ps.pinned && !treeProjects.has(key) && !visibleIdsByProject.has(key)) {
-        result.push(key)
+      if (ps.pinned && !treeProjects.has(uri) && !visibleIdsByProject.has(uri)) {
+        result.push(uri)
       }
     }
     return result
@@ -137,8 +128,7 @@ export function ProjectList() {
     const result: Array<{ project: string; conversationIds: string[] }> = []
     for (const s of structure) {
       const wt = parseWorktreeUri(s.project)
-      const rawProject = wt && !treeProjects.has(stripProfile(s.project)) ? wt.parentUri : s.project
-      const effectiveProject = stripProfile(rawProject)
+      const effectiveProject = wt && !treeProjects.has(s.project) ? wt.parentUri : s.project
       if (s.status !== 'ended' && !treeProjects.has(effectiveProject) && !seen.has(effectiveProject)) {
         seen.add(effectiveProject)
         const ids = visibleIdsByProject.get(effectiveProject) || []
@@ -161,13 +151,10 @@ export function ProjectList() {
   // conversations rarely tick, and excluding it from the structural selector
   // saves a ProjectList re-render on every WS message.
   const inactive = useMemo(() => {
-    // Active/ended buckets are keyed by profile-stripped URI so an ended
-    // conversation on `work@default` doesn't shadow-segregate from an active
-    // conversation in the same project on the default profile.
-    const activeProjects = new Set(structure.filter(s => s.status !== 'ended').map(s => stripProfile(s.project)))
+    const activeProjects = new Set(structure.filter(s => s.status !== 'ended').map(s => s.project))
     const byProject = new Map<string, ConversationStructure[]>()
     for (const s of structure) {
-      const key = stripProfile(s.project)
+      const key = s.project
       if (s.status === 'ended' && !treeProjects.has(key) && !activeProjects.has(key)) {
         const group = byProject.get(key) || []
         group.push(s)
@@ -426,7 +413,7 @@ export function ProjectList() {
   const selectedProjectRaw = selectedConversationId
     ? structure.find(s => s.id === selectedConversationId)?.project
     : null
-  const selectedProject = selectedProjectRaw ? stripProfile(selectedProjectRaw) : null
+  const selectedProject = selectedProjectRaw
 
   return (
     <MaybeProfiler id="ProjectList">

@@ -1003,7 +1003,7 @@ const ConversationItemFull = memo(function ConversationItemFull({ conversation }
         items.push(
           <SentinelProfileBadge
             key="profile"
-            project={conversation.project}
+            resolvedProfile={conversation.resolvedProfile}
             hostSentinelAlias={conversation.hostSentinelAlias}
             launchConfig={conversation.launchConfig}
           />,
@@ -1228,7 +1228,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
           if (isMobile) {
             mobileChips.push(
               <SentinelProfileBadge
-                project={conversation.project}
+                resolvedProfile={conversation.resolvedProfile}
                 hostSentinelAlias={conversation.hostSentinelAlias}
                 launchConfig={conversation.launchConfig}
               />,
@@ -1285,7 +1285,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
           items.push(
             <SentinelProfileBadge
               key="profile"
-              project={conversation.project}
+              resolvedProfile={conversation.resolvedProfile}
               hostSentinelAlias={conversation.hostSentinelAlias}
               launchConfig={conversation.launchConfig}
             />,

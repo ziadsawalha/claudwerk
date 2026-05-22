@@ -242,7 +242,6 @@ export function SentinelProfileSection({
   const targetSentinel = sentinels.find(s => s.alias.toLowerCase() === targetAlias.toLowerCase())
   const profiles = targetSentinel?.profiles ?? []
   const pools = targetSentinel?.pools ?? []
-  const defaultSelection = targetSentinel?.defaultSelection
   const defaultPool = targetSentinel?.defaultPool
 
   const subtitle = targetSentinel
@@ -255,7 +254,6 @@ export function SentinelProfileSection({
         <SentinelProfileRadio
           profiles={profiles}
           pools={pools}
-          defaultSelection={defaultSelection}
           defaultPool={defaultPool}
           value={profile.spawn.profile ?? ''}
           onChange={v => onPatchSpawn({ profile: v || undefined })}

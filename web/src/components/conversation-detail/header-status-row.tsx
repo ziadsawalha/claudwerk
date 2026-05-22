@@ -1,4 +1,3 @@
-import { extractProfileFromProjectUri } from '@/components/project-list/sentinel-profile-badge'
 import type { Conversation } from '@/lib/types'
 import { cn, formatEffort, formatModel, formatPermissionMode } from '@/lib/utils'
 
@@ -42,7 +41,7 @@ export function StatusRow({ conversation, model }: { conversation: Conversation;
       )}
       {conversation.claudeAuth?.email &&
         (() => {
-          const profile = extractProfileFromProjectUri(conversation.project) ?? 'default'
+          const profile = conversation.resolvedProfile ?? 'default'
           const auth = conversation.claudeAuth
           const tip = [
             auth.email,

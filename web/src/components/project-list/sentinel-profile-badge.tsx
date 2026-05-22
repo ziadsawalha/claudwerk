@@ -1,17 +1,15 @@
 /**
  * Sentinel-profile badge for the conversation list / sidebar.
  *
- * Resolves the conversation's CURRENT profile from `conversation.project`
- * URI userinfo (the RESOLVED name -- what the sentinel actually picked at
- * spawn time), and renders a small inline badge tinted by the profile's
- * `color`. For conversations launched via Balanced or Random, also renders
- * a shuffle icon next to the badge -- the "intent indicator" read from
- * `launchConfig.sentinelProfile.kind`.
+ * Reads the RESOLVED profile name directly from `conversation.resolvedProfile`
+ * (what the sentinel picked at spawn time) and renders a small inline badge
+ * tinted by the profile's `color`. For conversations launched via Pool, also
+ * renders a shuffle icon -- the "intent indicator" read from
+ * `launchConfig.sentinelProfile.kind === 'pool'`.
  *
- * INTENT vs RESOLVED (per plan-sentinel-profiles.md): the badge text is the
- * RESOLVED name. The shuffle icon surfaces the user's original intent so a
- * conversation picked by Balanced is visually distinct from one Fixed-pinned
- * to the same profile.
+ * INTENT vs RESOLVED: the badge text is the RESOLVED name. The shuffle icon
+ * surfaces the user's original intent so a conversation picked from a pool is
+ * visually distinct from one pinned to a specific profile.
  *
  * PROFILE-ENV BOUNDARY: this component never touches configDir / env --
  * sentinel.profiles only carries name / label / color / pooled / authed.
@@ -22,29 +20,15 @@ import { Shuffle } from 'lucide-react'
 import { type SentinelStatusInfo, useConversationsStore } from '@/hooks/use-conversations'
 
 interface SentinelProfileBadgeProps {
-  /** Conversation's stored project URI -- the profile lives in the
-   *  userinfo slot (e.g. `claude://work@beast/path`). */
-  project: string
+  /** Resolved profile NAME the sentinel picked at spawn time. Read from
+   *  `Conversation.resolvedProfile`. `undefined` means default profile. */
+  resolvedProfile?: string
   /** Sentinel alias the conversation runs on. Used to look up the profile's
    *  display metadata (color, label) from the live sentinel report. */
   hostSentinelAlias?: string
-  /** The user's original intent -- `{ kind: 'balanced' | 'random' | 'fixed' }`.
-   *  Surfaced as the shuffle icon for balanced/random. */
+  /** The user's original intent -- `{ kind: 'profile' | 'pool' }`.
+   *  Surfaced as the shuffle icon for `pool`. */
   launchConfig?: LaunchConfig
-}
-
-/** Extract the userinfo (= profile name) from a `claude://profile@host/path`
- *  URI. Returns `undefined` when the URI lacks a userinfo slot. Manual parse
- *  -- web bundles can't always rely on `new URL()` for non-standard schemes
- *  on every browser, but `claude://` is well-formed and parses cleanly. */
-export function extractProfileFromProjectUri(uri: string | undefined): string | undefined {
-  if (!uri || uri === '*') return undefined
-  try {
-    const url = new URL(uri)
-    return url.username ? decodeURIComponent(url.username) : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function findProfileMeta(sentinels: SentinelStatusInfo[], hostSentinelAlias: string | undefined, profileName: string) {
@@ -58,8 +42,7 @@ type SentinelProfileIntent = LaunchConfig['sentinelProfile']
 
 function intentLabelFor(intent: SentinelProfileIntent): string | null {
   if (!intent) return null
-  if (intent.kind === 'balanced') return 'Picked by Balanced'
-  if (intent.kind === 'random') return 'Picked by Random'
+  if (intent.kind === 'pool') return `Picked from pool "${intent.name}"`
   return null
 }
 
@@ -71,26 +54,24 @@ function buildBadgeTitle(resolvedProfile: string, metaLabel: string | undefined,
 }
 
 // fallow-ignore-next-line complexity
-export function SentinelProfileBadge({ project, hostSentinelAlias, launchConfig }: SentinelProfileBadgeProps) {
+export function SentinelProfileBadge({ resolvedProfile, hostSentinelAlias, launchConfig }: SentinelProfileBadgeProps) {
   const sentinels = useConversationsStore(s => s.sentinels)
-  // URIs without a userinfo slot represent the implicit default profile
-  // (see `cwdToProjectUri` -- `default` is omitted from the URI by design).
-  // Surface that explicitly so a conversation pinned to `default` is visibly
-  // distinct from "unknown profile" in the UI.
-  const resolvedProfile = extractProfileFromProjectUri(project) ?? 'default'
+  // Implicit default profile (resolvedProfile = undefined) is rendered as
+  // `default` so the badge is visibly distinct from "unknown profile".
+  const profileName = resolvedProfile ?? 'default'
 
   const intent = launchConfig?.sentinelProfile
-  const isShuffleIntent = intent?.kind === 'balanced' || intent?.kind === 'random'
-  const profileMeta = findProfileMeta(sentinels, hostSentinelAlias, resolvedProfile)
+  const isShuffleIntent = intent?.kind === 'pool'
+  const profileMeta = findProfileMeta(sentinels, hostSentinelAlias, profileName)
   // showLabel === false: explicit opt-out from the sentinel config. Skip the
   // badge entirely so the "ambient" profile (typically `default`) doesn't
-  // clutter every conversation row. A Balanced/Random intent still earns a
-  // shuffle hint -- the user chose a non-fixed selection so the visual signal
-  // is meaningful even when the resolved profile is hidden.
+  // clutter every conversation row. A pool intent still earns a shuffle hint --
+  // the user chose a non-fixed selection so the visual signal is meaningful
+  // even when the resolved profile is hidden.
   if (profileMeta?.showLabel === false && !isShuffleIntent) return null
 
   const colorStyle = profileMeta?.color ? { color: profileMeta.color, borderColor: profileMeta.color } : undefined
-  const title = buildBadgeTitle(resolvedProfile, profileMeta?.label, intentLabelFor(intent))
+  const title = buildBadgeTitle(profileName, profileMeta?.label, intentLabelFor(intent))
 
   return (
     <span
@@ -99,7 +80,7 @@ export function SentinelProfileBadge({ project, hostSentinelAlias, launchConfig 
       title={title}
     >
       {isShuffleIntent && <Shuffle className="w-2.5 h-2.5" />}
-      {profileMeta?.showLabel === false ? null : resolvedProfile}
+      {profileMeta?.showLabel === false ? null : profileName}
     </span>
   )
 }

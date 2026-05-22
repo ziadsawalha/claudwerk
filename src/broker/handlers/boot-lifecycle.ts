@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { cwdToProjectUri, getProfileFromUri, withProfile } from '../../shared/project-uri'
+import { cwdToProjectUri } from '../../shared/project-uri'
 import type {
   AgentHostCapability,
   AgentHostLaunchPhase,
@@ -41,7 +41,7 @@ const agentHostBoot: MessageHandler = (ctx, data) => {
     return
   }
 
-  const baseProject = project ?? cwdToProjectUri(bootPath as string)
+  const resolvedProject = project ?? cwdToProjectUri(bootPath as string)
 
   // Track the WS so subsequent messages from this agent host are routed here.
   ctx.ws.data.conversationId = conversationId
@@ -52,27 +52,20 @@ const agentHostBoot: MessageHandler = (ctx, data) => {
   const existing = ctx.conversations.getConversation(conversationId)
 
   // Sentinel-profile pin: when spawn-dispatch saw `spawn_result.resolvedProfile`,
-  // it stashed the NAME so we can write it into the conversation's stored
-  // projectUri userinfo here. Revive then reads the same name back from the
-  // URI and forwards it to the sentinel as a `fixed` selection -- conversations
-  // are permanently bound to their picked profile. PROFILE-ENV BOUNDARY: the
-  // broker handles the NAME slot only.
+  // it stashed the NAME so we can write it onto the conversation record here.
+  // Revive then reads `conv.resolvedProfile` and forwards it to the sentinel
+  // as a `fixed` selection -- conversations are permanently bound to their
+  // picked profile. PROFILE-ENV BOUNDARY: NAME slot only.
   //
   // Sources, in priority:
-  //   1. The agent host's `data.project` already carries the profile (sentinel
-  //      built it that way) -- pass through.
-  //   2. spawn-dispatch stashed a pending resolved profile.
-  //   3. The existing conversation already has a profile (reconnect / boot-on-
-  //      active) -- preserve it.
+  //   1. spawn-dispatch stashed a pending resolved profile (fresh spawn).
+  //   2. The existing conversation already has a resolvedProfile (reconnect /
+  //      boot-on-active) -- preserve it.
   const pendingResolved = ctx.conversations.consumePendingResolvedProfile(conversationId)
-  const incomingProfile = getProfileFromUri(baseProject)
-  const existingProfile = existing?.project ? getProfileFromUri(existing.project) : undefined
-  const pinnedProfile = incomingProfile ?? pendingResolved ?? existingProfile
-  const resolvedProject = pinnedProfile ? withProfile(baseProject, pinnedProfile) : baseProject
-  if (pinnedProfile && pinnedProfile !== incomingProfile) {
+  const pinnedProfile = pendingResolved ?? existing?.resolvedProfile
+  if (pendingResolved) {
     console.log(
-      `[boot-profile] conv=${conversationId.slice(0, 8)} pinned=${pinnedProfile} ` +
-        `source=${pendingResolved ? 'pending' : 'existing'} base=${baseProject} -> ${resolvedProject}`,
+      `[boot-profile] conv=${conversationId.slice(0, 8)} pinned=${pendingResolved} source=pending base=${resolvedProject}`,
     )
   }
   const capabilities = (data.capabilities as AgentHostCapability[] | undefined) || []
@@ -106,6 +99,7 @@ const agentHostBoot: MessageHandler = (ctx, data) => {
     existing.status = 'booting'
     existing.lastActivity = Date.now()
     existing.project = resolvedProject
+    if (pinnedProfile && !existing.resolvedProfile) existing.resolvedProfile = pinnedProfile
     // Agent host is the source of truth for its own capabilities. A backend
     // that pre-creates the conversation (e.g. opencodeBackend) seeds caps as
     // a stub; the host's agent_host_boot replaces them. Without this, hosts
@@ -131,6 +125,7 @@ const agentHostBoot: MessageHandler = (ctx, data) => {
       capabilities,
     )
     placeholder.status = 'booting'
+    if (pinnedProfile) placeholder.resolvedProfile = pinnedProfile
     if (pendingLaunchConfig) {
       placeholder.launchConfig = pendingLaunchConfig
       if (pendingLaunchConfig.effort) placeholder.effortLevel = pendingLaunchConfig.effort

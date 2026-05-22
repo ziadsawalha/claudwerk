@@ -6,16 +6,13 @@ import {
   cwdToProjectUri,
   DEFAULT_SENTINEL_NAME,
   extractProjectLabel,
-  getProfileFromUri,
   isSameProject,
   isSameProjectConversation,
   matchProjectUri,
   normalizeProjectUri,
   parseProjectUri,
-  stripProfile,
   tryParseProjectUri,
   validateProjectUri,
-  withProfile,
 } from './project-uri'
 
 describe('parseProjectUri', () => {
@@ -537,417 +534,82 @@ describe('DEFAULT_SENTINEL_NAME', () => {
   })
 })
 
-// ─── Sentinel-profile URI support (sentinel-profiles plan Phase 1) ─────────
+// ─── Legacy profile@ URI userinfo is silently stripped ─────────────────
 //
-// The URI userinfo slot (`work@default`) names the sentinel profile that
-// hosts the conversation. Profile is preserved by parse / build / normalize
-// (revive needs to pin the right CLAUDE_CONFIG_DIR), but identity comparison
-// strips it: two conversations in the same dir under different profiles are
-// the same project. See `.claude/docs/plan-sentinel-profiles.md`.
+// Pre-2026-05-22 URIs carried the sentinel-profile name in the URI userinfo
+// (`claude://work@default/path`). Profile is now stored as a sibling field on
+// the conversation record, not in the URI. parseProjectUri silently drops the
+// userinfo for read-side tolerance; validateProjectUri rejects new writes.
 
-describe('sentinel profile -- parse', () => {
-  test('parses profile from URI userinfo', () => {
+describe('legacy profile@ URI -- parseProjectUri silently drops userinfo', () => {
+  test('drops profile, keeps authority + path', () => {
     const r = parseProjectUri('claude://work@default/Users/jonas/projects/foo')
     expect(r.scheme).toBe('claude')
-    expect(r.profile).toBe('work')
     expect(r.authority).toBe('default')
     expect(r.path).toBe('/Users/jonas/projects/foo')
   })
 
-  test('parses profile against a non-default sentinel', () => {
+  test('drops profile against a non-default authority', () => {
     const r = parseProjectUri('claude://alt@beast/home/jonas/projects/foo')
-    expect(r.profile).toBe('alt')
     expect(r.authority).toBe('beast')
+    expect(r.path).toBe('/home/jonas/projects/foo')
   })
 
-  test('parses profile alongside fragment', () => {
+  test('drops profile alongside fragment', () => {
     const r = parseProjectUri('claude://work@beast/abs#conv_x')
-    expect(r.profile).toBe('work')
     expect(r.authority).toBe('beast')
     expect(r.fragment).toBe('conv_x')
   })
 
-  test('absent profile leaves field undefined', () => {
-    const r = parseProjectUri('claude://default/Users/jonas/projects/foo')
-    expect(r.profile).toBeUndefined()
-  })
-
-  test('decodes profile from URL.username (percent-decoded)', () => {
-    // WHATWG decodes url.username before exposing it; profile names are
-    // expected to be `[a-z0-9-]{1,63}` per validateProjectUri.
-    const r = parseProjectUri('claude://work@DEFAULT/path')
-    expect(r.profile).toBe('work')
-    // Non-special-scheme hostnames are preserved as-is by WHATWG; that's
-    // existing behavior, unrelated to the profile slot.
-    expect(r.authority).toBe('DEFAULT')
-  })
-
-  test('manual-fallback path also picks up profile on malformed authority', () => {
-    // WHATWG rejects spaces in authority and we fall back to a tolerant
-    // split. The fallback should still recognize a leading `profile@` so
-    // future writes can round-trip safely.
+  test('manual-fallback path also drops userinfo', () => {
     const r = parseProjectUri('claude://work@Mistral Dophin/path')
     expect(r.scheme).toBe('claude')
-    expect(r.profile).toBe('work')
     expect(r.authority).toBe('Mistral Dophin')
     expect(r.path).toBe('/path')
   })
-
-  test('manual-fallback path leaves out-of-shape userinfo attached', () => {
-    // If the userinfo doesn't match the profile shape, the fallback path
-    // doesn't smuggle it into `profile` -- it stays part of the authority.
-    const r = parseProjectUri('chat://not a profile@Mistral Dophin/path')
-    expect(r.profile).toBeUndefined()
-    expect(r.authority).toBe('not a profile@Mistral Dophin')
-  })
 })
 
-describe('sentinel profile -- build', () => {
-  test('emits profile@authority when profile is set', () => {
-    const out = buildProjectUri({
-      scheme: 'claude',
-      profile: 'work',
-      authority: 'default',
-      path: '/Users/jonas/projects/foo',
-    })
-    expect(out).toBe('claude://work@default/Users/jonas/projects/foo')
-  })
-
-  test('omits userinfo when profile is absent', () => {
-    const out = buildProjectUri({ scheme: 'claude', authority: 'default', path: '/path' })
-    expect(out).toBe('claude://default/path')
-  })
-
-  test('emits profile alongside fragment', () => {
-    const out = buildProjectUri({
-      scheme: 'claude',
-      profile: 'work',
-      authority: 'beast',
-      path: '/abs',
-      fragment: 'conv_x',
-    })
-    expect(out).toBe('claude://work@beast/abs#conv_x')
-  })
-
-  test('default authority + profile fills in the default sentinel', () => {
-    const out = buildProjectUri({ scheme: 'claude', profile: 'work', path: '/path' })
-    expect(out).toBe(`claude://work@${DEFAULT_SENTINEL_NAME}/path`)
-  })
-})
-
-describe('sentinel profile -- round-trip', () => {
-  test('parse -> build -> parse preserves profile', () => {
-    const cases: Array<{
-      uri: string
-      profile: string | undefined
-      authority: string | undefined
-      path: string
-      fragment: string | undefined
-    }> = [
-      {
-        uri: 'claude://work@default/Users/jonas/projects/foo',
-        profile: 'work',
-        authority: 'default',
-        path: '/Users/jonas/projects/foo',
-        fragment: undefined,
-      },
-      {
-        uri: 'claude://alt@beast/home/jonas/projects/bar',
-        profile: 'alt',
-        authority: 'beast',
-        path: '/home/jonas/projects/bar',
-        fragment: undefined,
-      },
-      {
-        uri: 'claude://work@default/path#conv_x',
-        profile: 'work',
-        authority: 'default',
-        path: '/path',
-        fragment: 'conv_x',
-      },
-    ]
-    for (const { uri, profile, authority, path, fragment } of cases) {
-      const reparsed = parseProjectUri(buildProjectUri(parseProjectUri(uri)))
-      expect({
-        profile: reparsed.profile,
-        authority: reparsed.authority,
-        path: reparsed.path,
-        fragment: reparsed.fragment,
-      }).toEqual({ profile, authority, path, fragment })
-    }
-  })
-
-  test('parse -> build -> normalize is idempotent with profile', () => {
-    const uri = 'claude://work@default/Users/jonas/projects/foo'
-    const once = normalizeProjectUri(uri)
-    const twice = normalizeProjectUri(once)
-    expect(once).toBe('claude://work@default/Users/jonas/projects/foo')
-    expect(twice).toBe(once)
-  })
-})
-
-describe('sentinel profile -- normalize preserves profile', () => {
-  test('keeps profile through normalize', () => {
+describe('legacy profile@ URI -- normalize strips userinfo to canonical', () => {
+  test('keeps authority + path through normalize', () => {
     expect(normalizeProjectUri('claude://work@default/Users/jonas/projects/foo')).toBe(
-      'claude://work@default/Users/jonas/projects/foo',
-    )
-  })
-
-  test('keeps profile through trailing-slash stripping', () => {
-    expect(normalizeProjectUri('claude://work@default/Users/jonas/projects/foo/')).toBe(
-      'claude://work@default/Users/jonas/projects/foo',
-    )
-  })
-
-  test('upgrades empty authority to default while preserving profile', () => {
-    // Synthetic, but the building blocks should compose: a profile against
-    // an empty-authority URI is a thing the manual-fallback path can produce
-    // if upstream code ever mints one. Normalize fills in `default`.
-    expect(normalizeProjectUri('claude://work@/path')).toBe('claude://work@default/path')
-  })
-})
-
-describe('sentinel profile -- compareProjectUri ignores profile', () => {
-  test('same project, different profile == same project', () => {
-    expect(
-      compareProjectUri('claude://default/Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
-    ).toBe(0)
-    expect(
-      compareProjectUri(
-        'claude://work@default/Users/jonas/projects/foo',
-        'claude://alt@default/Users/jonas/projects/foo',
-      ),
-    ).toBe(0)
-  })
-
-  test('legacy triple-slash matches profile-less and profile-bearing', () => {
-    // Documented in the plan: legacy `claude:///path` matches BOTH
-    // `claude://default/path` AND `claude://work@default/path`.
-    expect(compareProjectUri('claude:///Users/jonas/projects/foo', 'claude://default/Users/jonas/projects/foo')).toBe(0)
-    expect(
-      compareProjectUri('claude:///Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
-    ).toBe(0)
-  })
-
-  test('different paths still differ regardless of profile', () => {
-    expect(
-      compareProjectUri(
-        'claude://work@default/Users/jonas/projects/foo',
-        'claude://work@default/Users/jonas/projects/bar',
-      ),
-    ).not.toBe(0)
-  })
-
-  test('isSameProject agrees with compareProjectUri', () => {
-    expect(isSameProject('claude:///Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo')).toBe(
-      true,
-    )
-    expect(
-      isSameProject('claude://alt@default/Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
-    ).toBe(true)
-  })
-})
-
-describe('sentinel profile -- compareProjectConversationUri ignores profile', () => {
-  test('same conversation under different profiles compares equal', () => {
-    expect(compareProjectConversationUri('claude://default/foo#conv_x', 'claude://work@default/foo#conv_x')).toBe(0)
-  })
-
-  test('different conversation fragments still differ even when profile matches', () => {
-    expect(
-      compareProjectConversationUri('claude://work@default/foo#conv_x', 'claude://work@default/foo#conv_y'),
-    ).not.toBe(0)
-  })
-
-  test('isSameProjectConversation agrees', () => {
-    expect(isSameProjectConversation('claude://default/foo#conv_x', 'claude://work@default/foo#conv_x')).toBe(true)
-  })
-})
-
-describe('sentinel profile -- matchProjectUri ignores profile', () => {
-  test('profile-less pattern matches profile-bearing URI', () => {
-    expect(
-      matchProjectUri('claude:///Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
-    ).toBe(true)
-    expect(
-      matchProjectUri('claude://default/Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
-    ).toBe(true)
-  })
-
-  test('profile-bearing pattern matches profile-less URI', () => {
-    expect(
-      matchProjectUri('claude://work@default/Users/jonas/projects/foo', 'claude:///Users/jonas/projects/foo'),
-    ).toBe(true)
-    expect(
-      matchProjectUri('claude://work@default/Users/jonas/projects/foo', 'claude://default/Users/jonas/projects/foo'),
-    ).toBe(true)
-  })
-
-  test('different profiles still match (profile-agnostic)', () => {
-    expect(
-      matchProjectUri(
-        'claude://alt@default/Users/jonas/projects/foo',
-        'claude://work@default/Users/jonas/projects/foo',
-      ),
-    ).toBe(true)
-  })
-
-  test('trailing /* prefix-match is profile-agnostic', () => {
-    expect(matchProjectUri('claude:///Users/jonas/projects/*', 'claude://work@default/Users/jonas/projects/foo')).toBe(
-      true,
-    )
-    expect(matchProjectUri('claude://work@default/Users/jonas/projects/*', 'claude:///Users/jonas/projects/foo')).toBe(
-      true,
-    )
-  })
-
-  test('scheme/path still gate matching even when profile differs', () => {
-    expect(
-      matchProjectUri('claude://work@default/Users/jonas/projects/foo', 'codex://default/Users/jonas/projects/foo'),
-    ).toBe(false)
-    expect(matchProjectUri('claude://work@default/Users/foo', 'claude://alt@default/Users/bar')).toBe(false)
-  })
-})
-
-describe('sentinel profile -- cwdToProjectUri accepts profile', () => {
-  test('emits profile-bearing URI when profile is supplied', () => {
-    expect(cwdToProjectUri('/Users/jonas/projects/foo', 'claude', 'beast', 'work')).toBe(
-      'claude://work@beast/Users/jonas/projects/foo',
-    )
-  })
-
-  test('defaults authority to DEFAULT_SENTINEL_NAME with profile', () => {
-    expect(cwdToProjectUri('/Users/jonas/projects/foo', 'claude', undefined, 'work')).toBe(
-      `claude://work@${DEFAULT_SENTINEL_NAME}/Users/jonas/projects/foo`,
-    )
-  })
-
-  test('omits profile slot when profile is undefined (legacy behavior)', () => {
-    expect(cwdToProjectUri('/Users/jonas/projects/foo')).toBe('claude://default/Users/jonas/projects/foo')
-  })
-})
-
-describe('sentinel profile -- validateProjectUri', () => {
-  test('accepts profile-shaped username', () => {
-    expect(validateProjectUri('claude://work@default/Users/jonas/projects/foo').valid).toBe(true)
-    expect(validateProjectUri('claude://work-2@default/path').valid).toBe(true)
-    expect(validateProjectUri('claude://alt@beast/path').valid).toBe(true)
-  })
-
-  test('rejects profile with uppercase / special chars', () => {
-    const r = validateProjectUri('claude://Work@default/path')
-    expect(r.valid).toBe(false)
-    if (!r.valid) expect(r.error).toContain('invalid profile')
-  })
-
-  test('rejects profile with underscore (not in [a-z0-9-])', () => {
-    const r = validateProjectUri('claude://work_profile@default/path')
-    expect(r.valid).toBe(false)
-  })
-
-  test('rejects userinfo with password', () => {
-    const r = validateProjectUri('claude://work:secret@default/path')
-    expect(r.valid).toBe(false)
-    if (!r.valid) expect(r.error).toContain('password')
-  })
-
-  test('still rejects port', () => {
-    expect(validateProjectUri('claude://work@default:9999/path').valid).toBe(false)
-  })
-
-  test('still rejects query string', () => {
-    expect(validateProjectUri('claude://work@default/path?q=1').valid).toBe(false)
-  })
-
-  test('rejects profile that is too long', () => {
-    const tooLong = 'a'.repeat(64)
-    expect(validateProjectUri(`claude://${tooLong}@default/path`).valid).toBe(false)
-  })
-})
-
-describe('sentinel profile -- stripProfile', () => {
-  test('strips userinfo, leaves the rest untouched', () => {
-    expect(stripProfile('claude://work@default/Users/jonas/projects/foo')).toBe(
       'claude://default/Users/jonas/projects/foo',
     )
   })
 
-  test('keeps fragment intact', () => {
-    expect(stripProfile('claude://work@default/path#conv_x')).toBe('claude://default/path#conv_x')
-  })
-
-  test('no-op when there is no userinfo', () => {
-    expect(stripProfile('claude://default/Users/jonas/projects/foo')).toBe('claude://default/Users/jonas/projects/foo')
-    expect(stripProfile('claude:///path')).toBe('claude:///path')
-    expect(stripProfile('claude:////scar/path')).toBe('claude:////scar/path')
-  })
-
-  test('safe on wildcards', () => {
-    expect(stripProfile('*')).toBe('*')
-    expect(stripProfile('claude:*')).toBe('claude:*')
-  })
-
-  test('does not strip an @ in the path', () => {
-    // `@` past the first '/' lives in the path, not userinfo.
-    expect(stripProfile('claude://default/Users/foo@example/proj')).toBe('claude://default/Users/foo@example/proj')
-  })
-
-  test('does not strip an @ in the fragment', () => {
-    expect(stripProfile('claude://default/path#foo@bar')).toBe('claude://default/path#foo@bar')
-  })
-
-  test('handles non-claude schemes the same way', () => {
-    expect(stripProfile('codex://work@beast/path')).toBe('codex://beast/path')
-    expect(stripProfile('opencode://alt@default/path')).toBe('opencode://default/path')
+  test('canonicalizes profile-bearing legacy URI to no-userinfo form', () => {
+    expect(normalizeProjectUri('claude://alt@beast/x/y')).toBe('claude://beast/x/y')
   })
 })
 
-describe('withProfile', () => {
-  test('sets profile on profile-less URI', () => {
-    expect(withProfile('claude://default/path', 'work')).toBe('claude://work@default/path')
+describe('legacy profile@ URI -- isSameProject still works', () => {
+  test('profile-bearing and profile-less URIs at the same path are equal', () => {
+    expect(
+      isSameProject('claude://default/Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
+    ).toBe(true)
+    expect(
+      isSameProject('claude://work@default/Users/jonas/projects/foo', 'claude://alt@default/Users/jonas/projects/foo'),
+    ).toBe(true)
+  })
+})
+
+describe('legacy profile@ URI -- matchProjectUri is profile-blind', () => {
+  test('profile-less pattern matches legacy profile-bearing URI', () => {
+    expect(
+      matchProjectUri('claude:///Users/jonas/projects/foo', 'claude://work@default/Users/jonas/projects/foo'),
+    ).toBe(true)
   })
 
-  test('replaces existing profile', () => {
-    expect(withProfile('claude://alt@default/path', 'work')).toBe('claude://work@default/path')
-  })
-
-  test('strips profile when given undefined', () => {
-    expect(withProfile('claude://work@default/path', undefined)).toBe('claude://default/path')
-    expect(withProfile('claude://default/path', undefined)).toBe('claude://default/path')
-  })
-
-  test('preserves path and fragment', () => {
-    expect(withProfile('claude://default/Users/jonas/projects/foo#conv_x', 'work')).toBe(
-      'claude://work@default/Users/jonas/projects/foo#conv_x',
+  test('trailing /* prefix-match works on legacy profile-bearing URI', () => {
+    expect(matchProjectUri('claude:///Users/jonas/projects/*', 'claude://work@default/Users/jonas/projects/foo')).toBe(
+      true,
     )
   })
-
-  test('safe on wildcards / malformed URIs', () => {
-    // No scheme://: pass-through after stripping (still no userinfo to strip).
-    expect(withProfile('*', 'work')).toBe('*')
-    expect(withProfile('not-a-uri', 'work')).toBe('not-a-uri')
-  })
-
-  test('works across schemes', () => {
-    expect(withProfile('codex://beast/path', 'work')).toBe('codex://work@beast/path')
-    expect(withProfile('opencode://default/path', 'alt')).toBe('opencode://alt@default/path')
-  })
 })
 
-describe('getProfileFromUri', () => {
-  test('returns the profile when present', () => {
-    expect(getProfileFromUri('claude://work@default/path')).toBe('work')
-    expect(getProfileFromUri('claude://alt@beast/path#conv_x')).toBe('alt')
-  })
-
-  test('returns undefined for profile-less URIs', () => {
-    expect(getProfileFromUri('claude://default/path')).toBeUndefined()
-    expect(getProfileFromUri('claude:///path')).toBeUndefined()
-  })
-
-  test('safe on malformed input', () => {
-    expect(getProfileFromUri('not-a-uri')).toBeUndefined()
-    // `*` parses as wildcard with no profile.
-    expect(getProfileFromUri('*')).toBeUndefined()
+describe('legacy profile@ URI -- validateProjectUri rejects new writes', () => {
+  test('rejects URI with userinfo', () => {
+    const r = validateProjectUri('claude://work@default/path')
+    expect(r.valid).toBe(false)
+    if (!r.valid) expect(r.error).toContain('userinfo')
   })
 })

@@ -59,6 +59,7 @@ function setterSpies() {
     setDaemonMode: vi.fn(),
     setDaemonForm: vi.fn(),
     setSentinelProfile: vi.fn(),
+    setSentinelPool: vi.fn(),
   } satisfies Required<SpawnFormSetters>
 }
 
@@ -240,13 +241,13 @@ describe('sentinel-profile intent round-trip (Phase 6)', () => {
     expect(setters.setSentinelProfile).toHaveBeenCalledWith('work')
   })
 
-  test('claude backend persists a SelectionMode token (balanced) and restores it', () => {
-    const spawn = formSnapshotToProfileSpawn(snap({ backend: 'claude', sentinelProfile: 'balanced' }))
-    expect(spawn.profile).toBe('balanced')
+  test('claude backend persists a pool name and restores it', () => {
+    const spawn = formSnapshotToProfileSpawn(snap({ backend: 'claude', sentinelPool: 'work' }))
+    expect(spawn.pool).toBe('work')
 
     const setters = setterSpies()
     applyProfileToForm(profile(spawn), setters)
-    expect(setters.setSentinelProfile).toHaveBeenCalledWith('balanced')
+    expect(setters.setSentinelPool).toHaveBeenCalledWith('work')
   })
 
   test('empty sentinel-profile is omitted from the saved profile', () => {
@@ -255,8 +256,8 @@ describe('sentinel-profile intent round-trip (Phase 6)', () => {
 
     const setters = setterSpies()
     applyProfileToForm(profile(spawn), setters)
-    // Missing field restores as empty string so the dialog falls back to the
-    // sentinel's defaultSelection.
+    // Missing field restores as empty string so the dialog leaves the
+    // sentinel to pick.
     expect(setters.setSentinelProfile).toHaveBeenCalledWith('')
   })
 
