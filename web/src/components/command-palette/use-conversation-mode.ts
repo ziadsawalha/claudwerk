@@ -14,9 +14,11 @@ export interface ConversationModeState {
 
 /**
  * Conversation-mode (no prefix) derivations. Sorts the conversation list (MRU top 2 +
- * frequency-weighted), runs Fzf over both conversations and the registry commands
- * with a small command-score penalty, and returns a merged list with live
- * conversations pinned above ended conversations and commands.
+ * frequency-weighted), runs Fzf over both conversations and the registry commands.
+ * Filtered ranking blends fzf score with multiplicative boosts for MRU (+50% top),
+ * project frequency (+30% hottest), and liveness (+30%). Liveness is a soft nudge,
+ * not a hard partition -- a strong match on an ended conversation beats a weak
+ * match on a live one. Commands carry a 0.5 score penalty to sit below conversations.
  */
 export function useConversationMode(
   filter: string,
@@ -30,17 +32,38 @@ export function useConversationMode(
 
   const freqMap = useMemo(() => getFrequencyMap(), [])
 
+  const mruIndex = useMemo(() => new Map(conversationMru.map((id, i) => [id, i])), [conversationMru])
+
+  const maxFreq = useMemo(() => {
+    let m = 0
+    for (const k in freqMap) {
+      const c = freqMap[k]?.count || 0
+      if (c > m) m = c
+    }
+    return Math.max(1, m)
+  }, [freqMap])
+
   const allConversations = useMemo(
-    () => sortConversationsForPalette(conversations, conversationMru, freqMap),
-    [conversations, conversationMru, freqMap],
+    () => sortConversationsForPalette(conversations, mruIndex, freqMap),
+    [conversations, mruIndex, freqMap],
   )
 
+  // Field-weighted selector: repetition inflates per-field weight in fzf's
+  // single-pass scoring. Title 3x > label 2x > path/recap/agent/idSuffix 1x.
+  // status/model removed (they polluted the corpus -- "running"/"sonnet" matched all).
+  // Id is last 8 chars only -- partial-id matches need intent.
   const conversationFzf = useMemo(
     () =>
       new Fzf(allConversations, {
         selector: (s: Conversation) => {
           const ps = projectSettings[s.project]
-          return `${projectPath(s.project)} ${ps?.label || ''} ${s.title || ''} ${s.agentName || ''} ${s.recap?.title || ''} ${s.id} ${s.model || ''} ${s.status}`
+          const title = s.title || ''
+          const label = ps?.label || ''
+          const path = projectPath(s.project)
+          const recap = s.recap?.title || ''
+          const agent = s.agentName || ''
+          const idSuffix = s.id.slice(-8)
+          return `${title} ${title} ${title} ${label} ${label} ${path} ${recap} ${agent} ${idSuffix}`
         },
         casing: 'case-insensitive',
       }),
@@ -54,17 +77,27 @@ export function useConversationMode(
 
   const conversationSearchResults = useMemo(() => {
     if (!isConversationMode || !filter) return []
-    return conversationFzf.find(filter).map(r => ({
-      kind: 'conversation' as const,
-      conversation: r.item,
-      score: r.score,
-      live: r.item.status !== 'ended',
-    }))
-  }, [isConversationMode, filter, conversationFzf])
+    return conversationFzf.find(filter).map(r => {
+      const conv = r.item
+      // Multiplicative boosts on fzf score. Live is a soft +30% nudge (NOT a hard partition),
+      // so a strong match on an ended conv beats a weak match on a live one.
+      const mi = mruIndex.get(conv.id) ?? -1
+      const mruBoost = mi < 0 ? 0 : 1 / (1 + mi) // top=1, 2nd=0.5, 3rd=0.33...
+      const freqBoost = (freqMap[conv.project]?.count || 0) / maxFreq // 0..1
+      const liveBoost = conv.status !== 'ended' ? 1 : 0
+      const multiplier = 1 + 0.5 * mruBoost + 0.3 * freqBoost + 0.3 * liveBoost
+      return {
+        kind: 'conversation' as const,
+        conversation: conv,
+        score: r.score * multiplier,
+        live: conv.status !== 'ended',
+      }
+    })
+  }, [isConversationMode, filter, conversationFzf, mruIndex, freqMap, maxFreq])
 
   const commandSearchResults = useMemo(() => {
     if (!isConversationMode || !filter) return []
-    // Penalty keeps commands below equally-scored conversations ("low score")
+    // Penalty keeps commands below equally-scored conversations
     const COMMAND_SCORE_PENALTY = 0.5
     return paletteCommandFzf.find(filter).map(r => ({
       kind: 'command' as const,
@@ -83,9 +116,20 @@ export function useConversationMode(
     }
     const merged: MergedItem[] = [...conversationSearchResults, ...commandSearchResults]
     merged.sort((a, b) => {
-      // Live conversations always above everything else (ended conversations + commands)
-      if (a.live !== b.live) return a.live ? -1 : 1
-      return b.score - a.score
+      if (b.score !== a.score) return b.score - a.score
+      // Stable tiebreaker: MRU asc, then lastActivity desc
+      const am =
+        a.kind === 'conversation'
+          ? (mruIndex.get(a.conversation.id) ?? Number.MAX_SAFE_INTEGER)
+          : Number.MAX_SAFE_INTEGER
+      const bm =
+        b.kind === 'conversation'
+          ? (mruIndex.get(b.conversation.id) ?? Number.MAX_SAFE_INTEGER)
+          : Number.MAX_SAFE_INTEGER
+      if (am !== bm) return am - bm
+      const at = a.kind === 'conversation' ? a.conversation.lastActivity : 0
+      const bt = b.kind === 'conversation' ? b.conversation.lastActivity : 0
+      return bt - at
     })
     return merged
   }, [
@@ -95,6 +139,7 @@ export function useConversationMode(
     selectedConversationId,
     conversationSearchResults,
     commandSearchResults,
+    mruIndex,
   ])
 
   const filteredConversations = useMemo(
@@ -110,12 +155,11 @@ export function useConversationMode(
 
 function sortConversationsForPalette(
   conversations: Conversation[],
-  conversationMru: string[],
+  mruIndex: Map<string, number>,
   freqMap: Record<string, { count: number }>,
 ): Conversation[] {
   const activeProjects = new Set(conversations.filter(s => s.status !== 'ended').map(s => s.project))
   const deduplicated = conversations.filter(s => s.status !== 'ended' || !activeProjects.has(s.project))
-  const mruIndex = new Map(conversationMru.map((id, i) => [id, i]))
   return [...deduplicated].sort((a, b) => {
     const ai = mruIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER
     const bi = mruIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER
