@@ -93,14 +93,13 @@ function estimateGroupSize(group: DisplayGroup, measuredSizes: Map<string, numbe
 }
 
 // Per-conversation cache of measured group heights, keyed by conversationId at
-// module scope. The transcript view is remounted on every conversation switch
-// (key={conversationId}). A plain useRef map would therefore start cold each
-// time, forcing the virtualizer to estimate every row -- and on a large
-// transcript the estimate error compounds, so scroll-to-bottom overshoots and
-// the settle loop drags the viewport through dozens of groups, each one a
-// synchronous markdown parse + layout. That cascade is the switch-lag beach
-// ball. Keeping real heights warm across switches lets estimateSize return
-// accurate sizes immediately, so the scroll lands without thrashing.
+// module scope. Phase 1 introduced this to survive the TranscriptView remount
+// on every conversation switch. Phase 2 (this commit) DROPPED that remount --
+// TranscriptView is kept mounted across switches and the cacheKey prop changes
+// instead. The view re-selects the right Map via useMemo([cacheKey]) below.
+// Either way, keeping real heights warm across switches lets estimateSize
+// return accurate sizes immediately, so the scroll lands without thrashing
+// the layout/measure feedback loop that defined the switch-lag beach ball.
 const CONV_SIZE_CACHE_MAX = 25
 const convSizeCaches = new Map<string, Map<string, number>>()
 
@@ -437,14 +436,12 @@ export const TranscriptView = memo(function TranscriptView({
   )
 
   // Cache measured sizes so estimateSize can use real heights for groups that
-  // have been rendered before. Backed by a module-level per-conversation cache
-  // so it survives the conversation-switch remount -- this is what keeps
-  // switching into a large transcript fast (no cold measure cascade).
-  const measuredSizesRef = useRef<Map<string, number> | null>(null)
-  if (!measuredSizesRef.current) {
-    measuredSizesRef.current = getConvSizeCache(cacheKey ?? null)
-  }
-  const measuredSizes = measuredSizesRef.current
+  // have been rendered before. Sourced from a module-level per-conversation
+  // cache. useMemo re-selects the right Map when cacheKey changes (Phase 2 of
+  // plan-transcript-switch-perf keeps this component mounted across switches,
+  // so the cache binding has to track cacheKey explicitly instead of being
+  // captured once on mount).
+  const measuredSizes = useMemo(() => getConvSizeCache(cacheKey ?? null), [cacheKey])
 
   const getItemKey = useCallback(
     (index: number) => {
@@ -495,6 +492,50 @@ export const TranscriptView = memo(function TranscriptView({
   useEffect(() => {
     if (follow) followKilledRef.current = false
   }, [follow])
+
+  // Phase 2 reset on conversation switch.
+  //
+  // Before Phase 2 the parent passed `key={selectedConversationId}` to this
+  // component, so every switch unmounted + remounted -- which gave us scroll
+  // position, follow-killed state, and the planContext ref all reset to fresh
+  // values "for free", at the cost of a 200-1100ms layout-thrash cascade as
+  // the virtualizer re-measured every row from cold (see
+  // .claude/docs/plan-transcript-switch-perf.md for the root cause and the
+  // Safari Timeline evidence). Phase 2 drops the remount and keeps this
+  // component mounted across switches; cacheKey changes instead.
+  //
+  // That means anything the unmount used to discard for free has to be
+  // discarded here explicitly:
+  //
+  //   - followKilledRef: "user scrolled away" intent is per-conversation. If
+  //     A had follow killed (user scrolled up to read history) and we switch
+  //     to B where follow=true, B must NOT inherit A's killed state -- the
+  //     pin-to-bottom layout effect below checks this ref before re-pinning.
+  //
+  //   - parentRef.current.scrollTop: the scroll container survives the
+  //     switch. Without an explicit snap, B opens at whatever scrollTop A had
+  //     last (e.g. 500px into a transcript B doesn't even have that tall).
+  //     Snap to bottom when follow is on (matches the steady-state UX), to
+  //     top when not (matches the old post-remount initial state, and lets
+  //     the user scroll without fighting an unrelated offset).
+  //
+  // useLayoutEffect runs after commit but before paint, so the snap happens
+  // in the same frame -- no flash of the wrong scroll position. The
+  // totalSize-keyed effect below then fine-tunes once the virtualizer
+  // measures real row heights (typically within the same paint, sometimes a
+  // few frames later for off-screen rows).
+  //
+  // planContextRef is intentionally NOT reset here: its useMemo recomputes on
+  // the new entries array, and the previous-vs-next content check naturally
+  // returns the new conversation's plan (or undefined). No leak.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow is read at switch time only; we don't want this to re-fire when follow alone toggles (the [follow] effect above handles that)
+  useLayoutEffect(() => {
+    followKilledRef.current = false
+    const el = parentRef.current
+    if (!el) return
+    if (follow) el.scrollTop = el.scrollHeight
+    else el.scrollTop = 0
+  }, [cacheKey])
 
   // Pin-to-bottom on dynamic measurement. When the virtualizer re-measures rows
   // after first paint and totalSize changes, re-pin in ONE write -- and only if

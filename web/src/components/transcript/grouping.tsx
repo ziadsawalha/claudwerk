@@ -62,15 +62,15 @@ function freshGroupingCache(): GroupingCache {
   return { len: 0, resultMap: new Map(), groups: [], lastGroup: null, pendingSkillName: undefined, lastEntries: null }
 }
 
-// Module-level per-conversation grouping cache. TranscriptView is remounted on
-// every conversation switch (key={conversationId} in tab-content-panels), so a
-// per-instance useRef cache starts cold every time -- forcing a full re-group
-// of the whole transcript on each switch. Measured heights and parsed markdown
-// already survive the remount via module-level caches (commit 05d3862e); the
-// grouping pass was the last computation still redone cold on every switch.
-// Keying the cache by a stable string lets a switch back into an
-// already-grouped conversation skip straight to the incremental fast path
-// (process only entries appended while it was off-screen, usually none).
+// Module-level per-conversation grouping cache. Phase 1 (commit 05d3862e)
+// introduced this so the cache could survive the TranscriptView remount on
+// conversation switch -- a per-instance useRef started cold every time and
+// forced a full re-group of the whole transcript per switch. Phase 2 (this
+// commit) DROPPED the remount; TranscriptView is now kept mounted across
+// switches and the cacheKey prop changes instead. The hook below detects a
+// cacheKey change during render and swaps cacheRef.current to the new
+// conversation's cache. LRU bump on every fetch keeps the most-recently-used
+// conversation warmest.
 const GROUPING_CACHE_MAX = 25
 const groupingCaches = new Map<string, GroupingCache>()
 
@@ -96,15 +96,31 @@ function getGroupingCache(key: string): GroupingCache {
 // IMPORTANT: returns new array/map references each time to avoid mutating
 // data that React components are currently rendering (React error #300).
 //
-// `cacheKey` selects a module-level cache that survives the conversation-switch
-// remount -- pass the conversationId for the main transcript view. Omit it
+// `cacheKey` selects a module-level cache. Pass the conversationId for the
+// main transcript view -- the hook detects cacheKey changes during render
+// and swaps cacheRef.current to the matching cache (so switching back into
+// an already-grouped conversation hits the incremental fast path). Omit it
 // (e.g. the subagent transcript view, which renders different entries while
 // selectedConversationId still points at the parent) to fall back to a
 // per-instance cache and avoid colliding with the parent conversation.
 export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: string | null) {
+  // Per-instance fallback used when cacheKey is null/undefined (no shared
+  // cache slot to point at). Created lazily and reused across renders of the
+  // same hook instance, so a keyless view (e.g. subagent transcript) is
+  // still incremental within its own lifetime.
+  const localCacheRef = useRef<GroupingCache | null>(null)
   const cacheRef = useRef<GroupingCache | null>(null)
-  if (!cacheRef.current) {
-    cacheRef.current = cacheKey ? getGroupingCache(cacheKey) : freshGroupingCache()
+  const lastCacheKeyRef = useRef<string | null | undefined>(undefined)
+  // Run swap during render so the useMemo below reads the right cache. This
+  // is a read of a stable module-level Map; idempotent and safe in render.
+  if (cacheRef.current === null || cacheKey !== lastCacheKeyRef.current) {
+    if (cacheKey) {
+      cacheRef.current = getGroupingCache(cacheKey)
+    } else {
+      if (!localCacheRef.current) localCacheRef.current = freshGroupingCache()
+      cacheRef.current = localCacheRef.current
+    }
+    lastCacheKeyRef.current = cacheKey
   }
 
   const groups = useMemo(() => {
