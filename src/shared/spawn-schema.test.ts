@@ -64,3 +64,62 @@ describe('validatedSpawnRequestSchema -- daemon cross-field rules (refineDaemonS
     }
   })
 })
+
+describe('validatedSpawnRequestSchema -- sentinel profile / pool fields (Phase 9 audit)', () => {
+  it('accepts a literal profile name (Fixed selection)', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', profile: 'work' }).success).toBe(true)
+  })
+
+  it('accepts SelectionMode tokens as profile values', () => {
+    for (const token of ['default', 'balanced', 'random']) {
+      expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', profile: token }).success).toBe(true)
+    }
+  })
+
+  it('accepts a pool name', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', pool: 'work' }).success).toBe(true)
+  })
+
+  it('accepts profile + pool together (broker resolves precedence: profile wins)', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', profile: 'work', pool: 'default' }).success).toBe(true)
+  })
+
+  it('treats both profile and pool as optional (omitting both is valid)', () => {
+    const r = validatedSpawnRequestSchema.safeParse({ cwd: '/tmp' })
+    expect(r.success).toBe(true)
+    if (r.success) {
+      expect(r.data.profile).toBeUndefined()
+      expect(r.data.pool).toBeUndefined()
+    }
+  })
+
+  it('rejects an empty profile string (min length 1)', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', profile: '' }).success).toBe(false)
+  })
+
+  it('rejects an over-long profile name (max length 63)', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', profile: 'a'.repeat(64) }).success).toBe(false)
+  })
+
+  it('rejects a pool name with characters outside [a-z0-9-]', () => {
+    for (const bad of ['Work', 'work_pool', 'work pool', 'work!']) {
+      expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', pool: bad }).success).toBe(false)
+    }
+  })
+
+  it('rejects an empty pool string', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', pool: '' }).success).toBe(false)
+  })
+
+  it('rejects an over-long pool name (max length 63)', () => {
+    expect(validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', pool: 'a'.repeat(64) }).success).toBe(false)
+  })
+
+  it('surfaces "pool" in the issue path for a malformed pool', () => {
+    const r = validatedSpawnRequestSchema.safeParse({ cwd: '/tmp', pool: 'Bad Pool' })
+    expect(r.success).toBe(false)
+    if (!r.success) {
+      expect(r.error.issues.some(i => i.path.includes('pool'))).toBe(true)
+    }
+  })
+})

@@ -195,7 +195,7 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
   // ─── spawn_conversation ──────────────────────────────────────────────────
   mcp.tool(
     'spawn_conversation',
-    'Spawn a new conversation (a fresh Claude Code session or chat-api worker). Use when the user asks to "delegate this", "start a new session", or when a task needs an isolated context. Returns the conversationId so you can send_message to coordinate with it. The optional `profile` / `pool` params pin which sentinel-profile the worker runs under -- ONLY set them if the user explicitly asks for a specific profile or pool ("run on the work profile", "use pool X"); otherwise leave both unset and the sentinel will pick.',
+    'Spawn a new conversation (a fresh Claude Code session or chat-api worker). Use when the user asks to "delegate this", "start a new session", or when a task needs an isolated context. Returns the conversationId so you can send_message to coordinate with it.\n\nSentinel profiles (multi-account fan-out): the optional `profile` / `pool` params pick which sentinel-profile (a separate Claude account / config dir on the host) the worker runs under. `profile` is either a literal profile name (Fixed selection, e.g. "work") or a SelectionMode token ("default" | "balanced" | "random"); "default" is the implicit profile ($HOME/.claude) when omitted. `pool` names a profile subset that constrains Balanced/Random selection. When `profile` is a literal name (Fixed), it wins and `pool` is ignored. ONLY set them if the user explicitly asks for a specific profile or pool ("run on the work profile", "use pool X"); otherwise leave both unset and the sentinel applies its defaultSelection. Discover a sentinel\'s profiles + pools via list_hosts.',
     {
       cwd: z.string().describe('Absolute working directory for the spawned session.'),
       prompt: z.string().optional().describe('Initial user prompt for the spawned agent.'),
@@ -211,13 +211,13 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
         .string()
         .optional()
         .describe(
-          'Sentinel-profile name to pin this conversation to. ONLY set when the user explicitly asks for a specific profile. Mutually exclusive with `pool`.',
+          'Sentinel-profile selection: a literal profile name to pin (Fixed, e.g. "work") or a SelectionMode token ("default" | "balanced" | "random"). Omit to follow the sentinel\'s defaultSelection (the implicit "default" profile = $HOME/.claude). When a literal name is given it wins and `pool` is ignored. ONLY set when the user explicitly asks for a specific profile. Discover names via list_hosts.',
         ),
       pool: z
         .string()
         .optional()
         .describe(
-          'Sentinel-pool name to pick from (sentinel resolves least-loaded profile). ONLY set when the user explicitly asks for a pool. Mutually exclusive with `profile`.',
+          'Named profile pool that constrains Balanced/Random selection (e.g. "work"). Used together with profile="balanced"|"random"; ignored when `profile` is a literal name (Fixed wins). ONLY set when the user explicitly asks for a pool. Discover pools via list_hosts.',
         ),
     },
     async ({ cwd, prompt, name, model, backend, chatConnectionId, headless, profile, pool }) => {

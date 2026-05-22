@@ -144,6 +144,29 @@ regardless of channel state.
 **CC limitation (2.1.83+):** `AskUserQuestion` and plan mode disabled when channels
 active. Headless mode does NOT use channels, so these tools work there.
 
+### `spawn_conversation` -- sentinel profile / pool
+
+`spawn_conversation` (and its broker-side twin in `src/broker/routes/mcp-server.ts`)
+accepts two optional sentinel-profile knobs. A profile is a separate Claude account /
+`CLAUDE_CONFIG_DIR` on the host -- different OAuth token, billing, MCP set, defaults.
+
+| Param | Type | Meaning |
+|---|---|---|
+| `profile` | `string` (1-63 chars) | Either a **literal profile name** to pin (Fixed selection, e.g. `work`) or a **SelectionMode token** (`default` \| `balanced` \| `random`). When omitted, the sentinel applies its `defaultSelection` -- typically the implicit `default` profile (`$HOME/.claude`). |
+| `pool` | `string` (`[a-z0-9-]{1,63}`) | A **named profile subset** that constrains `balanced`/`random` selection (e.g. `work`). Ignored when `profile` is a literal name (Fixed wins). When omitted, the sentinel substitutes its configured `defaultPool` (itself defaulting to `default`). |
+
+Precedence: a literal `profile` name always wins; `pool` only matters for
+Balanced/Random. The broker validates both against the sentinel's reported
+`profiles` / `pools` registry and rejects unknown values with a structured error
+listing the known names. Profile env (config dir, API keys) is resolved
+sentinel-side only -- the broker never holds it (PROFILE-ENV BOUNDARY covenant).
+
+**Discovery:** call `list_hosts` -- each sentinel reports its configured profiles
+and pools. **Inheritance:** spawning from inside a conversation onto the *same*
+sentinel with BOTH params absent inherits the caller's resolved profile
+("spawn another like me"). Schema lives in `src/shared/spawn-schema.ts`;
+broker validation in `src/broker/spawn-dispatch.ts`.
+
 ## Transport Abstraction
 
 **HIGH-LEVEL FUNCTION -> HIGH-LEVEL CALLBACK -> RCLAUDE RESOLVES TRANSPORT**
