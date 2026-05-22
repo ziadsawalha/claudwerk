@@ -1,10 +1,12 @@
 node_modules
 web/node_modules
 bin
-!bin/*-linux-*
 .git
 *.md
 .claude
+.rclaude
+backups
+*.tar.gz
 .*.bun-build
 *.bun-build
 .agent.pid
