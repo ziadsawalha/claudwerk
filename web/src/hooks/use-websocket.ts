@@ -72,11 +72,26 @@ function flushMessages() {
     useConversationsStore.setState({ syncEpoch: epoch, syncSeq: maxSeq })
   }
 
+  const flushT0 = isPerfEnabled() ? performance.now() : 0
   batch(() => {
     for (const msg of pending) {
       processMessage(msg)
     }
   })
+  if (flushT0) perfRecord('ws', 'flush', performance.now() - flushT0, summarizeFlush(pending))
+}
+
+function summarizeFlush(pending: DashboardMessage[]): string {
+  const types: Record<string, number> = {}
+  for (const msg of pending) {
+    const t = (msg as { type?: string }).type ?? 'unknown'
+    types[t] = (types[t] ?? 0) + 1
+  }
+  const detail = Object.entries(types)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t, n]) => (n === 1 ? t : `${t}x${n}`))
+    .join(',')
+  return `n=${pending.length} ${detail}`
 }
 
 // Server now reports staleTranscripts as { [sid]: serverLastSeq }. Compare
@@ -310,8 +325,9 @@ export function useWebSocket() {
         const raw = event.data as string
         recordIn(raw.length)
         const wsT0 = isPerfEnabled() ? performance.now() : 0
+        let msg: DashboardMessage | undefined
         try {
-          const msg = JSON.parse(raw) as DashboardMessage
+          msg = JSON.parse(raw) as DashboardMessage
 
           // --- Bypass buffer: latency-sensitive handlers ---
 
@@ -420,15 +436,16 @@ export function useWebSocket() {
             )
             // Accumulate non-transient toasts into bell notifications
             if (msg.conversationId && !msg.variant) {
+              const convId = msg.conversationId as string
               const store = useConversationsStore.getState()
-              const isViewing = store.selectedConversationId === msg.conversationId
+              const isViewing = store.selectedConversationId === convId
               if (!isViewing) {
                 useConversationsStore.setState(state => ({
                   notifications: [
                     ...state.notifications,
                     {
                       id: `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                      conversationId: msg.conversationId as string,
+                      conversationId: convId,
                       title,
                       message: body,
                       timestamp: Date.now(),
@@ -446,7 +463,10 @@ export function useWebSocket() {
         } catch {
           // Ignore parse errors
         } finally {
-          if (wsT0) perfRecord('ws', 'onmessage', performance.now() - wsT0, `${(raw.length / 1024).toFixed(1)}KB`)
+          if (wsT0) {
+            const t = (msg as { type?: string } | undefined)?.type ?? 'parse-error'
+            perfRecord('ws', 'onmessage', performance.now() - wsT0, `${(raw.length / 1024).toFixed(1)}KB ${t}`)
+          }
         }
       }
     } catch {
