@@ -39,6 +39,9 @@ import type {
   ProfileUsageSnapshot,
   ReviveConversation,
   ReviveResult,
+  SentinelIdentify,
+  SentinelPatchConfig,
+  SentinelPatchConfigAck,
   SpawnConversation,
   SpawnFailed,
   SpawnResult,
@@ -46,6 +49,13 @@ import type {
 import { DEFAULT_BROKER_URL, HEARTBEAT_INTERVAL_MS } from '../shared/protocol'
 import { getAcpRecipe, listAcpRecipes } from './acp-recipes'
 import { type CcVersionWatcher, createCcVersionWatcher, type LastSeenCcVersion } from './cc-version-watcher'
+import {
+  applyPatchInPlace,
+  atomicWriteRawConfig,
+  readRawConfigObject,
+  spliceRawConfig,
+  validatePatch,
+} from './config-patch'
 import {
   buildDaemonDispatchArgs,
   type DaemonLaunchMode,
@@ -1962,6 +1972,108 @@ function stopUsagePolling() {
   }
 }
 
+/**
+ * Build the broker-safe `sentinel_identify` payload from the live config. The
+ * SAME shape is reused as the `applied` snapshot in a `sentinel_patch_config_ack`
+ * so the broker refreshes its registry off one canonical builder. Carries
+ * NAMES + display + routing only -- never configDir / env (Profile-Env Boundary).
+ */
+function buildSentinelIdentify(config: SentinelConfig, spawnRoot: string): SentinelIdentify {
+  return {
+    type: 'sentinel_identify',
+    machineId: getMachineId(),
+    hostname: osHostname(),
+    spawnRoot,
+    profiles: profileSummaries(config),
+    defaultSelection: config.defaultSelection,
+    pools: getPools(config),
+    defaultPool: config.defaultPool,
+  }
+}
+
+/**
+ * Apply a broker-pushed `sentinel_patch_config` to the LIVE config in place +
+ * persist it to disk, returning the ack to send back. Phase 8 of
+ * `.claude/docs/plan-sentinel-profiles.md`.
+ *
+ * EVERYTHING IS A STRUCTURED MESSAGE + LOG EVERYTHING: every outcome (validate
+ * reject, applied set of fields, IO failure + rollback) logs full context and
+ * returns a typed `sentinel_patch_config_ack`.
+ *
+ * Flow: validate -> snapshot for rollback -> mutate in place -> atomic write.
+ * On IO failure the in-memory mutation is rolled back from the snapshot so the
+ * live config never diverges from disk.
+ */
+// fallow-ignore-next-line complexity
+function handleSentinelPatchConfig(
+  patch: SentinelPatchConfig,
+  config: SentinelConfig,
+  configPath: string,
+  spawnRoot: string,
+): SentinelPatchConfigAck {
+  const patchId = typeof patch.patchId === 'string' ? patch.patchId : ''
+  const profileCount = patch.profiles ? Object.keys(patch.profiles).length : 0
+  log(
+    `[patch-config] received patchId=${patchId} profiles=${profileCount}` +
+      ` defaultSelection=${patch.defaultSelection ?? '-'} defaultPool=${patch.defaultPool ?? '-'} target=${configPath}`,
+  )
+
+  // 1. Validate against the LIVE config without touching state.
+  const validation = validatePatch(config, patch)
+  if (!validation.ok) {
+    log(`[patch-config] REJECT patchId=${patchId} error=${validation.error} detail=${validation.detail}`)
+    diag('patch-config', `reject ${validation.error}`, { patchId, detail: validation.detail })
+    return { type: 'sentinel_patch_config_ack', patchId, ok: false, error: validation.error, detail: validation.detail }
+  }
+
+  // 2. Snapshot the in-memory state for rollback (deep-ish: per-profile fields
+  //    we mutate + the two sentinel-wide fields).
+  const snapshot = {
+    defaultSelection: config.defaultSelection,
+    defaultPool: config.defaultPool,
+    profiles: Object.fromEntries(
+      Object.entries(config.profiles).map(([name, p]) => [
+        name,
+        { weight: p.weight, pool: p.pool, label: p.label, color: p.color },
+      ]),
+    ),
+  }
+
+  // 3. Mutate in place.
+  const touched = applyPatchInPlace(config, patch)
+
+  // 4. Atomic write to disk, preserving unknown / future keys + the
+  //    secret-bearing fields (configDir / env / spawnRoot) we never see here.
+  try {
+    const raw = readRawConfigObject(configPath)
+    const next = spliceRawConfig(raw, patch)
+    atomicWriteRawConfig(configPath, next)
+  } catch (e) {
+    // Roll back in-memory so the live config matches the (unchanged) disk.
+    config.defaultSelection = snapshot.defaultSelection
+    config.defaultPool = snapshot.defaultPool
+    for (const [name, fields] of Object.entries(snapshot.profiles)) {
+      const p = config.profiles[name]
+      if (!p) continue
+      p.weight = fields.weight
+      p.pool = fields.pool
+      p.label = fields.label
+      p.color = fields.color
+    }
+    const detail = `atomic write to ${configPath} failed: ${(e as Error).message}`
+    log(`[patch-config] IO_ERROR patchId=${patchId} ${detail} (rolled back in-memory)`)
+    diag('patch-config', 'io_error (rolled back)', { patchId, detail })
+    return { type: 'sentinel_patch_config_ack', patchId, ok: false, error: 'io_error', detail }
+  }
+
+  // 5. Success -- log every touched field, return fresh snapshot for the broker.
+  config.sourcePath = configPath
+  const changes = touched.map(t => `${t.scope}.${t.field} ${t.from}->${t.to}`).join(' ') || '(no-op)'
+  log(`[patch-config] APPLIED patchId=${patchId} changes=[${changes}] persisted=${configPath}`)
+  diag('patch-config', 'applied', { patchId, changes: touched })
+  return { type: 'sentinel_patch_config_ack', patchId, ok: true, applied: buildSentinelIdentify(config, spawnRoot) }
+}
+
 function connect(
   url: string,
   secret: string,
@@ -1970,6 +2082,7 @@ function connect(
   spawnRoot: string,
   noSpawn: boolean,
   config: SentinelConfig,
+  configPath: string,
 ) {
   const wsUrl = secret ? `${url}?secret=${encodeURIComponent(secret)}` : url
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -1985,17 +2098,7 @@ function connect(
     // Identify as sentinel with machine fingerprint. Profile NAMES + display
     // travel here -- per the Profile-Env Boundary covenant, the configDir
     // and `profile.env` never leave the sentinel.
-    const identify = {
-      type: 'sentinel_identify' as const,
-      machineId: getMachineId(),
-      hostname: osHostname(),
-      spawnRoot,
-      profiles: profileSummaries(config),
-      defaultSelection: config.defaultSelection,
-      pools: getPools(config),
-      defaultPool: config.defaultPool,
-    }
-    ws.send(JSON.stringify(identify))
+    ws.send(JSON.stringify(buildSentinelIdentify(config, spawnRoot)))
 
     // Report any dead PIDs from previous sentinel run
     reportDeadPids(ws)
@@ -2993,6 +3096,12 @@ function connect(
           ws.send(JSON.stringify(sessResponse))
           break
         }
+
+        case 'sentinel_patch_config': {
+          const ack = handleSentinelPatchConfig(msg as SentinelPatchConfig, config, configPath, spawnRoot)
+          ws.send(JSON.stringify(ack))
+          break
+        }
       }
     } catch (err) {
       log(`Failed to handle message: ${err}`)
@@ -3012,7 +3121,10 @@ function connect(
     const detail = event.code ? ` (code=${event.code}${event.reason ? ` reason=${event.reason}` : ''})` : ''
     if (shouldReconnect) {
       log(`Disconnected${detail}. Reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`)
-      setTimeout(() => connect(url, secret, reviveScript, verbose, spawnRoot, noSpawn, config), RECONNECT_DELAY_MS)
+      setTimeout(
+        () => connect(url, secret, reviveScript, verbose, spawnRoot, noSpawn, config, configPath),
+        RECONNECT_DELAY_MS,
+      )
     } else {
       log(`Connection closed${detail}`)
     }
@@ -3115,7 +3227,12 @@ process.on('SIGINT', () => {
 log('Starting sentinel (single instance)')
 log(`Revive script: ${reviveScript}`)
 log(`Spawn root: ${spawnRoot}${noSpawn ? ' (DISABLED)' : ''}`)
-connect(brokerUrl, secret, reviveScript, verbose, spawnRoot, noSpawn, config)
+// Resolve the on-disk config path the live patch handler writes to. When no
+// `--config` was given and no file exists yet, this is the default location --
+// a first broker patch will create it (the implicit `default` profile is the
+// only profile, so a patch can still tune defaultSelection / defaultPool).
+const effectiveConfigPath = config.sourcePath ?? configPath ?? defaultConfigPath()
+connect(brokerUrl, secret, reviveScript, verbose, spawnRoot, noSpawn, config, effectiveConfigPath)
 
 /**
  * Scan `argv` for a `--config <path>` flag. Used by the `sentinel profile`

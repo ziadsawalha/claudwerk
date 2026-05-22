@@ -11,6 +11,13 @@ export interface ListenerRegistry {
   addCcSessionsListener: (requestId: string, cb: (result: unknown) => void) => void
   removeCcSessionsListener: (requestId: string) => void
   resolveCcSessions: (requestId: string, result: unknown) => void
+  /** Pending `sentinel_patch_config` requests keyed by `patchId`. The REST
+   *  route registers a listener, sends the patch over the sentinel WS, and the
+   *  `sentinel_patch_config_ack` handler resolves it. `resolvePatch` returns
+   *  `true` when a listener was waiting (so a late / unmatched ack is a no-op). */
+  addPatchListener: (patchId: string, cb: (result: unknown) => void) => void
+  removePatchListener: (patchId: string) => void
+  resolvePatch: (patchId: string, result: unknown) => boolean
 }
 
 export function createListenerRegistry(): ListenerRegistry {
@@ -18,6 +25,7 @@ export function createListenerRegistry(): ListenerRegistry {
   const dirListeners = new Map<string, (result: unknown) => void>()
   const fileListeners = new Map<string, (result: unknown) => void>()
   const ccSessionsListeners = new Map<string, (result: unknown) => void>()
+  const patchListeners = new Map<string, (result: unknown) => void>()
 
   return {
     addSpawnListener(requestId, cb) {
@@ -73,6 +81,21 @@ export function createListenerRegistry(): ListenerRegistry {
         ccSessionsListeners.delete(requestId)
         cb(result)
       }
+    },
+    addPatchListener(patchId, cb) {
+      patchListeners.set(patchId, cb)
+    },
+    removePatchListener(patchId) {
+      patchListeners.delete(patchId)
+    },
+    resolvePatch(patchId, result) {
+      const cb = patchListeners.get(patchId)
+      if (cb) {
+        patchListeners.delete(patchId)
+        cb(result)
+        return true
+      }
+      return false
     },
   }
 }

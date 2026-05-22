@@ -145,6 +145,44 @@ export function setSentinel(
   return true
 }
 
+/**
+ * Refresh a connected sentinel's stored profile registry from a post-patch
+ * snapshot (the `applied` slice of a `sentinel_patch_config_ack`). Updates the
+ * in-memory `SentinelConnection` profiles / pools / defaultSelection /
+ * defaultPool and broadcasts a fresh `sentinel_status` so the control panel
+ * reflects the change without waiting for the next `sentinel_identify`.
+ *
+ * NAMES + display + routing only -- the snapshot is the broker-safe slice; this
+ * never sees configDir / env (Profile-Env Boundary). Returns `false` when the
+ * sentinel is unknown (e.g. disconnected between sending the patch and the ack).
+ */
+export function applySentinelConfigSnapshot(
+  state: SentinelState,
+  sentinelId: string,
+  snapshot: {
+    profiles?: SentinelProfileInfo[]
+    defaultSelection?: SelectionMode
+    pools?: string[]
+    defaultPool?: string
+  },
+  broadcast: (msg: ControlPanelMessage) => void,
+): boolean {
+  const conn = state.sentinels.get(sentinelId)
+  if (!conn) return false
+  if (snapshot.profiles !== undefined) conn.profiles = snapshot.profiles
+  if (snapshot.defaultSelection !== undefined) conn.defaultSelection = snapshot.defaultSelection
+  if (snapshot.pools !== undefined) conn.pools = snapshot.pools
+  if (snapshot.defaultPool !== undefined) conn.defaultPool = snapshot.defaultPool
+  broadcast({
+    type: 'sentinel_status',
+    connected: true,
+    machineId: conn.machineId,
+    hostname: conn.hostname,
+    sentinels: buildSentinelList(state),
+  })
+  return true
+}
+
 export function removeSentinel(
   state: SentinelState,
   ws: ServerWebSocket<unknown>,

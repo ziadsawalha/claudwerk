@@ -41,6 +41,9 @@ const violations: Array<{ file: string; line: number; text: string; reason: stri
 for (const relPath of files) {
   if (relPath.endsWith('.d.ts')) continue
   if (relPath.includes('__tests__/')) continue
+  // Test files legitimately reference configDir / env in fixtures (e.g. asserting
+  // the broker DROPS them). They are not broker runtime code.
+  if (relPath.endsWith('.test.ts')) continue
 
   const absPath = join(BROKER_DIR, relPath)
   const content = readFileSync(absPath, 'utf-8')
@@ -111,6 +114,26 @@ for (const relPath of files) {
         })
       }
     }
+    // Rule 3b (sentinel-profiles Phase 8): a `sentinel_patch_config` site must
+    // never name `env` or `configDir`. The patch wire type is the broker-tunable
+    // subset (weight / pool / label / color / defaultSelection / defaultPool)
+    // and deliberately omits the secret-bearing fields. This catches a future
+    // edit that tries to widen the patch to carry filesystem / credential
+    // fields. See `.claude/docs/plan-sentinel-profiles.md` Phase 8.
+    if (/sentinel_patch_config/.test(line) && /\b(env|configDir)\b/.test(line)) {
+      // Allow comment / string-literal references that merely DOCUMENT the ban.
+      if (!/['"`].*(env|configDir).*['"`]/.test(line)) {
+        violations.push({
+          file: relPath,
+          line: lineNum,
+          text: line.trim(),
+          reason:
+            'sentinel_patch_config must not carry `env` / `configDir` -- the broker-tunable patch ' +
+            'is NAME/display/routing only (Profile-Env Boundary, plan Phase 8).',
+        })
+      }
+    }
+
     // `profile.env` is a property access into a sentinel-resident bundle.
     // Match both `profile.env` (dot-access) and `.env` immediately after a
     // `profile` reference. We deliberately do NOT flag `LaunchConfig.env`

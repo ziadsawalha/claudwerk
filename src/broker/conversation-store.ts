@@ -22,6 +22,7 @@ import type {
   HookEvent,
   LaunchConfig,
   ProfileUsageSnapshot,
+  SentinelIdentify,
   SubscriptionChannel,
   SubscriptionsDiag,
   TaskInfo,
@@ -42,6 +43,7 @@ import { assignTranscriptSeqs, type ConversationStoreContext } from './conversat
 import { createListenerRegistry } from './conversation-store/listeners'
 import { createProjectLinkRegistry } from './conversation-store/project-links'
 import {
+  applySentinelConfigSnapshot as applySentinelConfigSnapshotImpl,
   buildSentinelList,
   createSentinelState,
   getSentinelProfileUsage as getSentinelProfileUsageImpl,
@@ -215,6 +217,9 @@ export interface ConversationStore {
   getSentinel: () => ServerWebSocket<unknown> | undefined
   getSentinelByAlias: (alias: string) => ServerWebSocket<unknown> | undefined
   getSentinelConnection: (sentinelId: string) => SentinelConnection | undefined
+  /** Refresh a sentinel's stored profile registry from a post-patch `applied`
+   *  snapshot (Phase 8). Broadcasts a fresh `sentinel_status`. */
+  applySentinelConfigSnapshot: (sentinelId: string, snapshot: SentinelIdentify) => boolean
   getSentinelInfo: () => { machineId?: string; hostname?: string } | undefined
   getDefaultSentinelId: () => string | undefined
   getDefaultSentinelAlias: () => string | undefined
@@ -248,6 +253,10 @@ export interface ConversationStore {
   addCcSessionsListener: (requestId: string, cb: (result: unknown) => void) => void
   removeCcSessionsListener: (requestId: string) => void
   resolveCcSessions: (requestId: string, result: unknown) => void
+  /** Pending `sentinel_patch_config` request/response by patchId (Phase 8). */
+  addPatchListener: (patchId: string, cb: (result: unknown) => void) => void
+  removePatchListener: (patchId: string) => void
+  resolvePatch: (patchId: string, result: unknown) => boolean
   broadcastToConversationsForProject: (project: string, message: Record<string, unknown>) => number
   broadcastToConversationsAtCwd: (project: string, message: Record<string, unknown>) => number
   addFileListener: (requestId: string, cb: (result: unknown) => void) => void
@@ -2121,6 +2130,20 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     return sentinelState.sentinels.get(sentinelId)
   }
 
+  function applySentinelConfigSnapshot(sentinelId: string, snapshot: SentinelIdentify): boolean {
+    return applySentinelConfigSnapshotImpl(
+      sentinelState,
+      sentinelId,
+      {
+        profiles: snapshot.profiles,
+        defaultSelection: snapshot.defaultSelection,
+        pools: snapshot.pools,
+        defaultPool: snapshot.defaultPool,
+      },
+      broadcast,
+    )
+  }
+
   function getSentinelInfo(): { machineId?: string; hostname?: string } | undefined {
     const defaultId = sentinelRegistry?.getDefaultId()
     const conn = defaultId ? sentinelState.sentinels.get(defaultId) : sentinelState.sentinels.values().next().value
@@ -2356,6 +2379,9 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     addCcSessionsListener,
     removeCcSessionsListener,
     resolveCcSessions,
+    addPatchListener,
+    removePatchListener,
+    resolvePatch,
   } = listeners
 
   // ─── Pending Launch Configs (conversationId -> LaunchConfig) ─────────────
@@ -2529,6 +2555,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     getSentinel,
     getSentinelByAlias,
     getSentinelConnection,
+    applySentinelConfigSnapshot,
     getSentinelInfo,
     getDefaultSentinelId,
     getDefaultSentinelAlias,
@@ -2578,6 +2605,9 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     addCcSessionsListener,
     removeCcSessionsListener,
     resolveCcSessions,
+    addPatchListener,
+    removePatchListener,
+    resolvePatch,
     broadcastToConversationsForProject,
     broadcastToConversationsAtCwd: broadcastToConversationsForProject,
     addFileListener,

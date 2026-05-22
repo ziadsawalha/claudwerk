@@ -7,6 +7,7 @@ import type {
   CcVersionChanged,
   ProfileUsageSnapshot,
   SelectionMode,
+  SentinelIdentify,
   SentinelProfileInfo,
   UsageUpdate,
 } from '../../shared/protocol'
@@ -361,6 +362,56 @@ const sentinelUsageReport: MessageHandler = (ctx, data) => {
   )
 }
 
+/**
+ * Sentinel -> broker: ack for a `sentinel_patch_config` the broker forwarded.
+ * Resolves the pending REST listener (keyed by `patchId`) so the route can
+ * relay the result to the HTTP caller. On success, refreshes the broker's
+ * stored profile registry from the `applied` snapshot.
+ *
+ * PROFILE-ENV BOUNDARY: the `applied` snapshot is re-sanitised here (NAMES +
+ * display + routing only) before it touches storage. Even a misbehaving
+ * sentinel that stuffed configDir / env into the snapshot would lose it at
+ * `sanitizeReportedProfiles`. EVERYTHING IS A STRUCTURED MESSAGE -- the ack is
+ * a typed wire message; the registry refresh broadcasts a fresh sentinel_status.
+ */
+// fallow-ignore-next-line complexity
+const sentinelPatchConfigAck: MessageHandler = (ctx, data) => {
+  const patchId = typeof data.patchId === 'string' ? data.patchId : ''
+  const ok = data.ok === true
+  const errorCode = typeof data.error === 'string' ? data.error : undefined
+  const detail = typeof data.detail === 'string' ? data.detail : undefined
+
+  // Refresh the stored profile registry from the post-apply snapshot (success
+  // only). Re-sanitise to keep the Profile-Env Boundary airtight.
+  if (ok && data.applied && typeof data.applied === 'object') {
+    const raw = data.applied as Record<string, unknown>
+    const snapshot: SentinelIdentify = {
+      type: 'sentinel_identify',
+      profiles: sanitizeReportedProfiles(raw.profiles),
+      defaultSelection: validatedSelectionMode(raw.defaultSelection),
+      pools: sanitizeReportedPools(raw.pools),
+      defaultPool: validatedPoolName(raw.defaultPool),
+    }
+    const sentinelId = ctx.ws.data.sentinelId
+    if (sentinelId) {
+      const applied = ctx.conversations.applySentinelConfigSnapshot(sentinelId, snapshot)
+      ctx.log.info(
+        `[patch-config] ack patchId=${patchId} ok=true sentinel=${sentinelId} registryRefreshed=${applied}` +
+          ` profiles=${snapshot.profiles?.length ?? 0} pools=[${snapshot.pools?.join(',') ?? '-'}]` +
+          ` defaultSelection=${snapshot.defaultSelection ?? '-'} defaultPool=${snapshot.defaultPool ?? '-'}`,
+      )
+    }
+  } else {
+    ctx.log.info(`[patch-config] ack patchId=${patchId} ok=${ok} error=${errorCode ?? '-'} detail=${detail ?? '-'}`)
+  }
+
+  // Resolve the REST route's pending promise. A late / unmatched ack is a no-op.
+  const matched = ctx.conversations.resolvePatch(patchId, { ok, error: errorCode, detail })
+  if (!matched) {
+    ctx.log.debug(`[patch-config] ack patchId=${patchId} matched no pending request (timed out or unknown)`)
+  }
+}
+
 export function registerSentinelHandlers(): void {
   // sentinel_identify is the bootstrap message that sets `isSentinel = true`
   // on the connection. With per-sentinel secrets (snt_ prefix), the WS is
@@ -382,6 +433,7 @@ export function registerSentinelHandlers(): void {
       usage_update: usageUpdate,
       sentinel_usage_report: sentinelUsageReport,
       cc_version_changed: ccVersionChanged,
+      sentinel_patch_config_ack: sentinelPatchConfigAck,
     },
     SENTINEL_ONLY,
   )

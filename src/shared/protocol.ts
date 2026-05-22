@@ -2564,6 +2564,7 @@ export type SentinelMessage =
   | DaemonRosterUpdate
   | DaemonJobState
   | CcVersionChanged
+  | SentinelPatchConfigAck
 
 // Broker -> Sentinel messages
 //
@@ -2702,6 +2703,70 @@ export interface SpawnConversation {
   pool?: string
 }
 
+/**
+ * Broker -> Sentinel: tune the BROKER-TUNABLE subset of a sentinel's config
+ * live, without a restart. See `.claude/docs/plan-sentinel-profiles.md` Phase 8.
+ *
+ * PROFILE-ENV BOUNDARY: this message carries NAME / display / routing fields
+ * ONLY. It deliberately has NO `configDir`, `env`, or `spawnRoot` field, and
+ * no add/remove-profile capability -- those bind a profile NAME to a host
+ * filesystem path / credentials and stay sentinel-local (CLI-only). The broker
+ * forwards this verbatim; it never reads the field set because the secret-bearing
+ * fields are not in the type. `lint:boundary` rejects any reference to
+ * `env` / `configDir` from a `sentinel_patch_config` site.
+ */
+export interface SentinelPatchConfig {
+  type: 'sentinel_patch_config'
+  /** Correlation id so the broker can match the ack to the request. */
+  patchId: string
+  /** Per-profile patches keyed by EXISTING profile NAME. Each field is
+   *  optional -- only the present fields are mutated; omitted fields are left
+   *  untouched. `pool: null` excludes the profile from every pool (a real
+   *  value, distinct from "omitted"). Unknown profile names are rejected by
+   *  the sentinel (it never creates a profile from a patch). */
+  profiles?: Record<
+    string,
+    {
+      /** Relative selection weight, `>= 0`. `0` = soft drain. */
+      weight?: number
+      /** Named pool, or `null` to exclude from every pool. */
+      pool?: string | null
+      label?: string
+      color?: string
+    }
+  >
+  /** Sentinel-wide no-input selection mode. */
+  defaultSelection?: SelectionMode
+  /** Sentinel-wide fallback pool for Balanced/Random launches that omit a pool. */
+  defaultPool?: string
+}
+
+/**
+ * Sentinel -> Broker: result of applying a `sentinel_patch_config`.
+ *
+ * On success the sentinel mutated its in-memory config, atomically rewrote
+ * `sentinel.json` (tmp + rename, unknown keys preserved), and returns a fresh
+ * `applied` snapshot (the same broker-safe slice as `sentinel_identify`) so the
+ * broker can refresh its stored profile registry without waiting for the next
+ * identify. On failure the sentinel rolled back in-memory and `ok` is `false`
+ * with a structured `error` code.
+ */
+export interface SentinelPatchConfigAck {
+  type: 'sentinel_patch_config_ack'
+  patchId: string
+  ok: boolean
+  /** Structured failure code. `unknown_profile` -- a patched name is not
+   *  configured; `invalid_value` -- a field failed validation (bad weight /
+   *  pool / selection); `io_error` -- the atomic file write failed (in-memory
+   *  rolled back). */
+  error?: 'unknown_profile' | 'invalid_value' | 'io_error'
+  /** Human-readable detail accompanying `error` (which profile / field). */
+  detail?: string
+  /** Fresh post-apply snapshot. Present on success. The broker-safe slice --
+   *  NAMES + display + routing only, NEVER configDir / env. */
+  applied?: SentinelIdentify
+}
+
 export interface ListDirs {
   type: 'list_dirs'
   requestId: string
@@ -2767,6 +2832,7 @@ export type BrokerSentinelMessage =
   | SpawnConversation
   | ListDirs
   | ListCcSessions
+  | SentinelPatchConfig
   | SentinelQuit
   | SentinelReject
 

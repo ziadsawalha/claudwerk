@@ -2,16 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { haptic } from '@/lib/utils'
-
-interface SentinelProfileInfoLite {
-  name: string
-  label?: string
-  color?: string
-  pool: string | null
-  authed: boolean
-}
-
-type SelectionMode = 'default' | 'balanced' | 'random'
+import type { SelectionMode, SentinelProfileInfoLite } from './sentinel-config-editor'
+import { SentinelConfigEditor } from './sentinel-config-editor'
 
 interface SentinelEntry {
   sentinelId: string
@@ -208,6 +200,7 @@ function SentinelRow({
   ccVersionChange,
   onSetDefault,
   onRevoke,
+  onSaved,
 }: {
   sentinel: SentinelEntry
   /** Per-profile usage map keyed by profile name. Only present for this sentinel. */
@@ -216,35 +209,37 @@ function SentinelRow({
   ccVersionChange?: CcVersionChange
   onSetDefault: () => void
   onRevoke: () => void
+  /** Called after a successful config patch so the parent refetches. */
+  onSaved: () => void
 }) {
   const profiles = sentinel.profiles ?? []
   const orphanUsage = computeOrphans(profiles, usage, sentinel.connected)
-  // Show the configure-via-CLI hint when the sentinel reports profiles. Phase
-  // 7 covers broker-managed mutation of `defaultSelection` and per-profile
-  // `pooled`; for now those are configured by editing the sentinel's
-  // `sentinel.json` or invoking `sentinel profile pool`. Surfacing the hint
-  // tells the user how to change what the UI shows read-only.
-  const showCliHint = sentinel.connected && profiles.length > 0
   return (
     <div className="border border-border rounded text-xs font-mono">
       <SentinelHeader sentinel={sentinel} onSetDefault={onSetDefault} onRevoke={onRevoke} />
       {ccVersionChange && <CcVersionBanner change={ccVersionChange} />}
       {profiles.length > 0 && (
         <div className="border-t border-border/40 py-1">
+          {/* Read-only usage / auth breakdown -- one line per profile. */}
           {profiles.map(p => (
             <ProfileBreakdownLine key={p.name} profile={p} usage={usage.get(p.name)} />
           ))}
           {orphanUsage.map(row => (
             <OrphanProfileLine key={`orphan-${row.profile}`} row={row} />
           ))}
-          {showCliHint && (
-            <div className="pl-6 pr-2 pt-1 text-[9px] text-muted-foreground/50 leading-snug">
-              Pool / default-selection are sentinel-local. Configure via{' '}
-              <code className="text-foreground/70">sentinel profile pool</code> or by editing{' '}
-              <code className="text-foreground/70">~/.config/rclaude/sentinel.json</code> on the host.
-            </div>
-          )}
         </div>
+      )}
+      {/* Editable broker-tunable config (Phase 8). Only when the sentinel is
+          connected -- a patch needs a live WS. */}
+      {sentinel.connected && profiles.length > 0 && (
+        <SentinelConfigEditor
+          sentinelId={sentinel.sentinelId}
+          profiles={profiles}
+          pools={sentinel.pools ?? []}
+          defaultSelection={sentinel.defaultSelection ?? 'balanced'}
+          defaultPool={sentinel.defaultPool ?? 'default'}
+          onSaved={onSaved}
+        />
       )}
     </div>
   )
@@ -419,6 +414,7 @@ function SentinelList() {
               ccVersionChange={ccVersionChanges.get(s.sentinelId)}
               onSetDefault={() => handleSetDefault(s.sentinelId)}
               onRevoke={() => handleRevoke(s.sentinelId, s.alias)}
+              onSaved={fetchSentinels}
             />
           )
         })}

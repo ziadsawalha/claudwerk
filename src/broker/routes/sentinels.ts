@@ -3,11 +3,88 @@
  * Admin-only CRUD for sentinel hosts.
  */
 
+import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
-import type { SelectionMode, SentinelProfileInfo } from '../../shared/protocol'
+import type { SelectionMode, SentinelPatchConfig, SentinelProfileInfo } from '../../shared/protocol'
 import type { ConversationStore } from '../conversation-store'
 import { isValidSentinelAlias, type SentinelRegistry } from '../sentinel-registry'
 import type { RouteHelpers } from './shared'
+
+const POOL_NAME_RE = /^[a-z0-9-]{1,63}$/
+const PROFILE_NAME_RE = /^[a-z0-9-]{1,63}$/
+
+/**
+ * Build a typed `sentinel_patch_config` from an untrusted REST body. Returns
+ * `{ error }` on a malformed shape, or `{ patch }` with ONLY the broker-tunable
+ * fields (per-profile weight / pool / label / color, sentinel-wide
+ * defaultSelection / defaultPool).
+ *
+ * PROFILE-ENV BOUNDARY: this builder names no `configDir` / `env` / `spawnRoot`
+ * field -- they are not part of `SentinelPatchConfig` and any such key in the
+ * body is silently dropped here. The sentinel re-validates + enforces too.
+ */
+// fallow-ignore-next-line complexity
+export function buildPatchFromBody(body: unknown, patchId: string): { patch: SentinelPatchConfig } | { error: string } {
+  if (!body || typeof body !== 'object') return { error: 'body must be an object' }
+  const b = body as Record<string, unknown>
+  const patch: SentinelPatchConfig = { type: 'sentinel_patch_config', patchId }
+
+  if (b.profiles !== undefined) {
+    if (typeof b.profiles !== 'object' || b.profiles === null || Array.isArray(b.profiles)) {
+      return { error: 'profiles must be an object keyed by profile name' }
+    }
+    const out: NonNullable<SentinelPatchConfig['profiles']> = {}
+    for (const [name, raw] of Object.entries(b.profiles as Record<string, unknown>)) {
+      if (!PROFILE_NAME_RE.test(name)) return { error: `profile name "${name}" must match [a-z0-9-]{1,63}` }
+      if (!raw || typeof raw !== 'object') return { error: `profile "${name}" patch must be an object` }
+      const r = raw as Record<string, unknown>
+      const entry: NonNullable<SentinelPatchConfig['profiles']>[string] = {}
+      if (r.weight !== undefined) {
+        if (typeof r.weight !== 'number' || !Number.isFinite(r.weight) || r.weight < 0) {
+          return { error: `profile "${name}".weight must be a finite number >= 0` }
+        }
+        entry.weight = r.weight
+      }
+      if (r.pool !== undefined) {
+        if (r.pool !== null && (typeof r.pool !== 'string' || !POOL_NAME_RE.test(r.pool))) {
+          return { error: `profile "${name}".pool must match [a-z0-9-]{1,63} or be null` }
+        }
+        entry.pool = r.pool as string | null
+      }
+      if (r.label !== undefined) {
+        if (typeof r.label !== 'string') return { error: `profile "${name}".label must be a string` }
+        entry.label = r.label
+      }
+      if (r.color !== undefined) {
+        if (typeof r.color !== 'string') return { error: `profile "${name}".color must be a string` }
+        entry.color = r.color
+      }
+      out[name] = entry
+    }
+    patch.profiles = out
+  }
+
+  if (b.defaultSelection !== undefined) {
+    if (b.defaultSelection !== 'default' && b.defaultSelection !== 'balanced' && b.defaultSelection !== 'random') {
+      return { error: 'defaultSelection must be one of "default", "balanced", "random"' }
+    }
+    patch.defaultSelection = b.defaultSelection as SelectionMode
+  }
+  if (b.defaultPool !== undefined) {
+    if (typeof b.defaultPool !== 'string' || !POOL_NAME_RE.test(b.defaultPool)) {
+      return { error: 'defaultPool must match [a-z0-9-]{1,63}' }
+    }
+    patch.defaultPool = b.defaultPool
+  }
+
+  const hasAny =
+    (patch.profiles && Object.keys(patch.profiles).length > 0) ||
+    patch.defaultSelection !== undefined ||
+    patch.defaultPool !== undefined
+  if (!hasAny) return { error: 'patch is empty (nothing to change)' }
+
+  return { patch }
+}
 
 export function createSentinelRouter(
   sentinelRegistry: SentinelRegistry,
@@ -141,6 +218,63 @@ export function createSentinelRouter(
     const usage = conversationStore.getSentinelProfileUsage(sentinelId)
     if (!usage) return c.json({ error: 'No usage data for sentinel' }, 404)
     return c.json(usage)
+  })
+
+  // ─── Patch sentinel config (broker-tunable subset) ────────────────────
+  //
+  // Phase 8 of `.claude/docs/plan-sentinel-profiles.md`. Forwards a single
+  // batched `sentinel_patch_config` to the connected sentinel and relays the
+  // ack. Tunes per-profile weight / pool / label / color and sentinel-wide
+  // defaultSelection / defaultPool ONLY -- never configDir / env / spawnRoot,
+  // never add/remove profiles (those bind a name to host filesystem +
+  // credentials and stay sentinel-local CLI-only -- Profile-Env Boundary).
+  //
+  // The broker forwards the patch verbatim; on a successful ack the
+  // `sentinel_patch_config_ack` handler refreshes the stored profile registry
+  // from the `applied` snapshot. This route just relays the outcome.
+  // fallow-ignore-next-line complexity
+  app.post('/api/sentinels/:id/config', async c => {
+    if (!httpIsAdmin(c.req.raw)) return c.json({ error: 'Admin access required' }, 403)
+
+    const sentinelId = c.req.param('id')
+    const conn = conversationStore.getSentinelConnection(sentinelId)
+    if (!conn) return c.json({ error: 'Sentinel not connected' }, 503)
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
+
+    const patchId = randomUUID()
+    const built = buildPatchFromBody(body, patchId)
+    if ('error' in built) return c.json({ error: built.error }, 400)
+
+    // Send the patch over the sentinel WS and await the ack (correlated by
+    // patchId). Mirrors the list_dirs / cc-sessions request-response idiom.
+    const result = await new Promise<{ ok: boolean; error?: string; detail?: string }>(resolve => {
+      const timeout = setTimeout(() => {
+        conversationStore.removePatchListener(patchId)
+        resolve({ ok: false, error: 'timeout', detail: 'sentinel did not ack within 10s' })
+      }, 10_000)
+      conversationStore.addPatchListener(patchId, msg => {
+        clearTimeout(timeout)
+        resolve(msg as { ok: boolean; error?: string; detail?: string })
+      })
+      try {
+        conn.ws.send(JSON.stringify(built.patch))
+      } catch (e) {
+        clearTimeout(timeout)
+        conversationStore.removePatchListener(patchId)
+        resolve({ ok: false, error: 'send_failed', detail: (e as Error).message })
+      }
+    })
+
+    if (!result.ok) {
+      return c.json({ ok: false, error: result.error, detail: result.detail }, 400)
+    }
+    return c.json({ ok: true })
   })
 
   // ─── Delete sentinel ──────────────────────────────────────────────────
