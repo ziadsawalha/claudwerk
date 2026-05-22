@@ -276,6 +276,7 @@ describe('profileSummaries -- broker-safe slice', () => {
       label: 'Work',
       color: '#f00',
       pool: null,
+      weight: 1,
       authed: true,
     })
     // Boundary covenant -- no env, no configDir leak.
@@ -317,5 +318,48 @@ describe('getPools -- distinct pool names', () => {
   test('returns just default when no profiles configured', () => {
     const cfg = loadSentinelConfig({ configPath: join(scratch, 'none.json') })
     expect(getPools(cfg)).toEqual([DEFAULT_POOL_NAME])
+  })
+})
+
+describe('loadSentinelConfig -- profile weight (Phase 7b)', () => {
+  test('omitted weight defaults to 1 (incl. synthesised default)', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '~/.cw' } } }))
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/j' })
+    expect(cfg.profiles.work.weight).toBe(1)
+    expect(cfg.profiles.default.weight).toBe(1)
+  })
+
+  test('explicit weight is preserved, including 0 (soft drain)', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        profiles: { big: { configDir: '~/.b', weight: 10 }, drained: { configDir: '~/.d', weight: 0 } },
+      }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/j' })
+    expect(cfg.profiles.big.weight).toBe(10)
+    expect(cfg.profiles.drained.weight).toBe(0)
+  })
+
+  test('negative weight is rejected', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '~/.cw', weight: -1 } } }))
+    expect(() => loadSentinelConfig({ configPath: path, home: '/home/j' })).toThrow(/weight/)
+  })
+
+  test('non-number weight is rejected', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '~/.cw', weight: 'heavy' } } }))
+    expect(() => loadSentinelConfig({ configPath: path, home: '/home/j' })).toThrow(/weight/)
+  })
+
+  test('weight reaches the broker-safe summary', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '~/.cw', weight: 5 } } }))
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/j' })
+    const work = profileSummaries(cfg).find(s => s.name === 'work')!
+    expect(work.weight).toBe(5)
   })
 })

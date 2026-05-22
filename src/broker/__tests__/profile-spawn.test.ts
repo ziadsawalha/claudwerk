@@ -47,9 +47,9 @@ function makeFakeSentinelWs(): ServerWebSocket<unknown> {
 function attachSentinel(
   alias = 'beast',
   profiles: SentinelProfileInfo[] | undefined = [
-    { name: 'default', pool: 'default', authed: true },
-    { name: 'work', pool: null, authed: true, label: 'Work' },
-    { name: 'alt', pool: 'default', authed: false },
+    { name: 'default', pool: 'default', weight: 1, authed: true },
+    { name: 'work', pool: null, weight: 1, authed: true, label: 'Work' },
+    { name: 'alt', pool: 'default', weight: 1, authed: false },
   ],
   pools: string[] | undefined = ['default'],
   defaultPool = 'default',

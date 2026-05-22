@@ -13,13 +13,15 @@
  *       [--spawn-root <path>]
  *       [--pool <name> | --no-pool]            Pool to join (default: "default";
  *                                              --no-pool excludes from all pools)
+ *       [--weight <n>]                         Selection weight (default 1, >= 0;
+ *                                              0 = soft drain, never auto-picked)
  *       [--hide-label]                         Suppress the profile's badge
  *                                              in the control panel UI
  *   set <name> [--label <text>] [--color <hex>]   Update display metadata or
  *       [--config-dir <path>]                  filesystem fields on an existing
  *       [--spawn-root <path>]                  profile (use `pool` subcommand
- *       [--hide-label | --show-label]          for pool changes -- it's its own
- *                                              verb because pool=null is a real
+ *       [--weight <n>]                         for pool changes -- it's its own
+ *       [--hide-label | --show-label]          verb because pool=null is a real
  *                                              value that flag parsing can't
  *                                              distinguish from "unchanged")
  *   auth <name>                                Run `claude auth login` for a profile
@@ -121,6 +123,9 @@ SUBCOMMANDS:
       [--spawn-root <path>]
       [--pool <name> | --no-pool]            Pool to join (default: "default");
                                               --no-pool excludes from every pool
+      [--weight <n>]                         Selection weight (default 1, >= 0;
+                                              0 = soft drain, never auto-picked)
+  set <name> [--weight <n>] [...]            Update weight/label/color/etc.
   auth <name>                                Run \`claude auth login\` for a profile
   rm <name>                                  Remove a profile (not "default")
   pool <name> --set <pool> | --none          Move a profile to a named pool
@@ -143,13 +148,14 @@ function cmdList(configPath: string): number {
   process.stdout.write(
     `${header}\ndefaultSelection: ${cfg.defaultSelection}\ndefaultPool: ${cfg.defaultPool}\npools: ${pools}\n\nPROFILES\n`,
   )
-  const rows: string[][] = [['NAME', 'CONFIG_DIR', 'POOL', 'AUTHED', 'LABEL']]
+  const rows: string[][] = [['NAME', 'CONFIG_DIR', 'POOL', 'WEIGHT', 'AUTHED', 'LABEL']]
   const sorted = Object.values(cfg.profiles).sort((a, b) => a.name.localeCompare(b.name))
   for (const p of sorted) {
     rows.push([
       p.name,
       p.configDir,
       p.pool === null ? '-' : p.pool,
+      String(p.weight),
       profileIsAuthed(p.configDir) ? 'yes' : 'no',
       p.label ?? '',
     ])
@@ -178,7 +184,7 @@ function cmdAdd(configPath: string, args: string[]): number {
   if (nameCheck.code !== 0) return nameCheck.code
   const name = nameCheck.name
   const flags = parseFlags(args.slice(1), {
-    string: ['--config-dir', '--label', '--color', '--spawn-root', '--pool'],
+    string: ['--config-dir', '--label', '--color', '--spawn-root', '--pool', '--weight'],
     boolean: ['--no-pool', '--hide-label'],
   })
   const configDir = stringFlag(flags, '--config-dir')
@@ -186,6 +192,8 @@ function cmdAdd(configPath: string, args: string[]): number {
     process.stderr.write('add: --config-dir <path> is required\n')
     return 2
   }
+  const weightCheck = parseWeightFlag(flags, 'add')
+  if (weightCheck.code !== 0) return weightCheck.code
   const poolFlag = stringFlag(flags, '--pool')
   const noPool = flags['--no-pool'] === true
   if (poolFlag && noPool) {
@@ -228,7 +236,7 @@ function cmdSet(configPath: string, args: string[]): number {
   if (nameCheck.code !== 0) return nameCheck.code
   const name = nameCheck.name
   const flags = parseFlags(args.slice(1), {
-    string: ['--label', '--color', '--config-dir', '--spawn-root'],
+    string: ['--label', '--color', '--config-dir', '--spawn-root', '--weight'],
     boolean: ['--show-label', '--hide-label'],
   })
 
@@ -236,6 +244,9 @@ function cmdSet(configPath: string, args: string[]): number {
     process.stderr.write('set: --show-label and --hide-label are mutually exclusive\n')
     return 2
   }
+
+  const weightCheck = parseWeightFlag(flags, 'set')
+  if (weightCheck.code !== 0) return weightCheck.code
 
   const touched: Array<{ field: string; from: string | undefined; to: string | undefined }> = []
   const file = readRawConfig(configPath)
@@ -275,9 +286,18 @@ function cmdSet(configPath: string, args: string[]): number {
     }
   }
 
+  if (weightCheck.weight !== undefined && entry.weight !== weightCheck.weight) {
+    touched.push({
+      field: 'weight',
+      from: entry.weight === undefined ? undefined : String(entry.weight),
+      to: String(weightCheck.weight),
+    })
+    entry.weight = weightCheck.weight
+  }
+
   if (touched.length === 0) {
     process.stderr.write(
-      'set: no fields specified (use --label, --color, --config-dir, --spawn-root, --hide-label, --show-label)\n',
+      'set: no fields specified (use --label, --color, --config-dir, --spawn-root, --weight, --hide-label, --show-label)\n',
     )
     return 2
   }
@@ -346,7 +366,27 @@ function buildProfileEntry(configDir: string, flags: Record<string, string | tru
   if (flags['--hide-label'] === true) entry.showLabel = false
   else if (noPool) entry.pool = null
   // No --pool / --no-pool -> omit, sentinel-config synthesises "default" pool.
+  const weight = parseWeightFlag(flags, 'add').weight
+  if (weight !== undefined) entry.weight = weight
   return entry
+}
+
+/** Parse + validate the `--weight <n>` flag. Returns `{ code: 0, weight }`
+ *  where `weight` is `undefined` when the flag is absent (caller keeps the
+ *  default of 1), or a finite number `>= 0`. On a malformed value, writes an
+ *  error and returns a non-zero code for the caller to propagate. */
+function parseWeightFlag(
+  flags: Record<string, string | true>,
+  cmd: string,
+): { code: number; weight: number | undefined } {
+  const raw = stringFlag(flags, '--weight')
+  if (raw === undefined) return { code: 0, weight: undefined }
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) {
+    process.stderr.write(`${cmd}: --weight "${raw}" must be a finite number >= 0\n`)
+    return { code: 2, weight: undefined }
+  }
+  return { code: 0, weight: n }
 }
 
 // fallow-ignore-next-line complexity

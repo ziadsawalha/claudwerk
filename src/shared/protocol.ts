@@ -2016,6 +2016,12 @@ export interface SentinelProfileInfo {
    *  Balanced / Random launches filter profiles by `pool === requestedPool`
    *  (or the sentinel's `defaultPool` when the launch omits a pool). */
   pool: string | null
+  /** Relative selection weight within the pool (default `1`, always `>= 0`).
+   *  Balanced treats it as capacity (load divided by weight); Random picks
+   *  proportionally. `weight: 0` is a soft drain -- in the pool,
+   *  Fixed-addressable, never auto-picked. Display/config metadata,
+   *  broker-safe (no env, no configDir). */
+  weight: number
   /** Whether the sentinel believes this profile has valid Claude credentials
    *  in its `configDir`. Surfaced so the control panel can flag an un-authed
    *  profile before a spawn fails. */

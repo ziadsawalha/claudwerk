@@ -32,8 +32,11 @@ function sanitizeReportedProfiles(raw: unknown): SentinelProfileInfo[] | undefin
     const label = typeof rec.label === 'string' ? rec.label : undefined
     const color = typeof rec.color === 'string' ? rec.color : undefined
     const pool: string | null = typeof rec.pool === 'string' ? rec.pool : rec.pool === null ? null : 'default'
+    // Weight is reported by the sentinel (default 1, >= 0). Defend against
+    // malformed wire input: anything not a finite number >= 0 falls back to 1.
+    const weight = typeof rec.weight === 'number' && Number.isFinite(rec.weight) && rec.weight >= 0 ? rec.weight : 1
     const authed = typeof rec.authed === 'boolean' ? rec.authed : false
-    out.push({ name, label, color, pool, authed })
+    out.push({ name, label, color, pool, weight, authed })
   }
   return out
 }

@@ -169,16 +169,32 @@ export function pickProfile(config: SentinelConfig, opts: PickOptions = {}): Pic
     }
   }
 
-  // mode === 'random'
+  // mode === 'random' -- weighted random over the pool. All candidates have
+  // weight > 0 (profilesInPool excludes soft-drained members), so the walk
+  // always lands on a real profile.
   const r = rand ?? Math.random
-  const idx = Math.floor(r() * candidates.length) % candidates.length
   return {
-    profile: candidates[idx],
+    profile: pickWeightedRandom(candidates, r),
     picker: 'random',
     requestedPool,
     candidates: candidates.map(p => p.name),
     reason: 'random',
   }
+}
+
+/** Weighted random pick. `r = rand() * sum(weights)`, walk the (name-sorted)
+ *  pool subtracting each weight until `r < weight`. Higher weight -> wider
+ *  slice -> picked more often. Caller guarantees all weights > 0, so the sum
+ *  is positive and the final candidate is the deterministic fallback for any
+ *  floating-point residue. */
+function pickWeightedRandom(candidates: ResolvedProfile[], rand: Rng): ResolvedProfile {
+  const total = candidates.reduce((sum, p) => sum + p.weight, 0)
+  let r = rand() * total
+  for (const c of candidates) {
+    r -= c.weight
+    if (r < 0) return c
+  }
+  return candidates[candidates.length - 1]
 }
 
 function requireProfile(config: SentinelConfig, name: string): ResolvedProfile {
@@ -192,12 +208,15 @@ function requireProfile(config: SentinelConfig, name: string): ResolvedProfile {
   return profile
 }
 
-/** Profiles in the requested pool (`p.pool === pool`), sorted by name
- *  (stable ordering for tie-breaking and reproducible random with a seeded
- *  RNG). Profiles with `pool === null` are always excluded. */
+/** Selectable profiles in the requested pool (`p.pool === pool` AND
+ *  `weight > 0`), sorted by name (stable ordering for tie-breaking and
+ *  reproducible random with a seeded RNG). Profiles with `pool === null` are
+ *  always excluded; `weight: 0` profiles stay in the pool conceptually but are
+ *  excluded from auto-selection (soft drain) -- a pool whose members are all
+ *  weight-0 reads as empty here and falls back to default. */
 function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[] {
   return Object.values(config.profiles)
-    .filter(p => p.pool === pool)
+    .filter(p => p.pool === pool && p.weight > 0)
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -206,8 +225,9 @@ function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[]
  * better. Two signals merged onto one axis so fresh and stale candidates can
  * compete:
  *   - Fresh telemetry: `rank = headroom` (e.g. 0.9 means 10% of quota used)
- *   - Stale or missing: `rank = 1 / (1 + liveLoad)` (load 0 -> 1.0,
- *     load 1 -> 0.5, load 5 -> 0.17)
+ *   - Stale or missing: `rank = 1 / (1 + liveLoad/weight)` -- weight is
+ *     capacity, so a weight=10 profile at load 5 ranks like a weight=1
+ *     profile at load 0.5 (rank ~0.67). weight=1: load 0 -> 1.0, 1 -> 0.5.
  *
  * Consequences:
  *   - All-fresh pool: highest-headroom profile wins (the intent).
@@ -226,8 +246,12 @@ function rankCandidate(profile: ResolvedProfile, liveLoad: LiveLoadSource, usage
     if (u.headroom > 1) return 1
     return u.headroom
   }
-  const load = liveLoad(profile.name)
-  return 1 / (1 + Math.max(0, load))
+  // Weight as capacity: divide live load by weight so a weight=10 profile
+  // carries ~10x the load before it ranks as busy as a weight=1 profile.
+  // (v2 rate-limit-aware balancing will divide headroom by weight the same
+  // way -- deferred per plan-sentinel-profiles Phase 7b.)
+  const load = Math.max(0, liveLoad(profile.name))
+  return 1 / (1 + load / profile.weight)
 }
 
 /** Smart Balance picker. Returns the chosen profile + whether ANY candidate

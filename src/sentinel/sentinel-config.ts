@@ -38,6 +38,9 @@ export const DEFAULT_PROFILE_NAME = 'default'
  *  sentinel-wide `defaultPool` fallback. */
 export const DEFAULT_POOL_NAME = 'default'
 
+/** Default per-profile selection weight when the config omits `weight`. */
+export const DEFAULT_PROFILE_WEIGHT = 1
+
 /** Valid pool-name shape -- mirrors profile/sentinel-name shapes. */
 const POOL_NAME_RE = /^[a-z0-9-]{1,63}$/
 
@@ -62,6 +65,11 @@ export interface SentinelProfileFile {
    *  Explicit `null` -> excluded from every Balanced/Random selection (Fixed
    *  pin only). */
   pool?: string | null
+  /** Relative selection weight within the pool. Omitted -> `1`. Must be `>= 0`.
+   *  Balanced treats it as capacity (load is divided by weight); Random picks
+   *  proportionally. `weight: 0` is a "soft drain" -- the profile stays in the
+   *  pool and Fixed-addressable, but Balanced/Random never pick it. */
+  weight?: number
   label?: string
   color?: string
   /** Whether the control panel should render this profile's badge on
@@ -85,6 +93,9 @@ export interface ResolvedProfile {
   /** Named pool this profile belongs to. `null` means excluded from every
    *  Balanced/Random selection. Default profile is in pool `"default"`. */
   pool: string | null
+  /** Relative selection weight within the pool. Default `1`, always `>= 0`.
+   *  `0` = soft drain (in the pool, Fixed-addressable, never auto-picked). */
+  weight: number
   label?: string
   color?: string
   /** UI hint: hide this profile's badge / pill text when `false`. Omitted /
@@ -224,6 +235,7 @@ function buildProfileMap(
       configDir: join(home, '.claude'),
       env: {},
       pool: DEFAULT_POOL_NAME,
+      weight: DEFAULT_PROFILE_WEIGHT,
     }
   }
   return profiles
@@ -274,6 +286,20 @@ function resolveProfilePool(name: string, raw: unknown, configPath: string): str
   return raw
 }
 
+/** Resolve the per-profile `weight` field. Omitted -> `1`. Must be a finite
+ *  number `>= 0`. `0` is the soft-drain sentinel (kept in the pool, never
+ *  auto-picked). Negatives / non-numbers / NaN / Infinity are rejected. */
+// fallow-ignore-next-line complexity
+function resolveProfileWeight(name: string, raw: unknown, configPath: string): number {
+  if (raw === undefined) return DEFAULT_PROFILE_WEIGHT
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) {
+    throw new Error(
+      `sentinel config: profile "${name}".weight in ${configPath} must be a finite number >= 0 (got ${JSON.stringify(raw)})`,
+    )
+  }
+  return raw
+}
+
 // fallow-ignore-next-line complexity
 function normalizeProfile(
   name: string,
@@ -293,6 +319,7 @@ function normalizeProfile(
     env: validateProfileEnv(name, raw.env, configPath),
     spawnRoot: validateSpawnRoot(name, raw.spawnRoot, home, configPath),
     pool: resolveProfilePool(name, raw.pool, configPath),
+    weight: resolveProfileWeight(name, raw.weight, configPath),
     label: typeof raw.label === 'string' ? raw.label : undefined,
     color: typeof raw.color === 'string' ? raw.color : undefined,
     // showLabel: omitted | true -> render badge. false -> hide. Anything else
@@ -389,6 +416,7 @@ export function profileSummaries(config: SentinelConfig): SentinelProfileInfo[] 
       label: p.label,
       color: p.color,
       pool: p.pool,
+      weight: p.weight,
       authed: profileIsAuthed(p.configDir),
       // Only emit when explicitly hidden -- omitted on the wire means "render
       // normally", saving bytes for the common case.

@@ -91,9 +91,9 @@ describe('GET /api/sentinels', () => {
   it('surfaces reported profiles + pools + defaultPool from a connected sentinel', async () => {
     const record = sentinelRegistry.create({ alias: 'beast', generateSecret: true })
     const profiles: SentinelProfileInfo[] = [
-      { name: 'default', pool: 'default', authed: true },
-      { name: 'work', label: 'Work org', color: '#f59e0b', pool: null, authed: true },
-      { name: 'alt', label: 'Second account', pool: 'default', authed: false },
+      { name: 'default', pool: 'default', weight: 1, authed: true },
+      { name: 'work', label: 'Work org', color: '#f59e0b', pool: null, weight: 1, authed: true },
+      { name: 'alt', label: 'Second account', pool: 'default', weight: 1, authed: false },
     ]
     conversationStore.setSentinel(makeFakeWs(), {
       sentinelId: record.sentinelId,
@@ -119,7 +119,7 @@ describe('GET /api/sentinels', () => {
     conversationStore.setSentinel(ws, {
       sentinelId: record.sentinelId,
       alias: record.aliases[0],
-      profiles: [{ name: 'default', pool: 'default', authed: true }],
+      profiles: [{ name: 'default', pool: 'default', weight: 1, authed: true }],
       defaultSelection: 'random',
       pools: ['default'],
       defaultPool: 'default',

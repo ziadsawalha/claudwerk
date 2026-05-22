@@ -18,7 +18,7 @@ import type { SentinelConfig } from './sentinel-config'
 
 function mkConfig(
   defaultSelection: SentinelConfig['defaultSelection'],
-  profiles: Array<{ name: string; pool: string | null }>,
+  profiles: Array<{ name: string; pool: string | null; weight?: number }>,
   defaultPool = 'default',
 ): SentinelConfig {
   return {
@@ -33,6 +33,7 @@ function mkConfig(
           configDir: `/tmp/${p.name}`,
           env: {},
           pool: p.pool,
+          weight: p.weight ?? 1,
         },
       ]),
     ),
@@ -286,12 +287,13 @@ describe('pickProfile -- returns full ResolvedProfile bundle (env injection sani
       defaultSelection: 'default',
       defaultPool: 'default',
       profiles: {
-        default: { name: 'default', configDir: '/home/.claude', env: {}, pool: 'default' },
+        default: { name: 'default', configDir: '/home/.claude', env: {}, pool: 'default', weight: 1 },
         work: {
           name: 'work',
           configDir: '/home/.claude-work',
           env: { ANTHROPIC_API_KEY: 'sk-test' },
           pool: 'default',
+          weight: 1,
         },
       },
     }
@@ -310,6 +312,70 @@ describe('pickProfile -- balanced without a load source treats all as zero', () 
     const r = pickProfile(cfg, { input: 'balanced' })
     expect(r.profile.name).toBe('apple')
     expect(r.picker).toBe('balanced')
+  })
+})
+
+describe('pickProfile -- weighted selection (Phase 7b)', () => {
+  test('weight 0 is excluded from Random (soft drain)', () => {
+    const cfg = mkConfig('default', [
+      { name: 'drained', pool: 'default', weight: 0 },
+      { name: 'live', pool: 'default', weight: 1 },
+    ])
+    // Even with rand()=0 (which would land on the first candidate), the
+    // drained profile is never a candidate, so 'live' is the only pick.
+    for (const rnd of [0, 0.25, 0.5, 0.75, 0.999]) {
+      const r = pickProfile(cfg, { input: 'random', rand: () => rnd })
+      expect(r.profile.name).toBe('live')
+      expect(r.candidates).toEqual(['live'])
+    }
+  })
+
+  test('weight 0 is excluded from Balanced but still Fixed-addressable', () => {
+    const cfg = mkConfig('default', [
+      { name: 'drained', pool: 'default', weight: 0 },
+      { name: 'live', pool: 'default', weight: 1 },
+    ])
+    const balanced = pickProfile(cfg, { input: 'balanced', liveLoad: () => 0 })
+    expect(balanced.profile.name).toBe('live')
+    // Fixed pin still resolves the drained profile by literal name.
+    const fixed = pickProfile(cfg, { input: 'drained' })
+    expect(fixed.profile.name).toBe('drained')
+    expect(fixed.picker).toBe('fixed')
+  })
+
+  test('all-zero pool falls back to default (reads as empty)', () => {
+    const cfg = mkConfig('default', [
+      { name: 'default', pool: 'default', weight: 1 },
+      { name: 'a', pool: 'team', weight: 0 },
+      { name: 'b', pool: 'team', weight: 0 },
+    ])
+    const r = pickProfile(cfg, { input: 'balanced', pool: 'team', liveLoad: () => 0 })
+    expect(r.picker).toBe('default')
+    expect(r.reason).toBe('fallback:empty-pool')
+  })
+
+  test('weighted random respects the weight slices', () => {
+    // Candidates sorted by name: heavy(weight 3), light(weight 1). total=4.
+    // r in [0,3) -> heavy; r in [3,4) -> light.
+    const cfg = mkConfig('default', [
+      { name: 'heavy', pool: 'default', weight: 3 },
+      { name: 'light', pool: 'default', weight: 1 },
+    ])
+    // rand()=0.1 -> r=0.4 -> heavy. rand()=0.9 -> r=3.6 -> light.
+    expect(pickProfile(cfg, { input: 'random', rand: () => 0.1 }).profile.name).toBe('heavy')
+    expect(pickProfile(cfg, { input: 'random', rand: () => 0.9 }).profile.name).toBe('light')
+    // Boundary: rand()=0.74 -> r=2.96 -> still heavy (< 3).
+    expect(pickProfile(cfg, { input: 'random', rand: () => 0.74 }).profile.name).toBe('heavy')
+  })
+
+  test('balanced treats weight as capacity: higher weight wins under equal load', () => {
+    const cfg = mkConfig('default', [
+      { name: 'big', pool: 'default', weight: 10 },
+      { name: 'small', pool: 'default', weight: 1 },
+    ])
+    // Equal absolute load of 2 each. big: 1/(1+2/10)=0.83; small: 1/(1+2/1)=0.33.
+    const r = pickProfile(cfg, { input: 'balanced', liveLoad: () => 2 })
+    expect(r.profile.name).toBe('big')
   })
 })
 
