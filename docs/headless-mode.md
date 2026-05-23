@@ -1,5 +1,9 @@
 # Headless Mode & MCP Channel
 
+> **See also:** `docs/daemon-mode.md` -- the third claude transport
+> (`claude-daemon`), its subscription billing, and the live-verified control
+> surface (what works, what is reduced vs headless/PTY, and why).
+
 ## Headless Mode (stream-json backend)
 
 `rclaude --headless` or `RCLAUDE_HEADLESS=1` uses Claude's `--print` mode with
