@@ -144,6 +144,31 @@ async function readUserSettings(): Promise<ClaudeSettings> {
 }
 
 /**
+ * Read the spawn-injected settings file, if one was requested.
+ *
+ * Transport-reframe Phase 2: the backend-general `settingsPath` SpawnRequest
+ * field reaches the agent host as `CLAUDWERK_SETTINGS_PATH`. CC's `--settings`
+ * flag is single-value (a second flag would clobber our generated hooks file),
+ * so instead of passing a second flag we MERGE this file into the generated
+ * settings -- between the user's global settings and our hooks (hooks always
+ * win; see `generateMergedSettings`). Returns `{}` when absent or unreadable.
+ */
+async function readInjectedSettings(injectedPath?: string): Promise<ClaudeSettings> {
+  if (!injectedPath) return {}
+  const file = Bun.file(injectedPath)
+  if (!(await file.exists())) {
+    console.log(`[settings] Injected settings path not found, skipping: ${injectedPath}`)
+    return {}
+  }
+  try {
+    return (await file.json()) as ClaudeSettings
+  } catch (_error) {
+    console.log(`[settings] Injected settings file is not valid JSON, skipping: ${injectedPath}`)
+    return {}
+  }
+}
+
+/**
  * Create hook matcher for forwarding to local server
  * NOTE: HTTP hooks only support tool-related events (PreToolUse, PostToolUse, Stop, etc.)
  * by design. Lifecycle events (SessionStart, SessionEnd, SubagentStart, PreCompact, etc.)
@@ -202,8 +227,12 @@ async function generateMergedSettings(
   conversationId: string,
   port: number,
   claudeVersion?: string,
+  injectedSettingsPath?: string,
 ): Promise<ClaudeSettings> {
-  const userSettings = await readUserSettings()
+  // Base = user's global settings, with any spawn-injected settings layered on
+  // top (transport-reframe Phase 2). Our hooks are merged LAST so they always
+  // win over both -- they are load-bearing for the broker integration.
+  const userSettings = deepMerge(await readUserSettings(), await readInjectedSettings(injectedSettingsPath))
 
   // Create our hook configuration, filtered by Claude Code version
   const supportedEvents = getSupportedHookEvents(claudeVersion)
@@ -290,7 +319,15 @@ export async function writeMergedSettings(
   claudeVersion?: string,
   dir?: string,
 ): Promise<string> {
-  const settings = await generateMergedSettings(conversationId, port, claudeVersion)
+  // CLAUDWERK_SETTINGS_PATH carries the spawn-injected settings file (the
+  // backend-general `settingsPath` SpawnRequest field). Merged into the
+  // generated settings rather than passed as a second --settings flag.
+  const settings = await generateMergedSettings(
+    conversationId,
+    port,
+    claudeVersion,
+    process.env.CLAUDWERK_SETTINGS_PATH,
+  )
   const settingsPath = dir
     ? `${dir}/settings/settings-${conversationId}.json`
     : `/tmp/rclaude-settings-${conversationId}.json`

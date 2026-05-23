@@ -2663,6 +2663,17 @@ export interface SpawnConversation {
    *  chat-api prepends as a system message. Ignored by backends that cannot honor
    *  it cleanly (hermes, opencode). */
   appendSystemPrompt?: string
+  /** Backend-general absolute path to a settings JSON (transport-reframe § 2.1,
+   *  promoted from the daemon-only `daemonSettingsPath`). Honored by claude
+   *  across ALL transports: the daemon path passes `--settings`; the PTY/headless
+   *  agent host MERGES it into its generated hooks settings file (CC `--settings`
+   *  is single-value, so a second flag would clobber the hooks). */
+  settingsPath?: string
+  /** Backend-general absolute path to an MCP config JSON (transport-reframe § 2.1).
+   *  Honored by claude across ALL transports: the daemon path passes `--mcp-config`;
+   *  the PTY/headless agent host appends it as an additional `--mcp-config` value
+   *  alongside the rclaude HTTP server (CC `--mcp-config` is variadic and merges). */
+  mcpConfigPath?: string
   /** Which agent host binary to spawn. Defaults to 'claude' (rclaude). When
    *  set to 'opencode', the sentinel launches the opencode-host binary with
    *  OPENCODE_MODEL set. When set to 'acp', the sentinel launches the

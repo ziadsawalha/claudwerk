@@ -14,16 +14,35 @@
  */
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import { list } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import { CC_DAEMON_PROTO, type JobRecord } from '../shared/cc-daemon/types'
+import { claudeConfigDir } from '../shared/claude-config-dir'
 import type { DaemonJobInfo, DaemonRosterUpdate } from '../shared/protocol'
 
-const DAEMON_DIR = join(homedir(), '.claude', 'daemon')
-const MAP_PATH = join(homedir(), '.claude', 'claudewerk-daemon-map.json')
+/**
+ * Resolve the daemon dir + id-map path under the ACTIVE config dir.
+ *
+ * Transport-reframe Phase 2 (§ 0.7): these used to hardcode `~/.claude`, so a
+ * sentinel running under a profile `CLAUDE_CONFIG_DIR=/other` watched the wrong
+ * directory and never saw that daemon's roster. `claudeConfigDir()` honors
+ * CLAUDE_CONFIG_DIR, making the watcher correct for whichever single profile
+ * the sentinel process runs under. `env` is the test seam.
+ *
+ * SCOPE (§ 7.6 decision): this resolves the sentinel's ONE active config dir.
+ * Watching MULTIPLE profile configDirs at once (a per-profile daemon each) is
+ * deferred -- the control socket resolves per-uid (`/tmp/cc-daemon-<uid>`), not
+ * per-configDir, so a true multi-daemon mirror needs a configDir-keyed socket
+ * resolver + N watchers, which is out of scope for the transport reframe.
+ */
+export function daemonRosterPaths(env: NodeJS.ProcessEnv = process.env): { daemonDir: string; mapPath: string } {
+  const configDir = claudeConfigDir(env)
+  return { daemonDir: join(configDir, 'daemon'), mapPath: join(configDir, 'claudewerk-daemon-map.json') }
+}
+
+const { daemonDir: DAEMON_DIR, mapPath: MAP_PATH } = daemonRosterPaths()
 /** Poll fallback -- chokidar gives instant updates, the poll is the floor. */
 const POLL_INTERVAL_MS = 10_000
 

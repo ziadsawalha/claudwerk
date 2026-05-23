@@ -120,6 +120,22 @@ if [[ -n "${RCLAUDE_WORKTREE:-}" ]]; then
   SAFE_WORKTREE="${RCLAUDE_WORKTREE//[\"\'\`\\]/}"
   CMD_PREFIX+="RCLAUDE_WORKTREE='${SAFE_WORKTREE}' "
 fi
+# Backend-general config-injection paths (transport-reframe Phase 2). The agent
+# host MERGES the settings file into its generated hooks settings, appends the
+# mcp-config as an extra --mcp-config value, and reads the append-system-prompt
+# from the file. All three are shell-safe paths (single-quoted + stripped).
+if [[ -n "${CLAUDWERK_SETTINGS_PATH:-}" ]]; then
+  SAFE_SETTINGS="${CLAUDWERK_SETTINGS_PATH//[\"\'\`\\]/}"
+  CMD_PREFIX+="CLAUDWERK_SETTINGS_PATH='${SAFE_SETTINGS}' "
+fi
+if [[ -n "${CLAUDWERK_MCP_CONFIG_PATH:-}" ]]; then
+  SAFE_MCP_CONFIG="${CLAUDWERK_MCP_CONFIG_PATH//[\"\'\`\\]/}"
+  CMD_PREFIX+="CLAUDWERK_MCP_CONFIG_PATH='${SAFE_MCP_CONFIG}' "
+fi
+if [[ -n "${CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE:-}" ]]; then
+  SAFE_APPEND_FILE="${CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE//[\"\'\`\\]/}"
+  CMD_PREFIX+="CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE='${SAFE_APPEND_FILE}' "
+fi
 
 # Append --effort flag if set (passed through to claude CLI)
 EFFORT_FLAG=""

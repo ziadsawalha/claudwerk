@@ -27,6 +27,7 @@ import type { AgentHostContext } from './agent-host-context'
 import { type BrokerConnectionDeps, connectToBroker } from './broker-connection'
 import { createCleanup, registerSignalHandlers } from './cleanup'
 import {
+  buildMcpConfigArgs,
   detectClaudeAuth,
   detectClaudeVersion,
   handlePassthroughSubcommand,
@@ -343,9 +344,14 @@ async function main() {
     ctx.pendingConversationName = undefined
   }
 
+  // Transport-reframe Phase 2: a spawn-injected MCP config (the backend-general
+  // `mcpConfigPath` SpawnRequest field, arriving as CLAUDWERK_MCP_CONFIG_PATH)
+  // rides as an ADDITIONAL `--mcp-config` value (see buildMcpConfigArgs).
+  const injectedMcpConfig = process.env.CLAUDWERK_MCP_CONFIG_PATH
+  if (injectedMcpConfig) ctx.wsClient?.sendBootEvent('mcp_prepared', injectedMcpConfig)
+
   const finalClaudeArgs = [
-    '--mcp-config',
-    mcpConfigPath,
+    ...buildMcpConfigArgs(mcpConfigPath, injectedMcpConfig),
     '--disallowed-tools',
     'SendMessage',
     ...(cli.channelEnabled ? ['--dangerously-load-development-channels', 'server:rclaude'] : []),

@@ -313,8 +313,20 @@ export async function parseCliArgs(args: string[]): Promise<CliConfig> {
     claudeArgs.push('--agent', process.env.RCLAUDE_AGENT)
   }
 
+  // Append-system-prompt injection (transport-reframe Phase 2). Headless passes
+  // the text inline via CLAUDWERK_APPEND_SYSTEM_PROMPT (real env, safe at any
+  // size). The PTY path can't put 16 KiB of arbitrary text through the tmux
+  // shell prefix, so it writes a file and passes CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE.
+  // Inline wins; the file is the fallback. CC accepts multiple --append-system-prompt
+  // flags (this stacks on the agent host's own generated system prompt).
   if (process.env.CLAUDWERK_APPEND_SYSTEM_PROMPT) {
     claudeArgs.push('--append-system-prompt', process.env.CLAUDWERK_APPEND_SYSTEM_PROMPT)
+  } else if (process.env.CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE) {
+    try {
+      claudeArgs.push('--append-system-prompt', readFileSync(process.env.CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE, 'utf-8'))
+    } catch (err) {
+      debug(`Failed to read CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE, ignoring: ${err instanceof Error ? err.message : err}`)
+    }
   }
 
   // Headless mode implications
@@ -339,6 +351,17 @@ export async function parseCliArgs(args: string[]): Promise<CliConfig> {
     configuredModel,
     resumeId,
   }
+}
+
+/**
+ * Build the `--mcp-config` argv slice for the claude CLI (transport-reframe
+ * Phase 2). The agent host always loads its own rclaude HTTP MCP server; a
+ * spawn-injected `mcpConfigPath` (the backend-general SpawnRequest field) is
+ * appended as an ADDITIONAL value. CC's `--mcp-config` is variadic and merges
+ * every config, and the variadic consumes both paths until the next `--flag`.
+ */
+export function buildMcpConfigArgs(rclaudeMcpPath: string, injectedMcpPath?: string): string[] {
+  return injectedMcpPath ? ['--mcp-config', rclaudeMcpPath, injectedMcpPath] : ['--mcp-config', rclaudeMcpPath]
 }
 
 export function extToMediaType(ext: string): string {

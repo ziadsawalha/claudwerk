@@ -484,6 +484,9 @@ const RCLAUDE_CONVERSATION_VARS = new Set([
   'RCLAUDE_CUSTOM_ENV',
   'RCLAUDE_INCLUDE_PARTIAL_MESSAGES',
   'CLAUDWERK_APPEND_SYSTEM_PROMPT',
+  'CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE',
+  'CLAUDWERK_SETTINGS_PATH',
+  'CLAUDWERK_MCP_CONFIG_PATH',
 ])
 
 /**
@@ -555,6 +558,12 @@ function buildHeadlessEnv(opts: {
   repl?: boolean
   includePartialMessages?: boolean
   appendSystemPrompt?: string
+  /** Backend-general `--settings` path (transport-reframe Phase 2). The agent
+   *  host MERGES it into its generated hooks settings file. */
+  settingsPath?: string
+  /** Backend-general `--mcp-config` path (transport-reframe Phase 2). The agent
+   *  host appends it as an extra `--mcp-config` value. */
+  mcpConfigPath?: string
   env?: Record<string, string>
   /** Resolved configDir for the active sentinel profile. Injected as
    *  `CLAUDE_CONFIG_DIR` on the child process. */
@@ -590,6 +599,8 @@ function buildHeadlessEnv(opts: {
   if (opts.agent) env.RCLAUDE_AGENT = opts.agent
   if (opts.includePartialMessages === false) env.RCLAUDE_INCLUDE_PARTIAL_MESSAGES = '0'
   if (opts.appendSystemPrompt) env.CLAUDWERK_APPEND_SYSTEM_PROMPT = opts.appendSystemPrompt
+  if (opts.settingsPath) env.CLAUDWERK_SETTINGS_PATH = opts.settingsPath
+  if (opts.mcpConfigPath) env.CLAUDWERK_MCP_CONFIG_PATH = opts.mcpConfigPath
   if (opts.env && Object.keys(opts.env).length) env.RCLAUDE_CUSTOM_ENV = JSON.stringify(opts.env)
 
   // Sentinel profile -- inject CLAUDE_CONFIG_DIR + profile.env DIRECTLY into
@@ -1603,6 +1614,10 @@ async function spawnConversation(
   agent?: string,
   appendSystemPrompt?: string,
   profile?: ResolvedProfile,
+  /** Backend-general `--settings` path (transport-reframe Phase 2). */
+  settingsPath?: string,
+  /** Backend-general `--mcp-config` path (transport-reframe Phase 2). */
+  mcpConfigPath?: string,
 ): Promise<{ success: boolean; error?: string; tmuxSession?: string; tmuxPaneId?: string }> {
   launchLog(jobId, 'Validating directory', 'info', cwd)
 
@@ -1723,6 +1738,8 @@ async function spawnConversation(
       repl,
       includePartialMessages,
       appendSystemPrompt,
+      settingsPath,
+      mcpConfigPath,
       env,
       configDir: profile?.configDir,
       profileEnv: profile?.env,
@@ -1749,6 +1766,23 @@ async function spawnConversation(
   })
   if (!ptyPreflightOk) {
     return { success: false, error: 'Pre-flight check failed (see launch log)' }
+  }
+
+  // appendSystemPrompt can be up to 16 KiB of arbitrary text (quotes, newlines,
+  // `$`, backticks). Embedding that in the revive-session.sh CMD_PREFIX would
+  // corrupt it (sanitizing strips the very chars a prompt may need). So write it
+  // to a file and pass only the (shell-safe) PATH -- the same pattern the initial
+  // prompt uses. The agent host reads CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE.
+  let appendSystemPromptFile: string | undefined
+  if (appendSystemPrompt) {
+    appendSystemPromptFile = `/tmp/rclaude-append-sysprompt-${conversationId}`
+    try {
+      await Bun.write(appendSystemPromptFile, appendSystemPrompt)
+      launchLog(jobId, 'Append-system-prompt file written', 'ok', `${appendSystemPrompt.length} chars`)
+    } catch (e: unknown) {
+      diag('spawn', 'Failed to write append-system-prompt file', { error: (e as Error).message })
+      appendSystemPromptFile = undefined
+    }
   }
 
   // Sanitize strings that will be embedded in shell commands by revive-session.sh.
@@ -1783,6 +1817,12 @@ async function spawnConversation(
     ...(includePartialMessages === false ? { RCLAUDE_INCLUDE_PARTIAL_MESSAGES: '0' } : {}),
     ...(worktree ? { RCLAUDE_WORKTREE: shellSafe(worktree) } : {}),
     ...(agent ? { RCLAUDE_AGENT: shellSafe(agent) } : {}),
+    // Backend-general config injection (transport-reframe Phase 2). Paths are
+    // shell-safe; revive-session.sh single-quotes + sanitizes them in CMD_PREFIX.
+    // appendSystemPrompt rides as a FILE path (see appendSystemPromptFile above).
+    ...(settingsPath ? { CLAUDWERK_SETTINGS_PATH: shellSafe(settingsPath) } : {}),
+    ...(mcpConfigPath ? { CLAUDWERK_MCP_CONFIG_PATH: shellSafe(mcpConfigPath) } : {}),
+    ...(appendSystemPromptFile ? { CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE: appendSystemPromptFile } : {}),
     ...(env && Object.keys(env).length ? { RCLAUDE_CUSTOM_ENV: JSON.stringify(env) } : {}),
     // Sentinel profile -- CLAUDE_CONFIG_DIR + profile.env injected DIRECTLY
     // so revive-session.sh, the tmux shell, and rclaude all see them as real
@@ -2999,6 +3039,8 @@ function connect(
             spawnMsg.agent,
             spawnMsg.appendSystemPrompt,
             resolvedSpawnProfile,
+            spawnMsg.settingsPath,
+            spawnMsg.mcpConfigPath,
           )
           const response: SpawnResult = {
             type: 'spawn_result',

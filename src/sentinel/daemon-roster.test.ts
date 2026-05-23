@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { JobRecord } from '../shared/cc-daemon/types'
-import { buildJobInfos, mintConversationId, stopDaemonRosterWatch } from './daemon-roster'
+import { buildJobInfos, daemonRosterPaths, mintConversationId, stopDaemonRosterWatch } from './daemon-roster'
 
 const job = (over: Partial<JobRecord> = {}): JobRecord => ({
   short: 'aeb185f9',
@@ -57,6 +59,20 @@ describe('buildJobInfos', () => {
       {},
     )
     expect(infos).toHaveLength(1)
+  })
+})
+
+describe('daemonRosterPaths (CLAUDE_CONFIG_DIR audit fix, transport-reframe Phase 2)', () => {
+  it('honors CLAUDE_CONFIG_DIR so a profile-isolated daemon is watched', () => {
+    const { daemonDir, mapPath } = daemonRosterPaths({ CLAUDE_CONFIG_DIR: '/profiles/work/.claude' })
+    expect(daemonDir).toBe('/profiles/work/.claude/daemon')
+    expect(mapPath).toBe('/profiles/work/.claude/claudewerk-daemon-map.json')
+  })
+
+  it('falls back to ~/.claude when CLAUDE_CONFIG_DIR is unset (matching CC default)', () => {
+    const { daemonDir, mapPath } = daemonRosterPaths({})
+    expect(daemonDir).toBe(join(homedir(), '.claude', 'daemon'))
+    expect(mapPath).toBe(join(homedir(), '.claude', 'claudewerk-daemon-map.json'))
   })
 })
 

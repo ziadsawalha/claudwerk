@@ -486,6 +486,13 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
           worktree: req.worktree || undefined,
           env: req.env || undefined,
           appendSystemPrompt: req.appendSystemPrompt || undefined,
+          // Backend-general config injection (transport-reframe Phase 2). The
+          // daemon backend reads these via normalizeDaemonReq; the claude
+          // PTY/headless path threads them to the agent host (which merges
+          // settings + appends mcp-config). settingsPath/mcpConfigPath are
+          // top-level SpawnRequest fields, NOT transportMeta -- no boundary read.
+          settingsPath: req.settingsPath || undefined,
+          mcpConfigPath: req.mcpConfigPath || undefined,
           profile: req.profile || undefined,
           pool: req.pool || undefined,
         }),

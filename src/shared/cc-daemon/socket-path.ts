@@ -8,10 +8,22 @@
  * Socket dir layout: `/tmp/cc-daemon-<uid>/<instance>/control.sock`.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { claudeConfigDir } from '../claude-config-dir'
 
-const ROSTER_PATH = join(homedir(), '.claude', 'daemon', 'roster.json')
+/**
+ * Path to the daemon `roster.json` under the ACTIVE config dir. Transport-reframe
+ * Phase 2 (§ 0.7): honors `CLAUDE_CONFIG_DIR` so a profile-isolated daemon's
+ * roster is found instead of always reading `~/.claude/daemon/roster.json`. The
+ * socket-dir resolver still falls back to the per-uid `/tmp` scan, so this path
+ * is a hint for `resolveWorkerPtySock`, not load-bearing for socket discovery.
+ * `env` is the test seam.
+ */
+export function rosterPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(claudeConfigDir(env), 'daemon', 'roster.json')
+}
+
+const ROSTER_PATH = rosterPath()
 
 /** Resolve `control.sock`, or `null` if no daemon is reachable. */
 export function resolveControlSocket(): string | null {

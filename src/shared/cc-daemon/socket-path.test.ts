@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'bun:test'
-import { resolveControlSocket, resolveSockDir, sockDirFromRosterData } from './socket-path'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { resolveControlSocket, resolveSockDir, rosterPath, sockDirFromRosterData } from './socket-path'
+
+describe('rosterPath (CLAUDE_CONFIG_DIR audit fix, transport-reframe Phase 2)', () => {
+  it('resolves roster.json under CLAUDE_CONFIG_DIR when set', () => {
+    expect(rosterPath({ CLAUDE_CONFIG_DIR: '/profiles/work/.claude' })).toBe(
+      '/profiles/work/.claude/daemon/roster.json',
+    )
+  })
+
+  it('falls back to ~/.claude when CLAUDE_CONFIG_DIR is unset', () => {
+    expect(rosterPath({})).toBe(join(homedir(), '.claude', 'daemon', 'roster.json'))
+  })
+})
 
 describe('sockDirFromRosterData', () => {
   it('derives the sock dir two segments up from a worker rendezvous socket', () => {
