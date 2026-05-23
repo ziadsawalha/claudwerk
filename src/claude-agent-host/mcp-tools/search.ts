@@ -9,6 +9,7 @@
  * Both tools call the broker over HTTP. The broker enforces permission gating.
  */
 
+import { formatTranscriptWindow } from '../../shared/transcript-window-format'
 import { wsToHttpUrl } from '../cli-args'
 import { debug } from '../debug'
 import type { McpToolContext, ToolDef } from './types'
@@ -203,7 +204,11 @@ export function registerSearchTools(ctx: McpToolContext): Record<string, ToolDef
       description:
         'Sliding window of transcript entries around a point. Use after search_transcripts to read full content.\n\n' +
         'Center on aroundSeq (from search hits) or aroundId. Adjust before/after (0-50) to expand.\n' +
-        'To walk forward: set aroundSeq = last returned seq. Backward: aroundSeq = first returned seq.',
+        'Output is compact text by default: per-entry header + canonical body, base64 stripped, ' +
+        'duplicate tool_result wrappers collapsed, per-entry byte cap with head/tail elision. ' +
+        'Walk pointers (next/prev) are printed at the bottom -- no seq arithmetic needed.\n' +
+        'Set format:"json" for the raw row dump (large; rarely useful). ' +
+        'Set maxBytesPerEntry to expand or tighten the per-entry cap (default 2000).',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -218,6 +223,15 @@ export function registerSearchTools(ctx: McpToolContext): Record<string, ToolDef
           },
           before: { type: 'number', description: 'Entries before center (0-50, default 5).' },
           after: { type: 'number', description: 'Entries after center (0-50, default 5).' },
+          format: {
+            type: 'string',
+            enum: ['text', 'json'],
+            description: 'Output format. "text" (default) = compact human-readable. "json" = raw rows.',
+          },
+          maxBytesPerEntry: {
+            type: 'number',
+            description: 'Per-entry body byte cap for text format (default 2000). Ignored for json.',
+          },
         },
         required: ['conversationId'],
       },
@@ -251,8 +265,25 @@ export function registerSearchTools(ctx: McpToolContext): Record<string, ToolDef
               isError: true,
             }
           }
-          const data = await res.json()
-          return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+          const data = (await res.json()) as {
+            entries: Array<{
+              seq: number
+              type: string
+              subtype?: string
+              content: unknown
+              timestamp?: number
+              conversationId?: string
+            }>
+            conversation?: { id: string; project?: string; title?: string; description?: string }
+          }
+
+          const format = String(params.format || 'text')
+          if (format === 'json') {
+            return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+          }
+          const maxBytes = typeof params.maxBytesPerEntry === 'number' ? params.maxBytesPerEntry : undefined
+          const text = formatTranscriptWindow(data.entries, data.conversation, { maxBytesPerEntry: maxBytes })
+          return { content: [{ type: 'text', text }] }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'unknown'
           debug(`[channel] get_transcript_context error: ${msg}`)

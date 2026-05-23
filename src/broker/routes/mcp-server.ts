@@ -10,6 +10,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { formatTranscriptWindow } from '../../shared/transcript-window-format'
 import { BUILD_VERSION } from '../../shared/version'
 import { resolveAuth } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
@@ -118,19 +119,29 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
   // ─── get_transcript_context ─────────────────────────────────────────
   mcp.tool(
     'get_transcript_context',
-    'Sliding window of transcript entries around a given seq number. Use after search_transcripts (with output:"snippets") to expand context around a hit -- pass the conversationId and seq from the search result.',
+    'Sliding window of transcript entries around a given seq number. Use after search_transcripts (with output:"snippets") to expand context around a hit -- pass the conversationId and seq from the search result. Output is compact text by default: per-entry header + canonical body, base64 stripped, duplicate tool_result wrappers collapsed, per-entry byte cap, walk pointers at the bottom. Set format:"json" for the raw row dump.',
     {
       conversationId: z.string(),
       seq: z.number(),
       window: z.number().optional(),
+      format: z.enum(['text', 'json']).optional(),
+      maxBytesPerEntry: z.number().optional(),
     },
-    async ({ conversationId, seq, window: windowSize }) => {
+    async ({ conversationId, seq, window: windowSize, format, maxBytesPerEntry }) => {
       const entries = store.transcripts.getWindow(conversationId, {
         aroundSeq: seq,
         before: windowSize || 5,
         after: windowSize || 5,
       })
-      return { content: [{ type: 'text', text: JSON.stringify(entries, null, 2) }] }
+      if (format === 'json') {
+        return { content: [{ type: 'text', text: JSON.stringify(entries, null, 2) }] }
+      }
+      const conv = conversationStore.getConversation(conversationId)
+      const convMeta = conv
+        ? { id: conv.id, project: conv.project, title: conv.title, description: conv.description }
+        : { id: conversationId }
+      const text = formatTranscriptWindow(entries, convMeta, { maxBytesPerEntry })
+      return { content: [{ type: 'text', text }] }
     },
   )
 
