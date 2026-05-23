@@ -90,7 +90,7 @@ const spawnModeEnum = z.enum(['fresh', 'resume'])
 // discriminator never collides when other backends grow their own transports.
 // See `.claude/docs/plan-claude-transport-reframe.md` § 0.1 / 0.2. Only the
 // three `claude-*` values are valid in this plan; future backends add their own.
-const transportEnum = z.enum(['claude-pty', 'claude-headless', 'claude-daemon'])
+export const transportEnum = z.enum(['claude-pty', 'claude-headless', 'claude-daemon'])
 
 export const spawnRequestSchema = z.object({
   cwd: z

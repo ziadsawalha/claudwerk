@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod/v4'
+import { transportEnum } from '../shared/spawn-schema'
 import type { KVStore } from './store/types'
 
 const KV_KEY = 'global-settings'
@@ -20,15 +21,24 @@ const GlobalSettingsSchema = z.object({
   voiceRefinementPrompt: z.string().max(2000).default(''),
   carriageReturnDelay: z.number().min(0).max(2000).default(0),
   defaultLaunchMode: z.enum(['headless', 'pty']).default('headless'),
-  // Phase I cutover flag -- the default backend for AGENT-SPAWNED conversations
-  // (MCP spawn_conversation, inter-conversation channel_spawn) that do not name
-  // a backend explicitly. 'daemon' routes them to a claude --bg NEW-mode worker
-  // (subscription-billed); 'pty'/'headless' keep the claude backend at that
-  // launch mode. Supersedes defaultLaunchMode at the GLOBAL tier for agent-spawn
-  // resolution (profile/project launch modes still override). The control panel
-  // spawn dialog is unaffected -- it always names a backend explicitly.
-  // Default 'pty': the conservative pre-cutover value. Flip to 'daemon' once the
-  // Tier-2 live smoke is green and the post-June-15 billing pool is reconfirmed.
+  // Transport reframe (Phase 3) -- the default transport per backend for
+  // AGENT-SPAWNED conversations (MCP spawn_conversation, inter-conversation
+  // channel_spawn) that name no transport explicitly. Keyed by backend so each
+  // agent family carries its own default wire. 'claude-daemon' routes claude
+  // agent spawns to a subscription-billed claude --bg NEW-mode worker;
+  // 'claude-pty'/'claude-headless' keep the interactive / stream-json transport.
+  // Supersedes defaultLaunchMode at the GLOBAL tier for agent-spawn resolution
+  // (profile/project launch modes still override). The control panel spawn
+  // dialog is unaffected -- it always names a transport explicitly.
+  // Schema default 'claude-pty': the conservative pre-cutover value. Phase 8
+  // flips it to 'claude-daemon' once the Tier-2 live smoke is green and the
+  // post-June-15 billing pool is reconfirmed.
+  defaultTransport: z.object({ claude: transportEnum.default('claude-pty') }).default({ claude: 'claude-pty' }),
+  // LEGACY (transport reframe): the flat pre-Phase-3 enum that defaultTransport
+  // replaces. Kept as a dual-read fallback through Phase 6 -- the resolvers
+  // (src/shared/spawn-defaults.ts) read defaultTransport FIRST, fall back to
+  // this. A settings blob saved before Phase 3 migrates into defaultTransport on
+  // read (migrateLegacyDefaultBackend). Deleted in Phase 6.
   defaultBackend: z.enum(['daemon', 'pty', 'headless']).default('pty'),
   defaultEffort: z.enum(['default', 'low', 'medium', 'high', 'max']).default('default'),
   defaultModel: z.string().max(50).default(''),
@@ -47,6 +57,29 @@ const GlobalSettingsSchema = z.object({
 
 export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>
 
+const LEGACY_BACKEND_TO_TRANSPORT = {
+  daemon: 'claude-daemon',
+  pty: 'claude-pty',
+  headless: 'claude-headless',
+} as const
+
+/**
+ * Migrate a pre-Phase-3 settings blob (transport reframe): when it carries a
+ * legacy `defaultBackend` but no `defaultTransport`, derive `defaultTransport.
+ * claude` from it so a stored `defaultBackend:'daemon'` keeps routing agent
+ * spawns to the daemon transport after the rename. Returns a shallow copy with
+ * the derived field; no-op once `defaultTransport` is present (every save after
+ * this phase writes both). Fires only on a raw input that explicitly set the
+ * legacy field, so a fresh `parse({})` keeps the schema default untouched
+ * (Phase 8 can flip it).
+ */
+function migrateLegacyDefaultBackend(raw: Record<string, unknown>): Record<string, unknown> {
+  if (raw.defaultTransport !== undefined) return raw
+  const legacy = raw.defaultBackend
+  if (legacy !== 'daemon' && legacy !== 'pty' && legacy !== 'headless') return raw
+  return { ...raw, defaultTransport: { claude: LEGACY_BACKEND_TO_TRANSPORT[legacy] } }
+}
+
 let kv: KVStore | null = null
 let settings: GlobalSettings = GlobalSettingsSchema.parse({})
 
@@ -56,7 +89,7 @@ export function initGlobalSettings(store: KVStore): void {
   const raw = kv.get<Record<string, unknown>>(KV_KEY)
   if (raw) {
     try {
-      settings = GlobalSettingsSchema.parse(raw)
+      settings = GlobalSettingsSchema.parse(migrateLegacyDefaultBackend(raw))
     } catch {
       // Soft fail - use defaults
       settings = GlobalSettingsSchema.parse({})

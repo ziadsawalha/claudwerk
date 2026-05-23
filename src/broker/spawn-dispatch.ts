@@ -154,21 +154,23 @@ export type SpawnDispatchResult =
 /**
  * Resolve the backend for a spawn request before it is dispatched. Agent-spawned
  * conversations (MCP `spawn_conversation`, inter-conversation `channel_spawn`)
- * carry no explicit backend -- the global `defaultBackend` flag routes them. The
- * decision is logged with full context here because the backend fork is
- * otherwise a silent branch in the dispatch path (LOG EVERYTHING covenant).
+ * carry no explicit backend -- the global default transport routes them
+ * (`defaultTransport.claude`, with the legacy `defaultBackend` as a dual-read
+ * fallback). The decision is logged with full context here because the backend
+ * fork is otherwise a silent branch in the dispatch path (LOG EVERYTHING).
  */
 function applyDefaultBackend(req: SpawnRequest, global: GlobalSettings): SpawnRequest {
   const decision = resolveDefaultBackend(req, global)
-  // Transport reframe (Phase 1): honor an explicit `transport`; otherwise the
-  // daemon backend implies the claude-daemon transport. The claude PTY/headless
+  // Transport reframe: honor an explicit `transport`; otherwise the daemon
+  // backend implies the claude-daemon transport. The claude PTY/headless
   // transport is resolved later by resolveSpawnConfig (it needs the resolved
   // headless flag); opencode/chat-api/hermes carry no transport in this plan.
   const transport: SpawnRequest['transport'] =
     req.transport ?? (decision.backend === 'daemon' ? 'claude-daemon' : undefined)
   console.log(
     `[spawn-backend] cwd=${req.cwd ?? '?'} explicitBackend=${req.backend ?? 'none'} ` +
-      `adHoc=${req.adHoc ? 'y' : 'n'} defaultBackend=${global.defaultBackend} => ` +
+      `adHoc=${req.adHoc ? 'y' : 'n'} defaultTransport.claude=${global.defaultTransport?.claude ?? '-'} ` +
+      `defaultBackend=${global.defaultBackend ?? '-'} => ` +
       `backend=${decision.backend ?? 'claude'} daemonMode=${decision.daemonMode ?? '-'} ` +
       `transport=${transport ?? '-'} (${decision.reason})`,
   )

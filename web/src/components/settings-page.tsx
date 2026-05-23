@@ -57,6 +57,19 @@ function DefaultConversationPicker({ value, onChange }: { value: string; onChang
   )
 }
 
+// Transport reframe (Phase 3): the agent-spawn default transport picker reads
+// the new `defaultTransport.claude` shape, but still renders a legacy
+// `defaultBackend` value (pre-Phase-3 settings blobs) so the control stays
+// correct during the transition. Falls back to 'claude-pty' when neither is set.
+function resolveDefaultTransport(server: Record<string, unknown>): string {
+  const dt = server.defaultTransport as { claude?: string } | undefined
+  if (dt?.claude) return dt.claude
+  const legacy = server.defaultBackend
+  if (legacy === 'daemon') return 'claude-daemon'
+  if (legacy === 'headless') return 'claude-headless'
+  return 'claude-pty'
+}
+
 // --- Shortcuts (inline) ---
 const SHORTCUTS = [
   ['Command palette', 'Ctrl+K'],
@@ -664,19 +677,19 @@ const SETTINGS: SettingItem[] = [
   {
     tab: 'sessions',
     group: 'Conversations',
-    label: 'Default backend (agent spawns)',
+    label: 'Default transport (agent spawns)',
     description:
-      'Backend for conversations spawned by agents (MCP / inter-conversation) that name no backend. Daemon = a subscription-billed claude --bg worker. The control panel spawn dialog is unaffected -- it always picks a backend.',
-    keywords: 'daemon backend pty headless agent spawn mcp default cutover',
+      'Transport for the claude backend on conversations spawned by agents (MCP / inter-conversation) that name no transport. Daemon = a subscription-billed claude --bg worker. The control panel spawn dialog is unaffected -- it always picks a transport.',
+    keywords: 'transport daemon pty headless claude agent spawn mcp default cutover backend',
     render: ctx => (
       <select
-        value={(ctx.server.defaultBackend as string) || 'pty'}
-        onChange={e => ctx.setServer('defaultBackend', e.target.value)}
+        value={resolveDefaultTransport(ctx.server)}
+        onChange={e => ctx.setServer('defaultTransport', { claude: e.target.value })}
         className="bg-muted border border-border px-2 py-1 text-xs font-mono text-foreground"
       >
-        <option value="daemon">Daemon (claude --bg)</option>
-        <option value="pty">PTY (terminal)</option>
-        <option value="headless">Headless</option>
+        <option value="claude-pty">PTY (terminal)</option>
+        <option value="claude-headless">Headless (stream-json)</option>
+        <option value="claude-daemon">Daemon (claude --bg)</option>
       </select>
     ),
   },
