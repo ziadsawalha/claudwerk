@@ -14,7 +14,7 @@ import { checkBunVersion } from '../shared/bun-version'
 
 checkBunVersion()
 
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
@@ -28,8 +28,9 @@ import {
 import { homedir, hostname as osHostname } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { Subprocess } from 'bun'
-import { has, ping } from '../shared/cc-daemon/ops'
+import { dispatch, has, ping } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
+import type { DispatchSpec } from '../shared/cc-daemon/types'
 import { cwdToProjectUri, parseProjectUri } from '../shared/project-uri'
 import type {
   BrokerSentinelMessage,
@@ -57,11 +58,9 @@ import {
   validatePatch,
 } from './config-patch'
 import {
-  buildDaemonDispatchArgs,
+  buildDispatchSpec,
   type DaemonLaunchMode,
   evaluateAttachPresence,
-  mergeDaemonWorkerEnv,
-  parseDaemonShort,
   validateDaemonConfigPaths,
 } from './daemon-dispatch'
 import { startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
@@ -987,18 +986,19 @@ function spawnAcpHostDirect(opts: {
 }
 
 /**
- * Dispatch a Claude Code daemon worker via `claude --bg` and capture its 8-hex
- * job short id from the `backgrounded - <id>` line. Covers NEW
- * (`claude --bg <prompt>`) and RESUME (`claude --bg --resume <sessionId>
- * [<prompt>]`) -- both print the same `backgrounded` line and yield a fresh
- * short. Config flags (`--settings`, `--mcp-config`, `--append-system-prompt`)
- * and per-spawn env vars are injected for both modes; the env merge lands on
- * the WORKER process, not just the daemon-host. ATTACH never reaches this
- * function (it has no `claude --bg` step).
+ * Dispatch a Claude Code daemon worker via the cc-daemon socket `dispatch` op
+ * (transport-reframe Phase 4 -- replaces the legacy `claude --bg` shell-out).
+ * Covers NEW and RESUME. The sentinel MINTS the worker identity (short / nonce
+ * / sessionId), assembles a typed `DispatchSpec` (`source:'fleet'`, claude
+ * flags in `launch.args`/`flagArgs`, per-spawn env delta), and sends it over
+ * the daemon control socket. The daemon answers `{short, pid, via}`; the minted
+ * short is handed to bin/daemon-host via CLAUDWERK_DAEMON_SHORT so it can attach
+ * to the worker's PTY. ATTACH never reaches this function (it has no dispatch).
  *
- * The captured short is handed to bin/daemon-host via CLAUDWERK_DAEMON_SHORT so
- * it can attach to the worker's PTY. argv assembly + short capture + env merge
- * are pure helpers in daemon-dispatch.ts (testable without booting the sentinel).
+ * The dispatch-supplied `sessionId` becomes the worker's ccSessionId, but the
+ * daemon-host still derives ccSessionId by OBSERVING the worker (unchanged
+ * contract). DispatchSpec assembly + env bundling are pure helpers in
+ * daemon-dispatch.ts (testable without booting the sentinel).
  */
 async function dispatchDaemonWorker(opts: {
   cwd: string
@@ -1013,15 +1013,37 @@ async function dispatchDaemonWorker(opts: {
   env?: Record<string, string>
   jobId?: string
   /** Resolved sentinel profile. Its `configDir` is injected as
-   *  `CLAUDE_CONFIG_DIR` on the `claude --bg` worker (skipped when it equals
-   *  the implicit `~/.claude` -- see `shouldInjectConfigDir`). Its `env`
-   *  (e.g. `ANTHROPIC_API_KEY` for alt accounts) is merged directly. */
+   *  `CLAUDE_CONFIG_DIR` on the worker (skipped when it equals the implicit
+   *  `~/.claude` -- see `shouldInjectConfigDir`). Its `env` (e.g.
+   *  `ANTHROPIC_API_KEY` for alt accounts) is merged directly. */
   profile?: ResolvedProfile
 }): Promise<{ short: string | null; output: string }> {
-  let args: string[]
+  // Worker env DELTA only -- the daemon applies it over its own base env (the
+  // live spike confirmed an empty env still boots a worker). Profile.env first,
+  // then per-spawn env, then CLAUDE_CONFIG_DIR last (an explicit per-profile
+  // dir cannot be overridden), skipping the implicit `~/.claude` default to
+  // preserve CC's Keychain credential fallback.
+  const workerEnv: Record<string, string> = {
+    ...(opts.profile?.env ?? {}),
+    ...(opts.env ?? {}),
+  }
+  const workerConfigDir = opts.profile?.configDir
+  if (shouldInjectConfigDir(workerConfigDir)) workerEnv.CLAUDE_CONFIG_DIR = workerConfigDir
+
+  // Mint the worker identity. The daemon no longer prints a short -- claudewerk
+  // owns it. sessionId is the worker's ccSessionId (32-hex), short/nonce 8-hex.
+  const short = randomBytes(4).toString('hex')
+  const nonce = randomBytes(4).toString('hex')
+  const sessionId = randomBytes(16).toString('hex')
+
+  let spec: DispatchSpec
   try {
-    args = buildDaemonDispatchArgs({
+    spec = buildDispatchSpec({
       mode: opts.mode,
+      short,
+      nonce,
+      sessionId,
+      cwd: opts.cwd,
       prompt: opts.prompt,
       resumeSessionId: opts.resumeSessionId,
       model: opts.model,
@@ -1029,50 +1051,39 @@ async function dispatchDaemonWorker(opts: {
       settingsPath: opts.settingsPath,
       mcpConfigPath: opts.mcpConfigPath,
       appendSystemPrompt: opts.appendSystemPrompt,
+      env: workerEnv,
     })
   } catch (e: unknown) {
-    return { short: null, output: `claude --bg arg assembly failed: ${(e as Error).message}` }
+    return { short: null, output: `dispatch spec assembly failed: ${(e as Error).message}` }
   }
+
+  const sock = resolveControlSocket()
+  if (!sock) {
+    return { short: null, output: 'daemon dispatch: no Claude Code daemon control socket reachable' }
+  }
+
   const flags = [
     `model=${opts.model ?? 'default'}`,
     opts.mode === 'resume' ? `resume=${opts.resumeSessionId}` : null,
     opts.settingsPath ? '+settings' : null,
     opts.mcpConfigPath ? '+mcp-config' : null,
     opts.appendSystemPrompt ? '+append-system-prompt' : null,
-    opts.env ? `+${Object.keys(opts.env).length}env` : null,
+    Object.keys(workerEnv).length ? `+${Object.keys(workerEnv).length}env` : null,
+    `short=${short}`,
   ]
     .filter(Boolean)
     .join(' ')
-  launchLog(opts.jobId, `Dispatching claude --bg worker (${opts.mode})`, 'info', flags)
-  // Sentinel profile -- inject CLAUDE_CONFIG_DIR (skipped for the implicit
-  // default to preserve CC's Keychain credential fallback) + profile.env
-  // onto the `claude --bg` worker. Mirrors the headless/PTY paths.
-  const workerConfigDir = opts.profile?.configDir
-  const profileEnvBundle: Record<string, string> = {
-    ...(opts.profile?.env ?? {}),
-    ...(opts.env ?? {}),
-  }
-  if (shouldInjectConfigDir(workerConfigDir)) {
-    profileEnvBundle.CLAUDE_CONFIG_DIR = workerConfigDir
-  }
-  let proc: Subprocess
+  launchLog(opts.jobId, `Dispatching daemon worker via socket op (${opts.mode})`, 'info', flags)
+
   try {
-    proc = Bun.spawn(args, {
-      cwd: opts.cwd,
-      env: mergeDaemonWorkerEnv(cleanSentinelEnv(), profileEnvBundle),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
+    const resp = await dispatch(sock, spec)
+    if (resp.short !== short) {
+      launchLog(opts.jobId, 'daemon dispatch short mismatch', 'info', `minted=${short} daemon=${resp.short}`)
+    }
+    return { short: resp.short, output: `dispatch ok: short=${resp.short} pid=${resp.pid} via=${resp.via}` }
   } catch (e: unknown) {
-    return { short: null, output: `claude --bg spawn failed: ${(e as Error).message}` }
+    return { short: null, output: `daemon dispatch op failed: ${(e as Error).message}` }
   }
-  const [out, err] = await Promise.all([
-    new Response(proc.stdout as ReadableStream).text(),
-    new Response(proc.stderr as ReadableStream).text(),
-  ])
-  await proc.exited
-  const output = `${out}${err}`.trim()
-  return { short: parseDaemonShort(output), output }
 }
 
 /**

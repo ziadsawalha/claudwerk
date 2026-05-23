@@ -12,12 +12,15 @@
  * (`launch-smoke.test.ts`) drives against `fake-daemon.ts` -- no live daemon.
  */
 
+import { randomBytes } from 'node:crypto'
+import { buildDispatchSpec } from '../sentinel/daemon-dispatch'
 import type { AttachCloseReason, AttachHandle, attach } from '../shared/cc-daemon/attach'
-import { list } from '../shared/cc-daemon/ops'
+import { dispatch, list } from '../shared/cc-daemon/ops'
+import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import type { ListResponse } from '../shared/cc-daemon/types'
 import { attachWithRetry } from './attach-retry'
 import type { DaemonMode } from './cli-args'
-import { type InMemoryBroker, parseBackgroundShort, type SmokeLogger } from './launch-smoke'
+import type { InMemoryBroker, SmokeLogger } from './launch-smoke'
 import { type DaemonSessionObserver, observeDaemonSession } from './session-observer'
 import { createTranscriptBridge, type TranscriptBridge } from './transcript-bridge'
 
@@ -26,35 +29,47 @@ const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 
 // ---------------------------------------------------------------------------
-// dispatchClaudeBgWorker -- run `claude --bg` and capture the worker short id.
-// The single canonical `claude --bg` dispatch path: the smoke harness and the
-// staging daemon-e2e test both call this rather than re-spawning the CLI.
+// dispatchDaemonWorker -- dispatch a worker via the cc-daemon socket op.
+// The single canonical dispatch path: the smoke harness and the staging
+// daemon-e2e test both call this. Transport-reframe Phase 4 -- it dogfoods the
+// exact `buildDispatchSpec` + `dispatch()` socket path the sentinel runs in
+// production (replacing the legacy `claude --bg` shell-out).
 // ---------------------------------------------------------------------------
 
 export interface DispatchOptions {
   /** Worker cwd -- a bare temp dir keeps the probe cheap. */
   cwd: string
-  /** `claude --bg --name` value (a `cw-smoke-*` probe tag). */
+  /** Conversation name -- slugified into the DispatchSpec `seed.name`. */
   name: string
   /** The first-turn prompt. */
   prompt: string
   /** Model id (Haiku for the protocol smoke). */
   model: string
-  /** When set, `claude --bg --resume <resumeFrom>` -- forks a fresh session. */
+  /** When set, RESUME mode resumes this session id (fork:true, per the spike). */
   resumeFrom?: string
 }
 
-/** Dispatch a `claude --bg` worker; resolve its captured 8-hex short id. */
-export async function dispatchClaudeBgWorker(opts: DispatchOptions): Promise<string> {
-  const args = ['--bg', '--model', opts.model, '--name', opts.name]
-  if (opts.resumeFrom) args.push('--resume', opts.resumeFrom)
-  args.push(opts.prompt)
-  const proc = Bun.spawn(['claude', ...args], { cwd: opts.cwd, env: process.env, stdout: 'pipe', stderr: 'pipe' })
-  const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-  await proc.exited
-  const short = parseBackgroundShort(`${out}${err}`)
-  if (!short) throw new Error(`claude --bg printed no short id: ${`${out}${err}`.slice(0, 300)}`)
-  return short
+/**
+ * Dispatch a daemon worker via the socket `dispatch` op; resolve its 8-hex
+ * short id (the minted short, echoed by the daemon). Throws if no daemon
+ * control socket is reachable or the dispatch op fails.
+ */
+export async function dispatchDaemonWorker(opts: DispatchOptions): Promise<string> {
+  const sock = resolveControlSocket()
+  if (!sock) throw new Error('dispatchDaemonWorker: no Claude Code daemon control socket reachable')
+  const spec = buildDispatchSpec({
+    mode: opts.resumeFrom ? 'resume' : 'new',
+    short: randomBytes(4).toString('hex'),
+    nonce: randomBytes(4).toString('hex'),
+    sessionId: randomBytes(16).toString('hex'),
+    cwd: opts.cwd,
+    prompt: opts.prompt,
+    resumeSessionId: opts.resumeFrom,
+    model: opts.model,
+    name: opts.name,
+  })
+  const resp = await dispatch(sock, spec)
+  return resp.short
 }
 
 // ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@
 import { appendFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { dispatchClaudeBgWorker, fetchJobState } from '../src/daemon-agent-host/launch-smoke-mirror'
+import { dispatchDaemonWorker, fetchJobState } from '../src/daemon-agent-host/launch-smoke-mirror'
 import { request } from '../src/shared/cc-daemon/client'
 import { list, ping, reply } from '../src/shared/cc-daemon/ops'
 import { resolveControlSocket } from '../src/shared/cc-daemon/socket-path'
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   const cwd5 = mkdtempSync(join(tmpdir(), 'spike-perm-'))
   logBoth(`probe cwd: ${cwd5}`)
 
-  const short5 = await dispatchClaudeBgWorker({
+  const short5 = await dispatchDaemonWorker({
     cwd: cwd5,
     name: `spike-perm-${Math.random().toString(16).slice(2, 8)}`,
     // A prompt that requires a tool with a permission gate. /etc/test.txt
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
   header('Spike 6: reply ENOREPLY boundary')
 
   const cwd6 = mkdtempSync(join(tmpdir(), 'spike-reply-'))
-  const short6 = await dispatchClaudeBgWorker({
+  const short6 = await dispatchDaemonWorker({
     cwd: cwd6,
     name: `spike-reply-${Math.random().toString(16).slice(2, 8)}`,
     prompt: 'Count from 1 to 5 slowly, one number per line. Then say done.',

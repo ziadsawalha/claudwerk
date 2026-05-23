@@ -2,47 +2,76 @@
  * Pure helpers for the sentinel's daemon-worker dispatch path.
  *
  * `index.ts` boots the sentinel on import, so the side-effect-free decisions of
- * the daemon launch flow -- the `claude --bg` argv assembly, the short-id
- * capture, the per-spawn env merge, the settings/mcp path validation, and the
- * ATTACH-mode presence check -- are extracted here so they are unit-testable
- * without launching anything. `index.ts` keeps the actual `Bun.spawn` / socket
- * I/O and calls into these functions.
+ * the daemon launch flow -- the `DispatchSpec` assembly, the per-spawn env
+ * bundle, the settings/mcp path validation, and the ATTACH-mode presence check
+ * -- are extracted here so they are unit-testable without launching anything.
+ * `index.ts` keeps the actual socket I/O (`dispatch()`) and calls into these.
+ *
+ * TRANSPORT REFRAME PHASE 4: NEW/RESUME no longer shell out to `claude --bg`.
+ * The sentinel mints the worker identity (short / nonce / sessionId) and sends
+ * a typed `DispatchSpec` over the daemon control socket (`source:'fleet'`).
+ * The dispatch op is live-verified -- promptless dispatch, `--model` and the
+ * other claude flags ride in `launch.args`, and the dispatch-supplied
+ * `sessionId` becomes the worker's ccSessionId (see
+ * `scripts/spike-dispatch-phase4.ts` + plan § 7.1 / § 5 Phase 4).
  *
  * See `.claude/docs/plan-daemon-launch-ux.md` Section 5.2 (the three-mode
- * dispatch table) and Section 8 (the live spike findings).
+ * dispatch table) and `.claude/docs/cc-daemon-control-protocol.md` § 3 / § 5.5
+ * (the dispatch op + the DispatchSpec wire shape).
  */
-import type { DaemonResponse } from '../shared/cc-daemon/types'
+import type { DaemonResponse, DispatchLaunch, DispatchSpec } from '../shared/cc-daemon/types'
 
 /** Daemon launch mode. ATTACH never dispatches a worker. */
 export type DaemonLaunchMode = 'new' | 'resume' | 'attach'
 
-/** The two modes that run `claude --bg` (and so accept config injection). */
+/** The two modes that dispatch a worker (and so accept config injection). */
 export type DaemonDispatchMode = 'new' | 'resume'
 
-/** Whether a launch mode dispatches a worker via `claude --bg`. ATTACH does not. */
+/**
+ * RESUME fork policy. Phase 4 live spike (`scripts/spike-dispatch-phase4.ts`)
+ * DECISION: claudewerk resumes with `fork:true` -- a faithful 1:1 cutover of
+ * the legacy `claude --bg --resume` always-fork semantics that the production
+ * session-observer + transcript-bridge and the smoke harness's RESUME
+ * continuity assertion already rely on. The fork flag does NOT change the
+ * worker's reported sessionId (claudewerk supplies it in the dispatch either
+ * way), so the original fork:false "preserved sessionId" motivation is moot.
+ * `fork:false` (in-place continuation) stays available in the DispatchSpec type
+ * for a future dedicated continuity spike.
+ */
+const RESUME_FORK = true
+
+/** Whether a launch mode dispatches a worker. ATTACH does not. */
 export function modeDispatchesWorker(mode: DaemonLaunchMode): boolean {
   return mode !== 'attach'
 }
 
 /**
- * Slugify a conversation name into a `cw-`-prefixed `claude --bg --name` value.
- * Non-alphanumeric runs collapse to a single hyphen; capped at 40 chars.
+ * Slugify a conversation name into a `cw-`-prefixed daemon job name (rides into
+ * the DispatchSpec `seed.name`, surfacing on the JobRecord + `claude agents`
+ * UI). Non-alphanumeric runs collapse to a single hyphen; capped at 40 chars.
  */
 export function daemonJobName(name: string): string {
   return `cw-${name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40)}`
 }
 
-export interface DaemonDispatchArgsOpts {
+export interface DispatchSpecOpts {
   /** Launch mode -- 'new' or 'resume'. ATTACH must not reach this builder. */
   mode: DaemonDispatchMode
-  /** Initial prompt. REQUIRED for new (caller validates); OPTIONAL for resume
-   *  -- `claude --bg --resume` re-opens the session, a prompt is the first turn. */
+  /** 8-hex worker short id, minted by the caller. */
+  short: string
+  /** 8-hex client nonce, minted by the caller. */
+  nonce: string
+  /** The worker's ccSessionId -- minted (32-hex) by the caller for a NEW/RESUME dispatch. */
+  sessionId: string
+  /** Worker cwd. */
+  cwd: string
+  /** Initial prompt. REQUIRED for new (caller validates); OPTIONAL for resume. */
   prompt?: string
-  /** Daemon session id to fork from -- `claude --bg --resume <id>`. RESUME only. */
+  /** Daemon session id to resume from. RESUME only. */
   resumeSessionId?: string
-  /** Model -- `--model <model>`. */
+  /** Model -- `--model <model>` in the worker argv. */
   model?: string
-  /** Conversation name -- slugified into `--name cw-<slug>`. */
+  /** Conversation name -- slugified into `seed.name`. */
   name?: string
   /** Absolute path to a settings JSON -- `--settings <path>`. */
   settingsPath?: string
@@ -50,67 +79,76 @@ export interface DaemonDispatchArgsOpts {
   mcpConfigPath?: string
   /** Text appended to the system prompt -- `--append-system-prompt <text>`. */
   appendSystemPrompt?: string
+  /** Worker env delta (profile env + per-spawn env + CLAUDE_CONFIG_DIR). The
+   *  daemon applies it over its own base env -- pass only the deltas. */
+  env?: Record<string, string>
 }
 
 /**
- * Assemble the `claude --bg` argv for a NEW or RESUME daemon dispatch. Pure --
- * no I/O. Flag order mirrors the plan's Section 5.2 table:
+ * Assemble the worker `claude` flag argv (NO prompt, NO --resume). The daemon
+ * adds `--resume <sessionId>` itself for resume mode and reuses these flags on
+ * respawn. Flag order mirrors the legacy `claude --bg` builder:
  *
- *   claude --bg [--resume <id>] [--model <m>] [--name cw-<slug>]
- *               [--settings <path>] [--mcp-config <path>]
- *               [--append-system-prompt <text>] [<prompt>]
- *
- * The prompt is appended last (CC treats the trailing positional as the initial
- * turn). RESUME's prompt is optional -- only pushed when it has non-whitespace
- * content. NEW's prompt is required; the caller validates it before dispatch.
+ *   [--model <m>] [--settings <path>] [--mcp-config <path>] [--append-system-prompt <text>]
  */
-export function buildDaemonDispatchArgs(opts: DaemonDispatchArgsOpts): string[] {
+function buildWorkerFlags(opts: DispatchSpecOpts): string[] {
+  const flags: string[] = []
+  const push = (flag: string, value: string | undefined): void => {
+    if (value) flags.push(flag, value)
+  }
+  push('--model', opts.model)
+  push('--settings', opts.settingsPath)
+  push('--mcp-config', opts.mcpConfigPath)
+  push('--append-system-prompt', opts.appendSystemPrompt)
+  return flags
+}
+
+/** Append the prompt as a trailing positional when it has non-whitespace content. */
+function withPrompt(flags: string[], prompt: string | undefined): string[] {
+  return prompt?.trim() ? [...flags, prompt] : [...flags]
+}
+
+/** Build the `launch` discriminator: resume (fork:true) or fresh prompt. */
+function buildLaunch(opts: DispatchSpecOpts, flags: string[]): DispatchLaunch {
+  const args = withPrompt(flags, opts.prompt)
+  if (opts.mode === 'resume') {
+    return { mode: 'resume', sessionId: opts.resumeSessionId as string, fork: RESUME_FORK, flagArgs: args }
+  }
+  return { mode: 'prompt', args }
+}
+
+/** Build the `seed` metadata: the prompt as intent (with a mode-specific fallback) + the slugified name. */
+function buildSeed(opts: DispatchSpecOpts): { intent: string; name?: string } {
+  const intent = opts.prompt?.trim() || (opts.mode === 'resume' ? 'resume' : 'claudewerk')
+  const name = opts.name ? daemonJobName(opts.name) : undefined
+  return name ? { intent, name } : { intent }
+}
+
+/**
+ * Assemble the `DispatchSpec` for a NEW or RESUME daemon dispatch. Pure -- no
+ * I/O. `source:'fleet'` marks claudewerk provenance (not shell/slash/spare/
+ * respawn). The worker `claude` flags ride in `launch.args` (NEW) /
+ * `launch.flagArgs` (RESUME) with the prompt as the trailing positional; the
+ * same flags ride in `respawnFlags` so a daemon respawn re-applies them.
+ */
+export function buildDispatchSpec(opts: DispatchSpecOpts): DispatchSpec {
   if (opts.mode === 'resume' && !opts.resumeSessionId?.trim()) {
-    throw new Error('buildDaemonDispatchArgs: resume mode requires a non-empty resumeSessionId')
+    throw new Error('buildDispatchSpec: resume mode requires a non-empty resumeSessionId')
   }
-  const args = ['claude', '--bg']
-  /** Append `flag value` only when the value is a non-empty string. */
-  const pushFlag = (flag: string, value: string | undefined): void => {
-    if (value) args.push(flag, value)
+  const flags = buildWorkerFlags(opts)
+  return {
+    short: opts.short,
+    nonce: opts.nonce,
+    sessionId: opts.sessionId,
+    createdAt: Date.now(),
+    source: 'fleet',
+    cwd: opts.cwd,
+    launch: buildLaunch(opts, flags),
+    env: opts.env ?? {},
+    isolation: 'none',
+    respawnFlags: flags,
+    seed: buildSeed(opts),
   }
-  pushFlag('--resume', opts.mode === 'resume' ? opts.resumeSessionId : undefined)
-  pushFlag('--model', opts.model)
-  pushFlag('--name', opts.name ? daemonJobName(opts.name) : undefined)
-  pushFlag('--settings', opts.settingsPath)
-  pushFlag('--mcp-config', opts.mcpConfigPath)
-  pushFlag('--append-system-prompt', opts.appendSystemPrompt)
-  // Prompt is the trailing positional. RESUME's prompt is optional.
-  if (opts.prompt?.trim()) args.push(opts.prompt)
-  return args
-}
-
-/**
- * Match ANSI SGR sequences without the literal ESC control char (which trips
- * biome's noControlCharactersInRegex). The stray ESC left behind is harmless --
- * the consumer matches across it with `\W`.
- */
-const DAEMON_ANSI_RE = /\[[0-9;]*m/g
-
-/**
- * Capture the 8-hex daemon job short id from `claude --bg` output. CC prints a
- * `backgrounded - <8hex>` line on success (NEW and RESUME both print it).
- * Returns `null` if no short id is present.
- */
-export function parseDaemonShort(output: string): string | null {
-  const match = output.replace(DAEMON_ANSI_RE, '').match(/backgrounded\s+\W+\s*([0-9a-f]{8})/)
-  return match ? match[1] : null
-}
-
-/**
- * Merge per-spawn env vars over the sentinel's base env for the `claude --bg`
- * worker process. The WORKER process -- not just the daemon-host -- needs them,
- * so this merge happens at the `claude --bg` `Bun.spawn` call site.
- */
-export function mergeDaemonWorkerEnv(
-  base: Record<string, string | undefined>,
-  extra?: Record<string, string>,
-): Record<string, string | undefined> {
-  return extra ? { ...base, ...extra } : { ...base }
 }
 
 /** Outcome of a pre-dispatch / pre-attach validation -- ok, or a fail reason. */

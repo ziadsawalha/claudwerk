@@ -1,89 +1,119 @@
 import { describe, expect, it } from 'bun:test'
 import type { DaemonResponse } from '../shared/cc-daemon/types'
 import {
-  buildDaemonDispatchArgs,
+  buildDispatchSpec,
+  type DispatchSpecOpts,
   daemonJobName,
   evaluateAttachPresence,
-  mergeDaemonWorkerEnv,
   modeDispatchesWorker,
-  parseDaemonShort,
   validateDaemonConfigPaths,
 } from './daemon-dispatch'
 
-/** ANSI ESC -- built via charCode so no literal control byte lands in source. */
-const ESC = String.fromCharCode(27)
+/** Minted worker identity shared by the buildDispatchSpec cases. */
+const ID = { short: 'cb2892db', nonce: '08c8b601', sessionId: 'df140babfa311efb1c4c30f77e6d231d' }
 
-describe('buildDaemonDispatchArgs -- NEW mode', () => {
-  it('assembles a bare new dispatch as `claude --bg <prompt>`', () => {
-    expect(buildDaemonDispatchArgs({ mode: 'new', prompt: 'do the thing' })).toEqual(['claude', '--bg', 'do the thing'])
+function specOpts(overrides: Partial<DispatchSpecOpts> = {}): DispatchSpecOpts {
+  return { mode: 'new', ...ID, cwd: '/tmp/probe', ...overrides }
+}
+
+describe('buildDispatchSpec -- common fields', () => {
+  it('stamps source:fleet, isolation:none, and the minted identity', () => {
+    const spec = buildDispatchSpec(specOpts({ prompt: 'do the thing' }))
+    expect(spec.source).toBe('fleet')
+    expect(spec.isolation).toBe('none')
+    expect(spec.short).toBe(ID.short)
+    expect(spec.nonce).toBe(ID.nonce)
+    expect(spec.sessionId).toBe(ID.sessionId)
+    expect(spec.cwd).toBe('/tmp/probe')
+    expect(typeof spec.createdAt).toBe('number')
   })
 
-  it('injects --model/--name/--settings/--mcp-config/--append-system-prompt in order, prompt last', () => {
-    expect(
-      buildDaemonDispatchArgs({
-        mode: 'new',
+  it('passes the worker env delta through verbatim (defaults to {})', () => {
+    expect(buildDispatchSpec(specOpts({ prompt: 'x' })).env).toEqual({})
+    expect(buildDispatchSpec(specOpts({ prompt: 'x', env: { CLAUDE_CONFIG_DIR: '/d' } })).env).toEqual({
+      CLAUDE_CONFIG_DIR: '/d',
+    })
+  })
+})
+
+describe('buildDispatchSpec -- NEW mode', () => {
+  it('puts a bare prompt as the only launch.args element', () => {
+    const spec = buildDispatchSpec(specOpts({ prompt: 'do the thing' }))
+    expect(spec.launch).toEqual({ mode: 'prompt', args: ['do the thing'] })
+    expect(spec.respawnFlags).toEqual([])
+  })
+
+  it('orders --model/--settings/--mcp-config/--append-system-prompt flags before the prompt', () => {
+    const spec = buildDispatchSpec(
+      specOpts({
         prompt: 'go',
         model: 'claude-haiku-4-5-20251001',
-        name: 'My Conv',
         settingsPath: '/abs/settings.json',
         mcpConfigPath: '/abs/mcp.json',
         appendSystemPrompt: 'reply PROBE-OK',
       }),
-    ).toEqual([
-      'claude',
-      '--bg',
+    )
+    const flags = [
       '--model',
       'claude-haiku-4-5-20251001',
-      '--name',
-      'cw-My-Conv',
       '--settings',
       '/abs/settings.json',
       '--mcp-config',
       '/abs/mcp.json',
       '--append-system-prompt',
       'reply PROBE-OK',
-      'go',
-    ])
+    ]
+    expect(spec.launch).toEqual({ mode: 'prompt', args: [...flags, 'go'] })
+    // respawnFlags are the flags WITHOUT the prompt (reused on respawn).
+    expect(spec.respawnFlags).toEqual(flags)
   })
 
-  it('omits flags that are not supplied', () => {
-    expect(buildDaemonDispatchArgs({ mode: 'new', prompt: 'go', model: 'm' })).toEqual([
-      'claude',
-      '--bg',
-      '--model',
-      'm',
-      'go',
-    ])
+  it('supports a PROMPTLESS dispatch -- empty launch.args when no prompt', () => {
+    const spec = buildDispatchSpec(specOpts({ model: 'm' }))
+    expect(spec.launch).toEqual({ mode: 'prompt', args: ['--model', 'm'] })
+  })
+
+  it('treats a whitespace-only prompt as absent', () => {
+    const spec = buildDispatchSpec(specOpts({ prompt: '   ', model: 'm' }))
+    expect(spec.launch).toEqual({ mode: 'prompt', args: ['--model', 'm'] })
+  })
+
+  it('derives seed.name from the conversation name and seed.intent from the prompt', () => {
+    const spec = buildDispatchSpec(specOpts({ prompt: 'go', name: 'My Conv' }))
+    expect(spec.seed).toEqual({ intent: 'go', name: 'cw-My-Conv' })
+  })
+
+  it('defaults seed.intent to claudewerk for a promptless NEW dispatch with no name', () => {
+    expect(buildDispatchSpec(specOpts()).seed).toEqual({ intent: 'claudewerk' })
   })
 })
 
-describe('buildDaemonDispatchArgs -- RESUME mode', () => {
-  it('emits `--resume <sessionId>` before the other flags', () => {
-    expect(
-      buildDaemonDispatchArgs({ mode: 'resume', resumeSessionId: '27dc07b0-cafe', model: 'm', prompt: 'next turn' }),
-    ).toEqual(['claude', '--bg', '--resume', '27dc07b0-cafe', '--model', 'm', 'next turn'])
+describe('buildDispatchSpec -- RESUME mode', () => {
+  it('emits a resume launch with fork:true and the flags in flagArgs', () => {
+    const spec = buildDispatchSpec(
+      specOpts({ mode: 'resume', resumeSessionId: '27dc07b0-cafe', model: 'm', prompt: 'next turn' }),
+    )
+    expect(spec.launch).toEqual({
+      mode: 'resume',
+      sessionId: '27dc07b0-cafe',
+      fork: true,
+      flagArgs: ['--model', 'm', 'next turn'],
+    })
   })
 
-  it('treats the prompt as optional -- a resume without a prompt drops the trailing positional', () => {
-    expect(buildDaemonDispatchArgs({ mode: 'resume', resumeSessionId: 'sess-1' })).toEqual([
-      'claude',
-      '--bg',
-      '--resume',
-      'sess-1',
-    ])
+  it('drops the trailing prompt positional when resume has no prompt', () => {
+    const spec = buildDispatchSpec(specOpts({ mode: 'resume', resumeSessionId: 'sess-1', model: 'm' }))
+    expect(spec.launch).toEqual({ mode: 'resume', sessionId: 'sess-1', fork: true, flagArgs: ['--model', 'm'] })
   })
 
-  it('treats a whitespace-only prompt as absent (resume)', () => {
-    expect(buildDaemonDispatchArgs({ mode: 'resume', resumeSessionId: 'sess-1', prompt: '   ' })).toEqual([
-      'claude',
-      '--bg',
-      '--resume',
-      'sess-1',
-    ])
+  it('defaults seed.intent to resume when a resume carries no prompt', () => {
+    expect(buildDispatchSpec(specOpts({ mode: 'resume', resumeSessionId: 'sess-1' })).seed).toEqual({
+      intent: 'resume',
+    })
   })
 
   it('throws when resume mode has no resumeSessionId', () => {
-    expect(() => buildDaemonDispatchArgs({ mode: 'resume', prompt: 'x' })).toThrow(/resume mode requires/)
+    expect(() => buildDispatchSpec(specOpts({ mode: 'resume', prompt: 'x' }))).toThrow(/resume mode requires/)
   })
 })
 
@@ -94,39 +124,6 @@ describe('daemonJobName', () => {
 
   it('caps the slug at 40 chars', () => {
     expect(daemonJobName('a'.repeat(100)).length).toBe(43) // 'cw-' + 40
-  })
-})
-
-describe('parseDaemonShort', () => {
-  it('captures the 8-hex short from a `backgrounded` line', () => {
-    expect(parseDaemonShort('backgrounded - aeb185f9')).toBe('aeb185f9')
-  })
-
-  it('strips ANSI SGR colour codes around the separator and captures the bare short', () => {
-    // claude --bg styles the `-` separator; the 8-hex short id is printed bare.
-    const line = `backgrounded ${ESC}[2m-${ESC}[22m 9647c9a0`
-    expect(parseDaemonShort(line)).toBe('9647c9a0')
-  })
-
-  it('returns null when no short id is present', () => {
-    expect(parseDaemonShort('error: claude --bg failed')).toBeNull()
-  })
-})
-
-describe('mergeDaemonWorkerEnv', () => {
-  it('merges per-spawn env over the base env', () => {
-    expect(mergeDaemonWorkerEnv({ A: '1' }, { B: '2' })).toEqual({ A: '1', B: '2' })
-  })
-
-  it('lets per-spawn env override a base key', () => {
-    expect(mergeDaemonWorkerEnv({ A: '1' }, { A: '2' })).toEqual({ A: '2' })
-  })
-
-  it('returns a copy of the base when no extra env is supplied', () => {
-    const base = { A: '1' }
-    const merged = mergeDaemonWorkerEnv(base)
-    expect(merged).toEqual({ A: '1' })
-    expect(merged).not.toBe(base)
   })
 })
 
@@ -177,7 +174,7 @@ describe('evaluateAttachPresence -- ATTACH short-circuit gate', () => {
   })
 })
 
-describe('modeDispatchesWorker -- which modes run claude --bg', () => {
+describe('modeDispatchesWorker -- which modes dispatch a worker', () => {
   it('NEW and RESUME dispatch a worker', () => {
     expect(modeDispatchesWorker('new')).toBe(true)
     expect(modeDispatchesWorker('resume')).toBe(true)

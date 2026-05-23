@@ -123,7 +123,88 @@ export interface AttachAck extends DaemonOk {
   state: string
 }
 
-// The socket `dispatch` op's `DispatchSpec` (`nJ6` in the 2.1.143 binary) is a
-// Phase 3 concern -- Phase 2 dispatches workers via `claude --bg`. The full
-// recovered schema is documented in plan-claude-agents-integration.md section
-// 13; the typed `DispatchSpec` interface lands when the `dispatch` op is built.
+/**
+ * The `launch` discriminator of a `DispatchSpec` -- how the daemon starts the
+ * worker process.
+ *
+ * - `prompt`: a fresh worker. `args` is the worker's `claude` argv -- flags
+ *   (`--model`, `--settings`, `--mcp-config`, `--append-system-prompt`) first,
+ *   the initial-turn prompt as the trailing positional. An empty `args` is a
+ *   PROMPTLESS dispatch (live-verified 2026-05-23, CC 2.1.148/2.1.150).
+ * - `resume`: re-open `sessionId`. `fork` selects the legacy
+ *   `claude --bg --resume` fork-to-fresh semantics (`true`) vs in-place
+ *   continuation (`false`). `flagArgs` carries the worker flags (no prompt).
+ * - `exec`: run an arbitrary `cmd`+`args` under daemon supervision (not a
+ *   `claude` worker). Not used by claudewerk today; in the spec for completeness.
+ */
+export type DispatchLaunch =
+  | { mode: 'prompt'; args: string[] }
+  | { mode: 'resume'; sessionId: string; fork: boolean; flagArgs: string[] }
+  | { mode: 'exec'; cmd: string; args: string[] }
+
+/** Provenance of a dispatch. Claudewerk stamps `fleet` (not shell/slash/spare/respawn). */
+export type DispatchSource = 'shell' | 'slash' | 'fleet' | 'spare' | 'respawn'
+
+/**
+ * The `d` payload of the socket `dispatch` op. Field-for-field from the
+ * 2.1.145 binary schema (protocol doc § 5.5), live-verified end-to-end against
+ * 2.1.148/2.1.150 (`scripts/spike-dispatch-op.ts`,
+ * `scripts/spike-dispatch-phase4.ts`). The client stamps the inner `proto`.
+ *
+ * `short`/`nonce`/the resumed `sessionId` are 8/8/32-hex; `short` and `nonce`
+ * match `/^[a-f0-9]{8}$/`. The top-level `sessionId` BECOMES the worker's
+ * ccSessionId (its transcript is written to `<slug>/<sessionId>.jsonl`), so
+ * claudewerk mints it for a NEW dispatch -- it is deterministic, not
+ * daemon-assigned.
+ */
+export interface DispatchSpec {
+  /** 8-hex worker short id. Claudewerk mints it (the daemon no longer prints it). */
+  short: string
+  /** 8-hex client nonce. The daemon redispatches with the same nonce on ack-timeout. */
+  nonce?: string
+  /** The worker's ccSessionId. 32-hex random for a NEW dispatch. */
+  sessionId: string
+  /** Unix ms. */
+  createdAt: number
+  /** Dispatch provenance. Claudewerk stamps `fleet`. */
+  source: DispatchSource
+  /** Worker cwd -- also the transcript-slug source. */
+  cwd: string
+  /** How to start the worker (prompt / resume / exec). */
+  launch: DispatchLaunch
+  /** Env for the worker process. Defaults daemon-side to `{}`. */
+  env: Record<string, string>
+  /** Env applied on reattach/respawn, if it must differ from `env`. */
+  reattachEnv?: Record<string, string>
+  /** Worktree isolation target -- `ownershipToken` gates concurrent adoption. */
+  worktree?: { path: string; ownershipToken: string }
+  /** Worktree isolation mode. Defaults daemon-side to `none`. */
+  isolation: 'none' | 'worktree'
+  /** Flags reused when the daemon respawns the worker (no prompt). */
+  respawnFlags: string[]
+  /** Per-dispatch override of the attach-stall respawn count. */
+  attachStallRespawns?: number
+  /** Sub-agent kind -- surfaces on JobRecord.agent. */
+  agent?: string
+  /** Routine label -- surfaces on JobRecord.routine. */
+  routine?: string
+  /** Seed metadata -- `intent`/`name` surface on the JobRecord + `claude agents` UI. */
+  seed?: { intent: string; name?: string }
+  /** Initial PTY columns (int, max 10000). */
+  cols?: number
+  /** Initial PTY rows (int, max 10000). */
+  rows?: number
+}
+
+/**
+ * Successful `dispatch` response. `messagingSock` is `""` in practice (the
+ * cross-session teammate channel, not written for an ordinary spawn); `via` is
+ * `spare` (claimed a pre-warmed worker) or `cold` (started fresh).
+ */
+export interface DispatchResponse extends DaemonOk {
+  op: 'dispatch'
+  short: string
+  pid: number
+  messagingSock: string
+  via: string
+}

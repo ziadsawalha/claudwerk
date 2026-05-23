@@ -20,10 +20,10 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { dispatchDaemonWorker } from '../src/daemon-agent-host/launch-smoke-mirror'
 import { request } from '../src/shared/cc-daemon/client'
 import { list, ping } from '../src/shared/cc-daemon/ops'
 import { resolveControlSocket } from '../src/shared/cc-daemon/socket-path'
-import { dispatchClaudeBgWorker } from '../src/daemon-agent-host/launch-smoke-mirror'
 
 const HAIKU = 'claude-haiku-4-5-20251001'
 const FINDINGS = join(import.meta.dir, 'spike-dispatch-findings.md')
@@ -71,7 +71,7 @@ async function ensureDaemon(): Promise<string> {
   if (sock) return sock
   logBoth('No daemon control socket -- dispatching a kick-start worker to wake the supervisor.')
   const tmpCwd = mkdtempSync(join(tmpdir(), 'dispatch-spike-kickstart-'))
-  const short = await dispatchClaudeBgWorker({
+  const short = await dispatchDaemonWorker({
     cwd: tmpCwd,
     name: `dispatch-spike-kickstart-${mintShort()}`,
     prompt: 'reply OK',
@@ -134,7 +134,10 @@ function dispatchSpecBase(opts: { cwd: string; sessionId?: string }): Record<str
 }
 
 async function main(): Promise<void> {
-  writeFileSync(FINDINGS, `# Spike: dispatch op -- ${new Date().toISOString()}\n\nLive recon against the running daemon. Pattern: each probe dispatches a Haiku worker (or attempts to), then \`claude rm\`s it in finally.\n`)
+  writeFileSync(
+    FINDINGS,
+    `# Spike: dispatch op -- ${new Date().toISOString()}\n\nLive recon against the running daemon. Pattern: each probe dispatches a Haiku worker (or attempts to), then \`claude rm\`s it in finally.\n`,
+  )
   const sock = await ensureDaemon()
   const versionResp = await ping(sock)
   logBoth(`daemon ping: ${JSON.stringify(versionResp)}`)
@@ -190,7 +193,7 @@ async function main(): Promise<void> {
   {
     // First spawn a small worker so we have a sessionId to resume from.
     const seedCwd = mkdtempSync(join(tmpdir(), 'dispatch-spike-p4-seed-'))
-    const seedShort = await dispatchClaudeBgWorker({
+    const seedShort = await dispatchDaemonWorker({
       cwd: seedCwd,
       name: `dispatch-spike-p4-seed-${mintShort()}`,
       prompt: 'reply SEED-OK',

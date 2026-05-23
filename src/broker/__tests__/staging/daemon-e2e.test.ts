@@ -27,7 +27,7 @@ import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath } from 'node:path'
-import { dispatchClaudeBgWorker } from '../../../daemon-agent-host/launch-smoke-mirror'
+import { dispatchDaemonWorker } from '../../../daemon-agent-host/launch-smoke-mirror'
 import { resolveControlSocket } from '../../../shared/cc-daemon/socket-path'
 import {
   cleanup,
@@ -88,10 +88,10 @@ run('daemon-host e2e', () => {
     await waitForMessage(dashboard, 'conversations_list')
     const conversationId = testId('dm-conv')
 
-    // Play the sentinel's NEW-mode dispatch: claude --bg -> capture short.
+    // Play the sentinel's NEW-mode dispatch: socket dispatch op -> mint short.
     const cwd = mkdtempSync(join(tmpdir(), 'daemon-e2e-'))
     tempDirs.push(cwd)
-    const short = await dispatchClaudeBgWorker({
+    const short = await dispatchDaemonWorker({
       cwd,
       name: `cw-e2e-${conversationId.slice(-8)}`,
       prompt: PROBE,

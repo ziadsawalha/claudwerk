@@ -9,10 +9,10 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { dispatchDaemonWorker } from '../src/daemon-agent-host/launch-smoke-mirror'
 import { request } from '../src/shared/cc-daemon/client'
 import { list, ping } from '../src/shared/cc-daemon/ops'
 import { resolveControlSocket } from '../src/shared/cc-daemon/socket-path'
-import { dispatchClaudeBgWorker } from '../src/daemon-agent-host/launch-smoke-mirror'
 
 const HAIKU = 'claude-haiku-4-5-20251001'
 const FINDINGS = join(import.meta.dir, 'spike-dispatch-resume-findings.md')
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   // specifically.
   // -------------------------------------------------------------------
   const seedCwd = mkdtempSync(join(tmpdir(), 'resume-spike-seed-'))
-  const seedShort = await dispatchClaudeBgWorker({
+  const seedShort = await dispatchDaemonWorker({
     cwd: seedCwd,
     name: `resume-spike-seed-${randomBytes(4).toString('hex')}`,
     prompt: 'reply SEED-CODEWORD-WAFFLE-7392',

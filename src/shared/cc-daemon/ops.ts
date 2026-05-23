@@ -6,10 +6,18 @@
  * `respawnStale`, `lease`) drive Phase 2/3 remote control -- every request
  * shape here is recovered from the 2.1.143 daemon schema; `resize` is
  * additionally live-verified. The streaming ops live in their own modules
- * (`subscribe.ts`, `attach.ts`); the socket `dispatch` op is Phase 3.
+ * (`subscribe.ts`, `attach.ts`). The mutating socket `dispatch` op (+ its
+ * `await-ack` companion) is the canonical NEW/RESUME worker launch path
+ * (transport-reframe Phase 4) -- it replaces the `claude --bg` CLI shell-out.
  */
 import { request } from './client'
-import type { DaemonResponse, ListResponse } from './types'
+import {
+  CC_DAEMON_PROTO,
+  type DaemonResponse,
+  type DispatchResponse,
+  type DispatchSpec,
+  type ListResponse,
+} from './types'
 
 /** Liveness check. Not proto-gated -- always answers. */
 export function ping(sockPath: string): Promise<DaemonResponse> {
@@ -91,4 +99,42 @@ export function kill(sockPath: string, short: string, signal?: 'SIGTERM' | 'SIGK
  */
 export function respawnStale(sockPath: string, short: string): Promise<DaemonResponse> {
   return request(sockPath, { op: 'respawn-stale', short })
+}
+
+/**
+ * Dispatch a worker via the socket `dispatch` op -- the canonical NEW/RESUME
+ * launch path (transport-reframe Phase 4). The `spec` rides in `d`; the daemon
+ * runs an await-ack handshake and answers `{short, pid, messagingSock, via}`.
+ *
+ * GATED op: a CC-version protocol mismatch surfaces as `ProtocolMismatchError`
+ * (mapped in `client.request`). `timeoutMs` is the daemon's await-ack window
+ * (carried in the request body); the socket read is given a small margin on
+ * top so the client never gives up before the daemon answers.
+ *
+ * Mutating. Throws on any non-ok response.
+ */
+export async function dispatch(sockPath: string, spec: DispatchSpec, timeoutMs = 8000): Promise<DispatchResponse> {
+  const d = { proto: CC_DAEMON_PROTO, ...spec }
+  const resp = await request(sockPath, { op: 'dispatch', d, timeoutMs }, { timeoutMs: timeoutMs + 2000 })
+  if (resp.ok === false) {
+    throw new Error(`cc-daemon: dispatch failed: ${resp.error}${resp.code ? ` (${resp.code})` : ''}`)
+  }
+  return resp as DispatchResponse
+}
+
+/**
+ * Wait for a dispatched worker to ack. Companion to `dispatch` -- the daemon's
+ * recovery path re-checks `list` then redispatches with the same nonce if the
+ * job never acked. `nonce` is optional in the schema. GATED op.
+ */
+export function awaitAck(
+  sockPath: string,
+  short: string,
+  opts: { nonce?: string; timeoutMs?: number } = {},
+): Promise<DaemonResponse> {
+  const timeoutMs = opts.timeoutMs ?? 8000
+  const body = opts.nonce
+    ? { op: 'await-ack', short, nonce: opts.nonce, timeoutMs }
+    : { op: 'await-ack', short, timeoutMs }
+  return request(sockPath, body, { timeoutMs: timeoutMs + 2000 })
 }

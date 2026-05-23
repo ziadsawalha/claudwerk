@@ -6,10 +6,10 @@
  * Drives a REAL Claude Code daemon through all three launch modes end to end
  * and asserts the worker transcript mirrors into an in-memory broker:
  *
- *   NEW     `claude --bg "<prompt>"` -> attach -> mirror -> `reply` a turn -> kill
- *   RESUME  `claude --bg --resume <ccSessionId>` -> attach -> assert continuity
+ *   NEW     socket dispatch (prompt) -> attach -> mirror -> `reply` a turn -> kill
+ *   RESUME  socket dispatch (resume, fork:true) -> attach -> assert continuity
  *   ATTACH  dispatch a worker EXTERNALLY, then attach to its roster short with
- *           NO `claude --bg` of our own -> mirror
+ *           NO dispatch of our own -> mirror
  *
  * It dogfoods `cc-daemon` (ping/list/attach/reply/kill) and `daemon-agent-host`
  * (session-observer, attach-retry, transcript-bridge) -- the testable fixture
@@ -54,7 +54,7 @@ import {
   transcriptContainsText,
 } from '../src/daemon-agent-host/launch-smoke'
 import {
-  dispatchClaudeBgWorker,
+  dispatchDaemonWorker,
   fetchJobState,
   mirrorWorker,
   type WorkerMirror,
@@ -108,7 +108,7 @@ async function dispatchAndMirror(
 ): Promise<{ short: string; cwd: string; broker: InMemoryBroker; mirror: WorkerMirror }> {
   const cwd = mkProbeCwd(ctx.cleanup)
   ctx.log.detail(`probe cwd=${cwd} name=${opts.name}`)
-  const short = await dispatchClaudeBgWorker({
+  const short = await dispatchDaemonWorker({
     cwd,
     name: opts.name,
     prompt: opts.prompt,
@@ -116,7 +116,7 @@ async function dispatchAndMirror(
     resumeFrom: opts.resumeFrom,
   })
   ctx.cleanup.trackJob(short)
-  ctx.log.detail(`claude --bg dispatched worker short=${short}`)
+  ctx.log.detail(`socket dispatch -> worker short=${short}`)
   const broker = createInMemoryBroker(`smoke-${opts.mode}-${short}`)
   const mirror = await mirrorWorker({ controlSock: ctx.controlSock, short, mode: opts.mode, cwd, broker, log: ctx.log })
   ctx.log.detail(`attached: ccSessionId=${mirror.ccSessionId} attachState=${mirror.attachState}`)
@@ -136,7 +136,7 @@ async function assertJobStateObserved(ctx: SmokeContext, short: string, mirror: 
 
 /** Run the NEW-mode probe; returns the worker's ccSessionId for RESUME to fork. */
 async function runNewMode(ctx: SmokeContext): Promise<string> {
-  ctx.log.step('MODE 1/3: NEW -- claude --bg fresh dispatch -> attach -> reply -> kill')
+  ctx.log.step('MODE 1/3: NEW -- socket dispatch (prompt) -> attach -> reply -> kill')
   const codeword = `GIRAFFE-${randHex()}`
   const { short, broker, mirror } = await dispatchAndMirror(ctx, {
     mode: 'new',
@@ -172,8 +172,8 @@ async function runNewMode(ctx: SmokeContext): Promise<string> {
 
 /** Run the RESUME-mode probe -- forks from NEW's ccSessionId, asserts continuity. */
 async function runResumeMode(ctx: SmokeContext, resumeFrom: string): Promise<void> {
-  ctx.log.step('MODE 2/3: RESUME -- claude --bg --resume -> attach -> assert continuity')
-  ctx.log.detail(`resuming from ccSessionId=${resumeFrom} (the worker forks a FRESH id -- spike 1)`)
+  ctx.log.step('MODE 2/3: RESUME -- socket dispatch (resume, fork:true) -> attach -> assert continuity')
+  ctx.log.detail(`resuming from ccSessionId=${resumeFrom} (fork:true -> the worker forks a FRESH id)`)
   const { short, broker, mirror } = await dispatchAndMirror(ctx, {
     mode: 'resume',
     name: `cw-smoke-${randHex()}`,
@@ -209,7 +209,7 @@ async function runResumeMode(ctx: SmokeContext, resumeFrom: string): Promise<voi
 /** Run the ATTACH-mode probe -- attach to an externally-dispatched worker. */
 async function runAttachMode(ctx: SmokeContext): Promise<void> {
   ctx.log.step('MODE 3/3: ATTACH -- attach to an externally-dispatched worker')
-  ctx.log.detail('the claude --bg below simulates a non-claudewerk session; ATTACH itself never dispatches')
+  ctx.log.detail('the dispatch below simulates a non-claudewerk session; ATTACH itself never dispatches')
   const { short, broker, mirror } = await dispatchAndMirror(ctx, {
     mode: 'attach',
     name: `cw-smoke-ext-${randHex()}`,

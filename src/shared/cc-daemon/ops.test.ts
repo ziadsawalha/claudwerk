@@ -1,8 +1,25 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { ProtocolMismatchError, request } from './client'
 import { type FakeDaemon, startFakeDaemon } from './fake-daemon'
-import { has, kill, lease, leases, list, ping, reply, resize, respawnStale } from './ops'
-import { CC_DAEMON_PROTO } from './types'
+import { awaitAck, dispatch, has, kill, lease, leases, list, ping, reply, resize, respawnStale } from './ops'
+import { CC_DAEMON_PROTO, type DispatchSpec } from './types'
+
+/** A minimal NEW-mode DispatchSpec for the dispatch op tests. */
+function newSpec(overrides: Partial<DispatchSpec> = {}): DispatchSpec {
+  return {
+    short: 'cb2892db',
+    nonce: '08c8b601',
+    sessionId: 'df140babfa311efb1c4c30f77e6d231d',
+    createdAt: 1779519070513,
+    source: 'fleet',
+    cwd: '/tmp/probe',
+    launch: { mode: 'prompt', args: ['--model', 'm', 'do the thing'] },
+    env: {},
+    isolation: 'none',
+    respawnFlags: ['--model', 'm'],
+    ...overrides,
+  }
+}
 
 let daemon: FakeDaemon | undefined
 
@@ -132,6 +149,70 @@ describe('ops against a fake daemon', () => {
     })
     await respawnStale(daemon.sockPath, 'aeb185f9')
     expect(seen).toMatchObject({ op: 'respawn-stale', short: 'aeb185f9' })
+  })
+
+  it('dispatch wraps the spec in `d`, stamps the inner proto, and returns the response', async () => {
+    let seen: Record<string, unknown> | undefined
+    daemon = await startFakeDaemon((req, conn) => {
+      seen = req
+      conn.send({ ok: true, op: 'dispatch', short: 'cb2892db', pid: 57183, messagingSock: '', via: 'spare' })
+      conn.end()
+    })
+    const resp = await dispatch(daemon.sockPath, newSpec(), 8000)
+    expect(resp).toMatchObject({ ok: true, op: 'dispatch', short: 'cb2892db', pid: 57183, via: 'spare' })
+    expect(seen?.op).toBe('dispatch')
+    expect(seen?.timeoutMs).toBe(8000)
+    const d = seen?.d as Record<string, unknown>
+    expect(d.proto).toBe(CC_DAEMON_PROTO) // inner spec is proto-stamped too
+    expect(d.source).toBe('fleet')
+    expect(d.short).toBe('cb2892db')
+    expect(d.launch).toEqual({ mode: 'prompt', args: ['--model', 'm', 'do the thing'] })
+  })
+
+  it('dispatch carries a resume launch with fork:true (the legacy continuity semantics)', async () => {
+    let seen: Record<string, unknown> | undefined
+    daemon = await startFakeDaemon((req, conn) => {
+      seen = req
+      conn.send({ ok: true, op: 'dispatch', short: 'cb2892db', pid: 1, messagingSock: '', via: 'cold' })
+      conn.end()
+    })
+    await dispatch(
+      daemon.sockPath,
+      newSpec({ launch: { mode: 'resume', sessionId: 'seed-sess', fork: true, flagArgs: ['--model', 'm'] } }),
+    )
+    const d = seen?.d as Record<string, unknown>
+    expect(d.launch).toEqual({ mode: 'resume', sessionId: 'seed-sess', fork: true, flagArgs: ['--model', 'm'] })
+  })
+
+  it('dispatch throws on a not-ok response, surfacing the daemon code', async () => {
+    daemon = await startFakeDaemon((_req, conn) => {
+      conn.send({ ok: false, error: 'short-alive', code: 'EALIVE' })
+      conn.end()
+    })
+    expect(dispatch(daemon.sockPath, newSpec())).rejects.toThrow(/dispatch failed: short-alive \(EALIVE\)/)
+  })
+
+  it('awaitAck sends short + timeoutMs, omitting nonce when not given', async () => {
+    let seen: Record<string, unknown> | undefined
+    daemon = await startFakeDaemon((req, conn) => {
+      seen = req
+      conn.send({ ok: true, op: 'await-ack' })
+      conn.end()
+    })
+    await awaitAck(daemon.sockPath, 'cb2892db', { timeoutMs: 5000 })
+    expect(seen).toMatchObject({ op: 'await-ack', short: 'cb2892db', timeoutMs: 5000 })
+    expect(seen).not.toHaveProperty('nonce')
+  })
+
+  it('awaitAck passes the nonce through when given', async () => {
+    let seen: Record<string, unknown> | undefined
+    daemon = await startFakeDaemon((req, conn) => {
+      seen = req
+      conn.send({ ok: true, op: 'await-ack' })
+      conn.end()
+    })
+    await awaitAck(daemon.sockPath, 'cb2892db', { nonce: '08c8b601' })
+    expect(seen).toMatchObject({ op: 'await-ack', short: 'cb2892db', nonce: '08c8b601' })
   })
 
   it('maps an EPROTO error frame to ProtocolMismatchError', async () => {
