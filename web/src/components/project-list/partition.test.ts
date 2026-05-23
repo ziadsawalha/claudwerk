@@ -27,22 +27,22 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
 describe('partitionConversations', () => {
   it('returns empty arrays for empty input', () => {
     const result = partitionConversations([])
-    expect(result).toEqual({ adhoc: [], normal: [], ended: [] })
+    expect(result).toEqual({ worktrees: [], adhoc: [], normal: [], ended: [] })
   })
 
   it('routes conversations with ad-hoc capability into adhoc bucket', () => {
     const s = makeConversation({ id: 'a', capabilities: ['ad-hoc'] })
-    expect(partitionConversations([s])).toEqual({ adhoc: [s], normal: [], ended: [] })
+    expect(partitionConversations([s])).toEqual({ worktrees: [], adhoc: [s], normal: [], ended: [] })
   })
 
   it('routes conversations without ad-hoc capability into normal bucket', () => {
     const s = makeConversation({ id: 'n', capabilities: ['headless'] })
-    expect(partitionConversations([s])).toEqual({ adhoc: [], normal: [s], ended: [] })
+    expect(partitionConversations([s])).toEqual({ worktrees: [], adhoc: [], normal: [s], ended: [] })
   })
 
   it('treats missing capabilities as normal (not adhoc)', () => {
     const s = makeConversation({ id: 'm' })
-    expect(partitionConversations([s])).toEqual({ adhoc: [], normal: [s], ended: [] })
+    expect(partitionConversations([s])).toEqual({ worktrees: [], adhoc: [], normal: [s], ended: [] })
   })
 
   it('ended conversations appear in the ended bucket AND in adhoc/normal by capability', () => {
