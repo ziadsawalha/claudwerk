@@ -55,6 +55,8 @@ export interface DaemonControlDeps {
 export interface DaemonControl {
   /** Inject `text` into the worker as a turn (daemon `reply`). */
   reply(text: string): Promise<DaemonControlResult>
+  /** Switch the worker's model live via a `/model <name>` reply (spike 3b: works). */
+  setModel(model: string): Promise<DaemonControlResult>
   /** Terminate the worker (daemon `kill`). */
   kill(): Promise<DaemonControlResult>
   /** Respawn a sleep/wake-stale worker (daemon `respawn-stale`). */
@@ -97,6 +99,8 @@ export function createDaemonControl(deps: DaemonControlDeps): DaemonControl {
 
   return {
     reply: text => run('reply', () => ops.reply(controlSock, daemonShort, text), `inject turn (${text.length} chars)`),
+    setModel: model =>
+      run('set_model', () => ops.reply(controlSock, daemonShort, `/model ${model}`), `switch model -> ${model}`),
     kill: () => run('kill', () => ops.kill(controlSock, daemonShort), 'terminate worker'),
     respawnStale: () => run('respawn_stale', () => ops.respawnStale(controlSock, daemonShort), 'respawn stale worker'),
   }

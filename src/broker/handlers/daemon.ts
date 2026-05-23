@@ -27,6 +27,7 @@ import type {
   DaemonRunState,
   DaemonSessionRetired,
   DaemonStatePatch,
+  EffortChanged,
 } from '../../shared/protocol'
 import { DAEMON_META } from '../backends/claude-daemon'
 import { GuardError, type HandlerContext, type MessageHandler } from '../handler-context'
@@ -353,7 +354,15 @@ const daemonLaunchEvent: MessageHandler = (ctx, data) => {
 // ─── Phase G -- remote control (reply / kill / respawn-stale) ──────────────
 
 /** The four ops a DaemonControlResult can report on. */
-const DAEMON_CONTROL_OPS = new Set<DaemonControlResult['op']>(['reply', 'permission_response', 'kill', 'respawn_stale'])
+const DAEMON_CONTROL_OPS = new Set<DaemonControlResult['op']>([
+  'reply',
+  'permission_response',
+  'kill',
+  'respawn_stale',
+  'set_model',
+  'set_effort',
+  'interrupt',
+])
 
 /**
  * Validate + normalize a raw `daemon_control_result` wire payload. Returns
@@ -602,6 +611,43 @@ const daemonBlockObserved: MessageHandler = (ctx, data) => {
   ctx.broadcastScoped({ ...event }, conv.project)
 }
 
+/**
+ * Validate + normalize a raw `effort_changed` wire payload. Returns null when
+ * conversationId or level is missing. Pure -- unit-testable without a context.
+ */
+export function normalizeEffortChanged(data: Record<string, unknown>): EffortChanged | null {
+  const conversationId = wireStr(data.conversationId)
+  const level = wireStr(data.level)
+  if (!conversationId || !level) return null
+  return {
+    type: 'effort_changed',
+    conversationId,
+    level,
+    appliedVia: 'next_dispatch',
+    t: wireNum(data.t, Date.now()),
+  }
+}
+
+/**
+ * Agent host -> broker: a daemon worker's effort level was set (transport-reframe
+ * Phase 7, feature #1). Live `/effort` is a no-op (spike 3a) so this RECORDS the
+ * requested level; the broker logs + re-broadcasts so the panel surfaces the
+ * queued change.
+ */
+const effortChanged: MessageHandler = (ctx, data) => {
+  const event = normalizeEffortChanged(data)
+  if (!event) {
+    ctx.log.debug('[daemon] effort_changed malformed, ignoring')
+    return
+  }
+  const conv = ctx.conversations.getConversation(event.conversationId)
+  if (!conv) return
+  ctx.log.info(
+    `[daemon] effort_changed conv=${event.conversationId.slice(0, 8)} level=${event.level} via=${event.appliedVia}`,
+  )
+  ctx.broadcastScoped({ ...event }, conv.project)
+}
+
 export function registerDaemonHandlers(): void {
   // Roster ingest is sentinel-sourced; launch events + control results are
   // agent-host-sourced; the roster replay request + respawn-stale are
@@ -614,6 +660,7 @@ export function registerDaemonHandlers(): void {
       daemon_session_retired: daemonSessionRetired,
       daemon_state_patch: daemonStatePatch,
       daemon_block_observed: daemonBlockObserved,
+      effort_changed: effortChanged,
     },
     AGENT_HOST_ONLY,
   )

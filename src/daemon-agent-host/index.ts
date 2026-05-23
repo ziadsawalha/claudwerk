@@ -57,10 +57,13 @@ import {
   type BootEvent,
   type BootStep,
   type BrokerMessage,
+  type ControlDeliver,
   type ConversationEnd,
   type ConversationMeta,
   type ConversationReset,
+  type DaemonControlResult,
   type DaemonSessionRetired,
+  type EffortChanged,
   type SendInput,
 } from '../shared/protocol'
 import { BUILD_VERSION } from '../shared/version'
@@ -191,8 +194,62 @@ async function main(): Promise<void> {
    *   `terminate_conversation` -> daemon `kill`, then host shutdown
    *   `daemon_respawn_stale`   -> daemon `respawn-stale`
    */
+  /** Emit a daemon_control_result for a verb the daemon-agent-host handled itself. */
+  function emitControlResult(op: DaemonControlResult['op'], ok: boolean, detail: string): void {
+    transport.send({ type: 'daemon_control_result', conversationId: cfg.conversationId, op, ok, detail, t: Date.now() })
+  }
+
+  /** set_effort: live `/effort` is a no-op (spike 3a) -- record the level + warn. */
+  function applySetEffort(level: string | undefined): void {
+    if (!level) return
+    const ev: EffortChanged = {
+      type: 'effort_changed',
+      conversationId: cfg.conversationId,
+      level,
+      appliedVia: 'next_dispatch',
+      t: Date.now(),
+    }
+    transport.send(ev)
+    emitControlResult(
+      'set_effort',
+      true,
+      `effort recorded (${level}); applies on the next worker (re)spawn -- daemon workers read CLAUDE_CODE_EFFORT_LEVEL at process start, live /effort is a no-op`,
+    )
+    log(`[daemon-control] set_effort ${cfg.conversationId.slice(0, 8)} -> ${level} (recorded for next dispatch)`)
+  }
+
+  /** interrupt: Ctrl+C straight into the worker PTY through the attach handle. */
+  function applyInterrupt(): void {
+    if (attachHandle && !attachHandle.closed) {
+      attachHandle.writeInput('\x03')
+      emitControlResult('interrupt', true, 'Ctrl+C sent to the worker PTY')
+    } else {
+      emitControlResult('interrupt', false, 'no live attach handle to interrupt')
+    }
+  }
+
+  /** set_model: switch the worker's model live via a /model reply (spike 3b). */
+  function applySetModel(model: string | undefined): void {
+    if (!model) return
+    void daemonControl.setModel(model).catch((err: unknown) => log(`set_model: ${(err as Error).message}`))
+  }
+
+  /** Route a unified `control` verb onto the daemon control surface. */
+  function handleControl(msg: ControlDeliver): void {
+    if (msg.action === 'set_model') applySetModel(msg.model)
+    else if (msg.action === 'set_effort') applySetEffort(msg.effort)
+    else if (msg.action === 'interrupt') applyInterrupt()
+    // set_permission_mode / clear / quit are not live-controllable on a daemon
+    // worker (regression -- see daemon-mode docs). Surface it, do not pretend.
+    else log(`[daemon-control] control action ${msg.action} not supported live on a daemon worker`)
+  }
+
   function handleInbound(msg: BrokerMessage): void {
     const t = (msg as { type?: string }).type
+    if (t === 'control') {
+      handleControl(msg as ControlDeliver)
+      return
+    }
     if (t === 'terminate_conversation') {
       log('broker requested termination -- killing daemon worker')
       daemonControl

@@ -659,6 +659,7 @@ export type AgentHostMessage =
   | DaemonSessionRetired
   | DaemonStatePatch
   | DaemonBlockObserved
+  | EffortChanged
 
 export interface ConversationNameUpdate {
   type: 'conversation_name'
@@ -2502,12 +2503,34 @@ export interface DaemonLaunchEvent {
 export interface DaemonControlResult {
   type: 'daemon_control_result'
   conversationId: string
-  op: 'reply' | 'permission_response' | 'kill' | 'respawn_stale'
+  // Phase 7 adds set_model / set_effort / interrupt (the unified-control verbs the
+  // daemon-agent-host now routes). set_model is live (reply /model -- spike 3b);
+  // set_effort is recorded-for-respawn (live /effort is a no-op -- spike 3a);
+  // interrupt writes Ctrl+C to the worker PTY.
+  op: 'reply' | 'permission_response' | 'kill' | 'respawn_stale' | 'set_model' | 'set_effort' | 'interrupt'
   ok: boolean
   /** Daemon error code on failure (EPROTO, ENOJOB, ENOREPLY, ...). */
   code?: string
   detail?: string
   /** Epoch ms the op settled. */
+  t: number
+}
+
+/**
+ * Agent host -> broker -> control panel: a daemon worker's effort level was set
+ * (transport-reframe Phase 7, feature #1). Phase 7 spike 3a established that
+ * `/effort` via the daemon `reply` op is a NO-OP -- `CLAUDE_CODE_EFFORT_LEVEL`
+ * is a process-env var the worker reads at startup, so a live effort change is
+ * not possible. This message RECORDS the requested level; `appliedVia` says how
+ * it takes effect: `next_dispatch` (recorded -- applies when the worker next
+ * (re)spawns with the env var). The control panel surfaces the queued change.
+ */
+export interface EffortChanged {
+  type: 'effort_changed'
+  conversationId: string
+  /** Requested effort: low | medium | high | xhigh | max | auto. */
+  level: string
+  appliedVia: 'next_dispatch'
   t: number
 }
 

@@ -595,6 +595,30 @@ function handleDaemonBlockObserved(msg: DashboardMessage) {
 }
 
 /**
+ * `effort_changed` -- a daemon worker's effort level was set (Phase 7 #1).
+ * Live `/effort` is a no-op (spike 3a), so this is a queued-for-respawn record;
+ * surface it as a toast so the user knows when it takes effect.
+ */
+function handleEffortChanged(msg: DashboardMessage) {
+  const conversationId = wireStr(msg.conversationId)
+  const level = wireStr(msg.level)
+  if (!conversationId || !level) return
+  window.dispatchEvent(
+    new CustomEvent('rclaude-toast', {
+      detail: {
+        title: `Effort set to ${level}`,
+        meta: 'daemon',
+        body: 'Applies on the next worker (re)spawn -- daemon effort is set at process start.',
+        variant: 'info',
+        persistent: false,
+        conversationId,
+        toastId: `effort-changed:${conversationId}`,
+      },
+    }),
+  )
+}
+
+/**
  * `daemon_session_retired` -- a daemon worker was retired by the daemon
  * after a long idle window (typically ~5min). Distinct from a crash. Surfaced
  * as a toast and as a custom event the transcript view can consume to render
@@ -1203,6 +1227,7 @@ export const handlers: Record<string, MessageHandler> = {
   daemon_session_retired: handleDaemonSessionRetired,
   daemon_state_patch: handleDaemonStatePatch,
   daemon_block_observed: handleDaemonBlockObserved,
+  effort_changed: handleEffortChanged,
   cc_version_changed: handleCcVersionChanged,
   usage_update: handleUsageUpdate,
   sentinel_usage_report: handleSentinelUsageReport,

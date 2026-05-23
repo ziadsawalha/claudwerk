@@ -10,6 +10,7 @@ import {
   normalizeDaemonControlResult,
   normalizeDaemonLaunchEvent,
   normalizeDaemonStatePatch,
+  normalizeEffortChanged,
   parseDaemonJobs,
   registerDaemonHandlers,
 } from './daemon'
@@ -340,5 +341,32 @@ describe('normalizeDaemonBlockObserved', () => {
       raw: { block: { requestId: 'req_1' } },
       t: 7,
     })
+  })
+})
+
+describe('normalizeEffortChanged', () => {
+  it('returns null without conversationId or level', () => {
+    expect(normalizeEffortChanged({ level: 'high' })).toBeNull()
+    expect(normalizeEffortChanged({ conversationId: 'c' })).toBeNull()
+  })
+
+  it('normalizes a recorded effort change', () => {
+    const r = normalizeEffortChanged({ conversationId: 'conv_x', level: 'high', t: 5 })
+    expect(r).toEqual({
+      type: 'effort_changed',
+      conversationId: 'conv_x',
+      level: 'high',
+      appliedVia: 'next_dispatch',
+      t: 5,
+    })
+  })
+})
+
+describe('normalizeDaemonControlResult -- Phase 7 ops', () => {
+  const base = { type: 'daemon_control_result', conversationId: 'conv_x', ok: true, t: 1 }
+  it('accepts set_model / set_effort / interrupt', () => {
+    for (const op of ['set_model', 'set_effort', 'interrupt']) {
+      expect(normalizeDaemonControlResult({ ...base, op })).not.toBeNull()
+    }
   })
 })

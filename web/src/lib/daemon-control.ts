@@ -26,12 +26,15 @@ export interface DaemonControlResultLike {
   conversationId?: unknown
 }
 
-/** Human labels for the four control ops. */
+/** Human labels for the control ops. */
 const DAEMON_OP_LABELS: Record<string, string> = {
   reply: 'Reply',
   permission_response: 'Permission response',
   kill: 'Kill worker',
   respawn_stale: 'Respawn stale worker',
+  set_model: 'Set model',
+  set_effort: 'Set effort',
+  interrupt: 'Interrupt',
 }
 
 /**

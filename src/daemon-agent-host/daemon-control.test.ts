@@ -72,6 +72,17 @@ describe('createDaemonControl -- reply', () => {
   })
 })
 
+describe('createDaemonControl -- setModel', () => {
+  it('switches the model via a /model reply and emits op=set_model (spike 3b: live)', async () => {
+    const h = makeHarness()
+    const result = await h.control.setModel('claude-sonnet-4-6')
+    expect(h.calls).toEqual([{ op: 'reply', args: ['/tmp/fake.sock', 'abcd1234', '/model claude-sonnet-4-6'] }])
+    expect(result.ok).toBe(true)
+    expect(result.op).toBe('set_model')
+    expect(h.emitted).toEqual([result])
+  })
+})
+
 describe('createDaemonControl -- kill + respawn-stale', () => {
   it('runs the kill op and emits op=kill', async () => {
     const h = makeHarness()
