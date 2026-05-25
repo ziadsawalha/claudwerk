@@ -1838,6 +1838,13 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     for (const [convId, conversation] of conversations.entries()) {
       if (conversation.status === 'ended') continue
       if (!resolveBackend(conversation).requiresAgentSocket) continue
+      // Daemon-hosted conversations: the sentinel's daemon roster is the
+      // lifecycle source of truth (handlers/daemon.ts ends them via
+      // reconcileVanishedDaemonConversations when they drop out). A daemon
+      // mirror has no agent-host socket BY DESIGN, so the reaper's
+      // socket-presence heuristic is wrong here -- without this skip the
+      // mirror flaps: roster forward un-ends -> reaper re-ends -> repeat.
+      if (conversation.agentHostType === 'daemon') continue
       const liveBefore = conversationSockets.get(convId)?.size ?? 0
       const live = pruneDeadSockets(convId)
       const willEnd = live === 0
