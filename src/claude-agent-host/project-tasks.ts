@@ -17,28 +17,23 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import type {
+  ProjectTask,
+  ProjectTaskManifestEntry,
+  ProjectTaskMeta,
+  ProjectTaskRef,
+} from '../shared/project-task-types'
 import { TASK_STATUSES, type TaskStatus } from '../shared/task-statuses'
 
 export type { TaskStatus } from '../shared/task-statuses'
+export type {
+  ProjectTask,
+  ProjectTaskManifestEntry,
+  ProjectTaskMeta,
+  ProjectTaskRef,
+} from '../shared/project-task-types'
 
 const STATUSES = TASK_STATUSES
-
-export interface ProjectTaskMeta {
-  slug: string
-  status: TaskStatus
-  title: string
-  priority?: 'low' | 'medium' | 'high'
-  tags: string[]
-  refs: string[]
-  created: string
-  /** File mtime in ms since epoch - used for sorting (most recently changed first) */
-  mtime: number
-  bodyPreview: string
-}
-
-export interface ProjectTask extends ProjectTaskMeta {
-  body: string
-}
 
 interface ProjectTaskInput {
   title?: string
@@ -158,19 +153,6 @@ export function listProjectTasks(cwd: string, filterStatus?: TaskStatus): Projec
   }
 
   return tasks.sort((a, b) => b.mtime - a.mtime)
-}
-
-/** Cheap manifest entry: identity + mtime only, no frontmatter parse. */
-export interface ProjectTaskManifestEntry {
-  slug: string
-  status: TaskStatus
-  mtime: number
-}
-
-/** Reference to a single task by (slug, status). Used by batched lookups. */
-export interface ProjectTaskRef {
-  slug: string
-  status: TaskStatus
 }
 
 /**
