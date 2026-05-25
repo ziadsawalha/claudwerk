@@ -156,6 +156,28 @@ function MutedDefault({ value }: { value: string | undefined | null }) {
   return <span>{value}</span>
 }
 
+/**
+ * Combine sentinel + profile into a single 'host' display value.
+ * `sentinel/profile` when both set; bare sentinel when no profile; null when
+ * both are absent (i.e. running on the implicit default). Returning null lets
+ * callers decide whether to hide the column entirely.
+ */
+function hostLabel(conv: Conversation): string | null {
+  const sentinel = conv.hostSentinelAlias || conv.hostSentinelId
+  const profile = conv.resolvedProfile && conv.resolvedProfile !== 'default' ? conv.resolvedProfile : null
+  if (!sentinel && !profile) return null
+  if (sentinel && profile) return `${sentinel}/${profile}`
+  return sentinel || profile
+}
+
+/** First-line snippet of a conv's recap, used by the recap column. */
+function recapSnippet(conv: Conversation): string | null {
+  const content = conv.recap?.content
+  if (!content) return null
+  const firstLine = content.split('\n').find(l => l.trim().length > 0)
+  return firstLine ? firstLine.trim() : null
+}
+
 interface BatchModeModalProps {
   open: boolean
   onClose: () => void
@@ -238,6 +260,12 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
     [filtered, groupByProject, projectSettings],
   )
   const convRows = useMemo(() => flatRows.filter((r): r is ConvRow => r.kind === 'conv'), [flatRows])
+  // Column visibility: hide the host column when every visible conversation
+  // runs on the implicit default (sentinel + profile both null), and hide the
+  // recap column when no visible row has any recap content. Keeps the table
+  // honest about how dense it actually is.
+  const showHostCol = useMemo(() => convRows.some(r => hostLabel(r.conv) !== null), [convRows])
+  const showRecapCol = useMemo(() => convRows.some(r => recapSnippet(r.conv) !== null), [convRows])
   const focusableIndices = useMemo(
     () => flatRows.map((r, i) => (r.kind === 'conv' ? i : -1)).filter(i => i >= 0),
     [flatRows],
@@ -522,15 +550,19 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
                     <th className="w-8 text-left px-2 py-1"> </th>
                     <th className="text-left px-2 py-1">title</th>
                     {!groupByProject && <th className="text-left px-2 py-1">project</th>}
-                    <th className="text-left px-2 py-1">sentinel</th>
-                    <th className="text-left px-2 py-1">profile</th>
+                    {showHostCol && <th className="text-left px-2 py-1">host</th>}
+                    {showRecapCol && <th className="text-left px-2 py-1">recap</th>}
                     <th className="text-left px-2 py-1">last</th>
                   </tr>
                 </thead>
                 <tbody>
                   {flatRows.map((row, idx) =>
                     row.kind === 'group' ? (
-                      <BatchGroupHeader key={`g:${row.project}`} row={row} cols={groupByProject ? 5 : 6} />
+                      <BatchGroupHeader
+                        key={`g:${row.project}`}
+                        row={row}
+                        cols={3 + (groupByProject ? 0 : 1) + (showHostCol ? 1 : 0) + (showRecapCol ? 1 : 0)}
+                      />
                     ) : (
                       <BatchRow
                         key={row.conv.id}
@@ -539,6 +571,8 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
                         checked={selectedForBatch.has(row.conv.id)}
                         focused={idx === focusedIndex}
                         groupByProject={groupByProject}
+                        showHostCol={showHostCol}
+                        showRecapCol={showRecapCol}
                         projectSettings={projectSettings}
                         onActivate={(i, shift) => handleToggleAt(i, shift)}
                         onFocus={() => setFocusedIndex(idx)}
@@ -547,7 +581,10 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
                   )}
                   {convRows.length === 0 && (
                     <tr>
-                      <td colSpan={groupByProject ? 5 : 6} className="px-3 py-6 text-center text-muted-foreground">
+                      <td
+                        colSpan={3 + (groupByProject ? 0 : 1) + (showHostCol ? 1 : 0) + (showRecapCol ? 1 : 0)}
+                        className="px-3 py-6 text-center text-muted-foreground"
+                      >
                         No conversations match
                       </td>
                     </tr>
@@ -670,6 +707,8 @@ function BatchRow({
   checked,
   focused,
   groupByProject,
+  showHostCol,
+  showRecapCol,
   projectSettings,
   onActivate,
   onFocus,
@@ -679,6 +718,8 @@ function BatchRow({
   checked: boolean
   focused: boolean
   groupByProject: boolean
+  showHostCol: boolean
+  showRecapCol: boolean
   projectSettings: Record<string, ProjectSettings>
   onActivate: (idx: number, shift: boolean) => void
   onFocus: () => void
@@ -688,6 +729,8 @@ function BatchRow({
   const ps = projectSettings[conv.project]
   const color = ps?.color
   const icon = ps?.icon
+  const host = hostLabel(conv)
+  const recap = recapSnippet(conv)
 
   return (
     <tr
@@ -723,12 +766,16 @@ function BatchRow({
           </span>
         </td>
       )}
-      <td className="px-2 py-1 truncate max-w-[10rem]">
-        <MutedDefault value={conv.hostSentinelAlias || conv.hostSentinelId} />
-      </td>
-      <td className="px-2 py-1">
-        <MutedDefault value={conv.resolvedProfile} />
-      </td>
+      {showHostCol && (
+        <td className="px-2 py-1 truncate max-w-[12rem]">
+          <MutedDefault value={host} />
+        </td>
+      )}
+      {showRecapCol && (
+        <td className="px-2 py-1 truncate max-w-[24rem] text-muted-foreground/80" title={recap ?? undefined}>
+          <MutedDefault value={recap} />
+        </td>
+      )}
       <td className="px-2 py-1 text-muted-foreground/80">{formatAge(conv.lastActivity)}</td>
     </tr>
   )

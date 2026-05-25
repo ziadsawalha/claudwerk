@@ -112,6 +112,7 @@ function toConversation(summary: ConversationSummary): Conversation {
     recapFresh: summary.recapFresh,
     hostSentinelId: summary.hostSentinelId,
     hostSentinelAlias: summary.hostSentinelAlias,
+    resolvedProfile: summary.resolvedProfile,
     version: summary.version,
     buildTime: summary.buildTime,
     claudeVersion: summary.claudeVersion,

@@ -3103,6 +3103,9 @@ export interface ConversationSummary {
   recapFresh?: boolean
   hostSentinelId?: string
   hostSentinelAlias?: string
+  /** Resolved sentinel-profile name. Absent (or undefined) means the conversation
+   *  ran on the implicit default profile. Mirrors `Conversation.resolvedProfile`. */
+  resolvedProfile?: string
   /** Agent family (claude / opencode / chat-api / hermes). The daemon is NOT a
    *  backend -- a daemon conversation reports `backend: 'claude'` + the
    *  `claude-daemon` transport below. */
