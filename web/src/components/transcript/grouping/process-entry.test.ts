@@ -98,3 +98,42 @@ describe('processEntry - Skill content', () => {
     expect(groups[0]?.type).toBe('user')
   })
 })
+
+// An inter-conversation / dialog / system <channel> card arrives as a user-role
+// entry. The control panel renders it as a full-width self-describing box, so it
+// must NOT share a group with the user's own typed text -- a merged group bails
+// the whole group out of bubble mode and the user's text renders bare. The
+// grouper splits the channel card from the plain user turn.
+const INTER_CONV_CHANNEL =
+  '<channel sender="conversation" from_conversation="batch-commands" from_project="remote-claude" intent="response">\nThanks, confirmed.\n</channel>'
+
+describe('processEntry - channel card vs user text', () => {
+  it('splits an inter-conversation card from the user text that follows it', () => {
+    const { groups } = group([userEntry(INTER_CONV_CHANNEL), userEntry('output to a FULL ON DOC!')])
+    expect(groups).toHaveLength(2)
+    expect(groups[0].type).toBe('user')
+    expect(groups[1].type).toBe('user')
+    expect(groups[0].entries).toHaveLength(1)
+    expect(groups[1].entries).toHaveLength(1)
+  })
+
+  it('splits when the user types first and a card arrives after', () => {
+    const { groups } = group([userEntry('my message'), userEntry(INTER_CONV_CHANNEL)])
+    expect(groups).toHaveLength(2)
+    expect(groups[0].entries).toHaveLength(1)
+    expect(groups[1].entries).toHaveLength(1)
+  })
+
+  it('still merges consecutive plain user turns into one group', () => {
+    const { groups } = group([userEntry('first'), userEntry('second')])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].entries).toHaveLength(2)
+  })
+
+  it('keeps consecutive channel cards together (no bubble involved)', () => {
+    const second = INTER_CONV_CHANNEL.replace('Thanks, confirmed.', 'And one more thing.')
+    const { groups } = group([userEntry(INTER_CONV_CHANNEL), userEntry(second)])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].entries).toHaveLength(2)
+  })
+})

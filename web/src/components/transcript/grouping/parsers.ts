@@ -9,6 +9,34 @@ export function isQueue(e: TranscriptEntry): e is TranscriptQueueEntry {
   return e.type === 'queue-operation'
 }
 
+const CHANNEL_BLOCK_RE = /^<channel\s+([^>]*)>\n?[\s\S]*?\n?<\/channel>$/
+
+// A user entry whose entire content is a <channel> block that the transcript
+// renderer turns into a full-width, self-describing CARD -- an inter-conversation
+// message, a dialog submission, or an rclaude system notice -- rather than a chat
+// bubble. Such an entry forces its whole group out of bubble mode (see
+// group-view.tsx `hasInterConversationContent`), so it must NOT share a group with
+// the user's own typed text: otherwise that text loses its bubble and renders as
+// bare markdown under the card (the merged-bubble bug). The grouper uses this to
+// split channel cards from plain user turns. Mirrors `parseChannelContent` in
+// parse-entries.ts -- keep the two card kinds in sync.
+export function isCardChannelEntry(e: TranscriptEntry): boolean {
+  if (e.type !== 'user') return false
+  const content = (e as TranscriptUserEntry).message?.content
+  if (typeof content !== 'string') return false
+  const m = content.trim().match(CHANNEL_BLOCK_RE)
+  if (!m) return false
+  const attr = (name: string) => m[1].match(new RegExp(`${name}="([^"]*)"`))?.[1]
+  const sender = attr('sender')
+  const source = attr('source') || 'unknown'
+  const fromProject = attr('from_project')
+  // Inter-conversation (sender=conversation|session + from_project), dialog, or system notice.
+  if ((sender === 'conversation' || sender === 'session') && fromProject) return true
+  if (sender === 'dialog') return true
+  if (source === 'rclaude' && sender === 'system') return true
+  return false
+}
+
 // Parse <task-notification> XML into structured data using DOMParser
 export function parseTaskNotifications(text: string): TaskNotification[] {
   const results: TaskNotification[] = []

@@ -9,7 +9,7 @@
  * callers (one `processEntry(entry, state)` per loop iteration).
  */
 import type { TranscriptAssistantEntry, TranscriptEntry, TranscriptUserEntry } from '@/lib/types'
-import { extractSkillName, isQueue, isSkillContent, parseTaskNotifications } from './parsers'
+import { extractSkillName, isCardChannelEntry, isQueue, isSkillContent, parseTaskNotifications } from './parsers'
 import type { DisplayGroup, GroupingState } from './types'
 
 function handleBoot(entry: TranscriptEntry, state: GroupingState): void {
@@ -279,7 +279,15 @@ function mergeMessageEntry(entry: TranscriptEntry, state: GroupingState): void {
   }
 
   const type = entry.type as 'user' | 'assistant'
-  if (state.current && state.current.type === type) {
+  // A user group must be all-channel-card or all-normal. An inter-conversation/
+  // dialog/system card and the user's own typed text are different speakers, and
+  // mixing them strips the text of its chat bubble (group-view bails the whole
+  // group to flat render). Split when the channel-ness flips between consecutive
+  // user entries; assistant runs are unaffected.
+  const sameClass =
+    state.current?.type === type &&
+    (type !== 'user' || isCardChannelEntry(entry) === isCardChannelEntry(state.current.entries[0]))
+  if (state.current && sameClass) {
     state.current.entries.push(entry)
   } else {
     state.current = { type, timestamp: entry.timestamp || '', entries: [entry] }
