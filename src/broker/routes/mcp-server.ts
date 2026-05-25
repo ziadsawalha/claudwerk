@@ -20,7 +20,11 @@ import { isPushConfigured, sendPushToAll } from '../push'
 import { dispatchSpawn, type SpawnDispatchDeps } from '../spawn-dispatch'
 import type { StoreDriver } from '../store/types'
 
-function createMcpServer(conversationStore: ConversationStore, store: StoreDriver): McpServer {
+function createMcpServer(
+  conversationStore: ConversationStore,
+  store: StoreDriver,
+  callerConversationId?: string | null,
+): McpServer {
   const mcp = new McpServer(
     { name: 'claudwerk', version: BUILD_VERSION?.gitHashShort || '0.1.0' },
     { capabilities: { tools: {} } },
@@ -238,11 +242,22 @@ function createMcpServer(conversationStore: ConversationStore, store: StoreDrive
         trustLevel: 'trusted' as const,
         callerProject: null,
       }
+      // X-Caller-Conversation header is captured by the Hono /mcp handler and
+      // closed over here. Passing it as rendezvousCallerConversationId mirrors
+      // routes/spawn.ts:33 and inter-conversation.ts:127 -- the rendezvous
+      // registry then has caller->child linkage for boot-lifecycle to persist
+      // (Phase 2 of plan-spawn-parent-tracking.md). Missing header = undefined,
+      // which is the prior behavior (no caller attribution).
+      console.log(
+        `[spawn-mcp] caller=${callerConversationId ? callerConversationId.slice(0, 8) : 'none'} ` +
+          `cwd=${cwd} backend=${backend ?? 'default'} headless=${headless ?? true}`,
+      )
       const deps: SpawnDispatchDeps = {
         conversationStore,
         getProjectSettings,
         getGlobalSettings,
         callerContext,
+        rendezvousCallerConversationId: callerConversationId ?? null,
       }
       const result = await dispatchSpawn(
         {
@@ -366,7 +381,14 @@ export function createMcpRouter(
       return c.json({ error: 'Invalid token' }, 403)
     }
 
-    const mcp = createMcpServer(conversationStore, store)
+    // X-Caller-Conversation lets an MCP client identify which of its
+    // conversations is initiating a tool call (today this matters for
+    // spawn_conversation -- the rendezvous registry uses it to link
+    // parent/child for Phase 2 persistence of plan-spawn-parent-tracking.md).
+    // Mirrors routes/spawn.ts:33. Missing = undefined = unattributed spawn
+    // (old clients still work).
+    const callerConversationId = c.req.header('X-Caller-Conversation') ?? null
+    const mcp = createMcpServer(conversationStore, store, callerConversationId)
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
