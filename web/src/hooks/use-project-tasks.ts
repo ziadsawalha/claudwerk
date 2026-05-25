@@ -138,6 +138,29 @@ function sendRequest(
   })
 }
 
+/**
+ * Back-compat: apply a full `notes` snapshot from a legacy `project_changed`
+ * broadcast (agent hosts older than Phase 1 of the incremental-tasks plan).
+ * Replaces the manifest wholesale and refreshes meta from the snapshot.
+ */
+function applyLegacyNotesSnapshot(cache: ProjectCache, notes: ProjectTaskMeta[]): void {
+  const nextManifest = new Map<string, ManifestEntry>()
+  const seen = new Set<string>()
+  for (const note of notes) {
+    const k = refKey(note)
+    nextManifest.set(k, { slug: note.slug, status: note.status, mtime: note.mtime })
+    cache.meta.set(k, note)
+    cache.staleMeta.delete(k)
+    seen.add(k)
+  }
+  for (const k of cache.meta.keys()) {
+    if (!seen.has(k)) cache.meta.delete(k)
+  }
+  cache.manifest = nextManifest
+  cache.manifestFetched = true
+  notify(cache)
+}
+
 function applyDiff(cache: ProjectCache, diff: ProjectDiff): void {
   let touched = false
   for (const entry of diff.added) {
@@ -176,6 +199,10 @@ function installSharedHandler(): void {
         if (!cache) return
         if (msg.diff) {
           applyDiff(cache, msg.diff as ProjectDiff)
+        } else if (Array.isArray(msg.notes)) {
+          // Back-compat: older agent hosts broadcast `notes` (full snapshot)
+          // without a structured diff. Synthesize a manifest replacement.
+          applyLegacyNotesSnapshot(cache, msg.notes as ProjectTaskMeta[])
         }
         return
       }
@@ -214,13 +241,39 @@ async function fetchManifest(cache: ProjectCache): Promise<void> {
       cache.manifestFetched = true
       notify(cache)
     } catch {
-      // leave manifestFetched=false so a future call retries
+      // Manifest request failed (most likely an older agent host that
+      // doesn't know `project_manifest`). Fall back to the legacy
+      // project_list shape so the board still renders against old hosts.
+      await fetchManifestFromLegacyList(cache, conversationId)
     } finally {
       cache.manifestInflight = null
     }
   })()
   cache.manifestInflight = promise
   return promise
+}
+
+/**
+ * Back-compat: derive the manifest + populate meta from a `project_list`
+ * response. Used when `project_manifest` is unsupported (older agent host).
+ */
+async function fetchManifestFromLegacyList(cache: ProjectCache, conversationId: string): Promise<void> {
+  try {
+    const resp = await sendRequest(conversationId, { type: 'project_list' })
+    const notes = (resp.notes as ProjectTaskMeta[]) || []
+    const nextManifest = new Map<string, ManifestEntry>()
+    for (const note of notes) {
+      const k = refKey(note)
+      nextManifest.set(k, { slug: note.slug, status: note.status, mtime: note.mtime })
+      cache.meta.set(k, note)
+      cache.staleMeta.delete(k)
+    }
+    cache.manifest = nextManifest
+    cache.manifestFetched = true
+    notify(cache)
+  } catch {
+    // Both paths failed. Leave manifestFetched=false; a later trigger retries.
+  }
 }
 
 function scheduleHydrationFlush(cache: ProjectCache): void {
