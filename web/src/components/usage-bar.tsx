@@ -118,6 +118,7 @@ function ProfileRow({ snap }: { snap: ProfileUsageSnapshot }) {
       </div>
       <DetailBar window={fiveHour} label="5h" />
       <DetailBar window={sevenDay} label="7d" />
+      {snap.extraUsage?.isEnabled && <ExtraUsageRow extra={snap.extraUsage} />}
     </div>
   )
 }
@@ -145,7 +146,7 @@ interface SentinelGroup {
   snaps: Array<ProfileUsageSnapshot & { polledAt: number }>
 }
 
-function MultiProfileBody({ groups, extra }: { groups: SentinelGroup[]; extra?: ExtraUsage }) {
+function MultiProfileBody({ groups }: { groups: SentinelGroup[] }) {
   return (
     <div className="space-y-3">
       {groups.map(group => (
@@ -161,12 +162,6 @@ function MultiProfileBody({ groups, extra }: { groups: SentinelGroup[]; extra?: 
           ))}
         </div>
       ))}
-      {extra?.isEnabled && (
-        <>
-          <div className="border-t border-border/50 my-1" />
-          <ExtraUsageRow extra={extra} />
-        </>
-      )}
     </div>
   )
 }
@@ -274,11 +269,7 @@ export function UsageBar() {
           onMouseLeave={handleMouseLeave}
           onOpenAutoFocus={e => e.preventDefault()}
         >
-          {grouped.length > 0 ? (
-            <MultiProfileBody groups={grouped} extra={planUsage?.extraUsage} />
-          ) : (
-            planUsage && <LegacyBody usage={planUsage} />
-          )}
+          {grouped.length > 0 ? <MultiProfileBody groups={grouped} /> : planUsage && <LegacyBody usage={planUsage} />}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
