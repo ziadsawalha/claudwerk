@@ -885,6 +885,10 @@ export interface InterConversationMessage {
   message: string
   context?: string
   conversationId?: string
+  /** Optional batch correlation id (e.g. `batch_<nanoid>`) set by clients
+   *  fanning out a batch command across many conversations. The broker logs
+   *  it so `grep batch_<id>` reconstructs the full fan-out. Not interpreted. */
+  batchId?: string
 }
 
 export interface ChannelSendResultEntry {
@@ -1160,6 +1164,9 @@ export type BrokerMessage =
   | ConversationTerminated
   | ConversationControl
   | ControlDeliver
+  | ConversationReassign
+  | ConversationReassignResult
+  | ConversationReassigned
   | DialogResultMessage
   | PlanApprovalResponse
   | NotifyConfigUpdated
@@ -1373,6 +1380,9 @@ export interface ConversationControl {
   model?: string // required when action === 'set_model'
   effort?: string // required when action === 'set_effort' (low|medium|high|xhigh|max|auto)
   permissionMode?: string // required when action === 'set_permission_mode'
+  /** Optional batch correlation id for fan-out from batch command palette.
+   *  Broker logs it; never interpreted. */
+  batchId?: string
 }
 
 export interface ConversationControlResult {
@@ -1391,6 +1401,59 @@ export interface ControlDeliver {
   effort?: string
   permissionMode?: string
   fromConversation?: string
+}
+
+/**
+ * Client -> broker: rewrite a conversation's persisted routing metadata
+ * (projectUri / hostSentinelId / resolvedProfile). Future launch + revive
+ * picks up the new target. The currently-running process is NOT migrated;
+ * it keeps running on its current sentinel until it dies naturally.
+ *
+ * IDENTITY MODEL covenant: conversationId and ccSessionId NEVER change here.
+ * BOUNDARY covenant: broker mutates Conversation fields; agentHostMeta is
+ * still opaque.
+ *
+ * Permission: admin on both the source AND the target project.
+ *
+ * Each provided field is applied independently. Omit a field to leave it
+ * unchanged. Pass null for hostSentinelId / profile to clear back to default.
+ */
+export interface ConversationReassign {
+  type: 'conversation_reassign'
+  targetConversation: string
+  toProjectUri?: string
+  toHostSentinelId?: string | null
+  toProfile?: string | null
+  /** Optional batch correlation id for fan-out from batch command palette. */
+  batchId?: string
+}
+
+export interface ConversationReassignResult {
+  type: 'conversation_reassign_result'
+  ok: boolean
+  conversationId?: string
+  error?: string
+}
+
+/** Broker -> subscribers: a reassign was applied. Rendered in transcript per
+ *  the Everything-is-a-Structured-Message covenant so the user sees the
+ *  routing change. */
+export interface ConversationReassigned {
+  type: 'conversation_reassigned'
+  conversationId: string
+  prev: {
+    projectUri: string
+    hostSentinelId?: string | null
+    resolvedProfile?: string | null
+  }
+  next: {
+    projectUri: string
+    hostSentinelId?: string | null
+    resolvedProfile?: string | null
+  }
+  at: number
+  /** Optional batch correlation id. */
+  batchId?: string
 }
 
 // Hook event types from Claude Code
@@ -3254,6 +3317,9 @@ export interface RecapCreateMessage {
   /** Optional. When set, the broker echoes it on recap_created/recap_error so
    *  MCP-side broker-rpc can correlate the response. Dashboard callers omit it. */
   requestId?: string
+  /** Optional batch correlation id for fan-out from batch command palette.
+   *  Broker logs it; never interpreted. */
+  batchId?: string
 }
 export interface RecapCancelMessage {
   type: 'recap_cancel'
