@@ -13,7 +13,7 @@
  *   - `pool: null` profiles never appear in any selection.
  */
 import { describe, expect, test } from 'bun:test'
-import { pickProfile } from './selection'
+import { FUNGIBLE_BAND_PCT, pickProfile } from './selection'
 import type { SentinelConfig } from './sentinel-config'
 
 function mkConfig(
@@ -379,39 +379,105 @@ describe('pickProfile -- weighted selection (Phase 7b)', () => {
   })
 })
 
-// ─── Smart Balance (telemetry-aware Balanced) ──────────────────────
+// ─── Smart Balance v2 (dead-band + drain) ──────────────────────────
 //
-// Balanced now consumes an optional `usage` source (per-profile rate-limit
-// headroom). Fresh telemetry beats live-load; stale or missing entries fall
-// back to live-load. Mixed pools blend the two onto a unified rank.
+// v2 ranks profiles in two zones: in-budget (worstUsedPercent < 75) balances
+// by live-load; drain (>= 75) ranks by time-normalized burn rate. Stale /
+// missing telemetry falls back to live-load. The motivating pathology was
+// the v1 greedy-max-headroom ranker turning small `%` deltas into
+// deterministic monopolies; these tests pin the v2 fix.
 
-describe('pickProfile -- Smart Balance', () => {
+const HOUR_MS = 60 * 60 * 1000
+const fresh = (pct: number, msReset: number = 2 * HOUR_MS) => ({
+  worstUsedPercent: pct,
+  msUntilWorstReset: msReset,
+  stale: false,
+})
+const stale = (pct: number, msReset: number = 2 * HOUR_MS) => ({
+  worstUsedPercent: pct,
+  msUntilWorstReset: msReset,
+  stale: true,
+})
+
+describe('pickProfile -- Smart Balance v2', () => {
   const cfg = mkConfig('balanced', [
     { name: 'alt', pool: 'default' },
     { name: 'default', pool: 'default' },
     { name: 'work', pool: 'default' },
   ])
 
-  test('all-fresh pool: picks the profile with the most headroom', () => {
-    const usage = (name: string) => {
-      const tbl: Record<string, { headroom: number; stale: boolean }> = {
-        default: { headroom: 0.1, stale: false }, // 90% burned
-        alt: { headroom: 0.85, stale: false }, // 15% burned, winner
-        work: { headroom: 0.4, stale: false },
-      }
-      return tbl[name]
-    }
+  test('in-budget pool with equal load: alphabetical tie-break (stable)', () => {
+    // All three under FUNGIBLE_BAND_PCT, all idle -> all rank 1.0.
+    // Tie-broken by name: 'alt' wins. Documents the stable-tie behavior --
+    // the operator can override with weights when they want a different order.
+    const usage = () => fresh(FUNGIBLE_BAND_PCT - 45) // well in-budget
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
     expect(r.profile.name).toBe('alt')
     expect(r.reason).toBe('smart-balance')
   })
 
-  test('all-stale telemetry falls back to least-active (legacy behaviour)', () => {
-    const usage = (name: string) => ({
-      // Stale -> rank uses -liveLoad, headroom value is ignored.
-      headroom: name === 'default' ? 0.05 : 0.9,
-      stale: true,
-    })
+  test('band edge: just under FUNGIBLE_BAND_PCT is in-budget; at/over is drain', () => {
+    // 'alt' just under band -> rank in [0.5, 1.0]. 'work' at the band edge
+    // (>= 75) -> drain rank < 0.5. 'default' loaded out to confirm load
+    // doesn't pull alt under work's drain rank.
+    const usage = (name: string) => {
+      if (name === 'alt') return fresh(FUNGIBLE_BAND_PCT - 1)
+      if (name === 'work') return fresh(FUNGIBLE_BAND_PCT)
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('alt')
+  })
+
+  test('in-budget: small %% deltas DO NOT decide -- live-load does', () => {
+    // The motivating pathology: v1 would deterministically pick 'default'
+    // forever because it has slightly more headroom. v2: both in-budget, so
+    // the one with fewer live agent hosts wins.
+    const usage = (name: string) => fresh(name === 'default' ? 5 : 30)
+    const load = (name: string) => (name === 'default' ? 3 : 0) // default loaded
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('alt') // idle in-budget, beats loaded in-budget
+  })
+
+  test('in-budget always beats drain-zone regardless of load delta', () => {
+    // 'work' is at 90% (drain) with zero load; 'default' at 60% (in budget)
+    // with 5 live hosts. v2 still picks default -- the band invariant says
+    // in-budget rank >= 0.5 > any drain rank.
+    const usage = (name: string) => {
+      if (name === 'work') return fresh(90)
+      if (name === 'default') return fresh(60)
+      return fresh(60)
+    }
+    const load = (name: string) => (name === 'default' ? 5 : 0)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).not.toBe('work') // never drain when in-budget exists
+  })
+
+  test('drain zone: near-reset profile wins (more capacity becoming available)', () => {
+    // Both at 85% used. 'work' resets in 5min -> a fresh bucket is about to
+    // arrive, so spending its remaining 15% is FINE (3%/min sustainable for
+    // 5min, then full reset). 'default' resets in 4h -> the 15% has to last
+    // 4h (only 0.06%/min sustainable). v2 ranks `headroom% / minutesToReset`,
+    // so work wins. Without telemetry the wildcard 'alt' would tie via
+    // live-load -- pin it loaded so it falls below the band ceiling.
+    const usage = (name: string) => {
+      if (name === 'work') return fresh(85, 5 * 60 * 1000)
+      if (name === 'default') return fresh(85, 4 * HOUR_MS)
+      return undefined
+    }
+    // 'alt' has no telemetry -> falls to live-load rank. Load=5 -> ~0.17,
+    // which is below 0.5 so any in-budget/drain candidate beats it... but
+    // wait, drain ranks are also below 0.5. To isolate the drain-vs-drain
+    // comparison, force 'alt' to a much higher load so it ranks below both
+    // drain candidates.
+    const load = (name: string) => (name === 'alt' ? 999 : 0)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('work')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('all-stale telemetry falls back to least-active (legacy behavior)', () => {
+    const usage = () => stale(30) // % ignored when stale
     const load = (name: string) => (name === 'work' ? 5 : name === 'default' ? 0 : 2)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
     expect(r.profile.name).toBe('default')
@@ -424,24 +490,23 @@ describe('pickProfile -- Smart Balance', () => {
     expect(r.reason).toBe('least-active')
   })
 
-  test('partial telemetry: fresh-high-headroom beats stale-loaded', () => {
+  test('partial telemetry: fresh-in-budget beats stale-loaded', () => {
     const usage = (name: string) => {
-      if (name === 'alt') return { headroom: 0.9, stale: false } // rank 0.9
-      return undefined // others have no snapshot -> rank by live-load
-    }
-    const load = (name: string) => (name === 'default' ? 5 : 4) // both stale -> 0.17, 0.2
-    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
-    expect(r.profile.name).toBe('alt')
-    expect(r.reason).toBe('smart-balance') // at least one fresh -> smart-balance label
-  })
-
-  test('partial telemetry: stale-but-idle beats fresh-low-headroom', () => {
-    // Documents the bias: a profile with zero load (rank 1/(1+0)=1.0) beats
-    // a fresh-but-99%-burned profile (rank 0.01). Demonstrably-idle wins.
-    const usage = (name: string) => {
-      if (name === 'work') return { headroom: 0.01, stale: false }
+      if (name === 'alt') return fresh(20) // in-budget -> rank 1.0
       return undefined
     }
+    const load = (name: string) => (name === 'default' ? 5 : 4) // others stale -> ~0.17, 0.2
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('alt')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('stale-idle beats fresh-drain-zone (demonstrably-idle wins)', () => {
+    // 'work' is fresh at 99% (deep drain, rank ~0). 'default' has no telemetry
+    // and zero load (rank 1.0). Demonstrably-idle wins -- you do not slam a
+    // known-burned account when another account is idle. Documented as a
+    // deliberate bias: in-doubt prefer idle over burned.
+    const usage = (name: string) => (name === 'work' ? fresh(99) : undefined)
     const load = (name: string) => (name === 'default' ? 0 : 99)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
     expect(r.profile.name).toBe('default')
@@ -449,31 +514,77 @@ describe('pickProfile -- Smart Balance', () => {
   })
 
   test('errored / unauthed snapshot is treated as no telemetry', () => {
-    // A profile that recently failed to poll has `undefined` from the source
-    // (the caller computes the snapshot to UsageHeadroom mapping). Confirm
-    // the selection works the same as "no source" for that profile.
-    const usage = (name: string) => (name === 'default' ? { headroom: 0.7, stale: false } : undefined)
+    // A profile that recently failed to poll returns `undefined`. v2: it
+    // falls back to live-load (rank 1.0 idle) and beats any drain-zone
+    // candidate; ties with other in-budget candidates broken by name.
+    const usage = (name: string) => (name === 'default' ? fresh(20) : undefined)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    // 'default' has rank 0.7 (fresh). Others rank 1.0 (load 0, no telemetry).
-    // Tie-broken by name: 'alt' wins.
+    // default (in-budget) rank 1.0, alt/work (no telemetry, load 0) rank 1.0.
+    // Tie -> alphabetical -> alt wins.
     expect(r.profile.name).toBe('alt')
     expect(r.reason).toBe('smart-balance')
   })
 
-  test('headroom clamps gracefully outside [0,1]', () => {
+  test('worstUsedPercent clamps gracefully outside [0,100]', () => {
     const usage = (name: string) => {
-      if (name === 'default') return { headroom: 1.5, stale: false } // clamps to 1
-      if (name === 'alt') return { headroom: -0.3, stale: false } // clamps to 0
+      if (name === 'default') return fresh(150) // clamps to 100 -> drain
+      if (name === 'alt') return fresh(-30) // clamps to 0 -> in-budget
       return undefined
     }
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    expect(r.profile.name).toBe('default')
+    expect(r.profile.name).toBe('alt') // in-budget beats drain
   })
 
-  test('tie on rank: alphabetical name wins (stable)', () => {
-    const usage = () => ({ headroom: 0.5, stale: false })
+  test('drain zone: msUntilWorstReset clamped above MIN_RESET_MS', () => {
+    // Both at 90%, both passing a near-zero reset time. Without the clamp
+    // this would divide by ~0; with it both end up well-defined and the
+    // tie-break falls to name.
+    const usage = () => fresh(90, 0) // 0ms reset -> floor to 60s inside
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    expect(r.profile.name).toBe('alt') // alphabetically first
+    expect(r.profile.name).toBe('alt') // alphabetical, no divergence
+  })
+})
+
+// Regression: the v1 monopoly pathology that motivated v2.
+describe('pickProfile -- Smart Balance v2 spreads across in-budget pool', () => {
+  // Pool must match defaultPool (third mkConfig arg) so balanced selection
+  // actually considers both members. Without it, the pool 'work' is unknown
+  // to the default pool 'default' and selection falls back to default.
+  const cfg = mkConfig(
+    'balanced',
+    [
+      { name: 'default', pool: 'work' },
+      { name: 'work', pool: 'work' },
+    ],
+    'work',
+  )
+
+  test('simulated 4 spawns spread across 2 in-budget profiles (no monopoly)', () => {
+    // Both at 30% used (in-budget). Live load starts at 0/0 and we increment
+    // after each spawn. v1: 'default' would win all 4 because its %% is
+    // slightly lower; v2: load balances after spawn 1.
+    const usage = (name: string) => fresh(name === 'default' ? 5 : 30)
+    const load = new Map<string, number>([
+      ['default', 0],
+      ['work', 0],
+    ])
+    const picks: string[] = []
+    for (let i = 0; i < 4; i++) {
+      const r = pickProfile(cfg, {
+        input: 'balanced',
+        usage,
+        liveLoad: name => load.get(name) ?? 0,
+      })
+      picks.push(r.profile.name)
+      load.set(r.profile.name, (load.get(r.profile.name) ?? 0) + 1)
+    }
+    // Should be 2/2, not 4/0. Order: name-tie -> default first, then work
+    // wins (default loaded), then tie -> default, then work. Specifically: D,W,D,W
+    // (or some other 2/2 alternation depending on alphabetical tiebreak).
+    const defCount = picks.filter(p => p === 'default').length
+    const workCount = picks.filter(p => p === 'work').length
+    expect(defCount).toBe(2)
+    expect(workCount).toBe(2)
   })
 })
 

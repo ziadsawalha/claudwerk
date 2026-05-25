@@ -290,16 +290,25 @@ function liveLoadForProfile(profileName: string): number {
 const USAGE_STALE_MS = 10 * 60 * 1000
 
 /** Headroom source for `pickProfile` -- reads the latest per-profile poll
- *  result and folds the worst (5h vs 7d) utilisation into a 0..1 score.
- *  `undefined` for unauthed / errored / missing snapshots so the picker
- *  falls through to live-load. */
-function usageHeadroomForProfile(profileName: string): { headroom: number; stale: boolean } | undefined {
+ *  result and exposes the raw worst-window utilization + reset clock so the
+ *  ranker can decide between in-budget (live-load balance) and drain
+ *  (time-normalized burn rate). `undefined` for unauthed / errored / missing
+ *  snapshots so the picker falls through to live-load. The "worst window"
+ *  is whichever of `fiveHour` / `sevenDay` is more burned -- we carry its
+ *  reset clock too so the burn-rate math is consistent. */
+function usageHeadroomForProfile(
+  profileName: string,
+): { worstUsedPercent: number; msUntilWorstReset: number; stale: boolean } | undefined {
   const snap = getLatestProfileUsage().get(profileName)
   if (!snap || !snap.authed || snap.error || !snap.fiveHour || !snap.sevenDay) return undefined
-  const worst = Math.max(snap.fiveHour.usedPercent, snap.sevenDay.usedPercent)
-  const headroom = Math.max(0, Math.min(1, 1 - worst / 100))
-  const stale = Date.now() - snap.polledAt > USAGE_STALE_MS
-  return { headroom, stale }
+  const now = Date.now()
+  const worst =
+    snap.fiveHour.usedPercent >= snap.sevenDay.usedPercent
+      ? { used: snap.fiveHour.usedPercent, resetAt: snap.fiveHour.resetAt }
+      : { used: snap.sevenDay.usedPercent, resetAt: snap.sevenDay.resetAt }
+  const msUntilWorstReset = Math.max(0, new Date(worst.resetAt).getTime() - now)
+  const stale = now - snap.polledAt > USAGE_STALE_MS
+  return { worstUsedPercent: worst.used, msUntilWorstReset, stale }
 }
 
 /** Dead PIDs discovered from registry on startup (reported once WS connects) */

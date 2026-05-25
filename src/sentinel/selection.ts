@@ -62,15 +62,35 @@ export type LiveLoadSource = (profileName: string) => number
  * Per-profile rate-limit telemetry the Balanced picker consumes. Profiles
  * without an entry (no source, or `undefined` from the source) are treated
  * as having no telemetry -- they rank purely on live-load.
+ *
+ * Carries the raw worst-window utilization + reset clock so the ranker can
+ * decide between "in-budget" (under FUNGIBLE_BAND_PCT -- balance by live
+ * load) and "drain" (over the band -- pick by time-normalized burn rate).
+ * See `rankCandidate` for the math.
  */
 export interface UsageHeadroom {
-  /** `1 - max(fiveHour%, sevenDay%) / 100`, clamped to `[0, 1]`. Higher is
-   *  better. Computed by the caller from a `ProfileUsageSnapshot`. */
-  headroom: number
+  /** Worst-window utilization as a percentage (`max(fiveHour%, sevenDay%)`).
+   *  Computed by the caller from a `ProfileUsageSnapshot`. Values are
+   *  clamped to `[0, 100]` inside the ranker. */
+  worstUsedPercent: number
+  /** Milliseconds until the worst window resets. Used by the drain-zone
+   *  burn-rate math. Clamped to `>= MIN_RESET_MS` inside the ranker so a
+   *  window about to flip doesn't divide by near-zero. */
+  msUntilWorstReset: number
   /** When `true`, the snapshot is too old to trust -- ranked via live-load
-   *  instead of headroom. Caller decides the staleness window. */
+   *  instead of utilization. Caller decides the staleness window. */
   stale: boolean
 }
+
+/** Worst-window utilization below this percentage is treated as fungible --
+ *  inside the band, profiles balance by live-load, not by headroom. Picked
+ *  to match Anthropic's soft-alert threshold (~80%) with a small buffer.
+ *  Exported for tests + potential per-sentinel override (future work). */
+export const FUNGIBLE_BAND_PCT = 75
+
+/** Burn-rate denominator floor (1min). Prevents division-by-near-zero when
+ *  a usage window is seconds away from resetting. */
+const MIN_RESET_MS = 60_000
 
 /** Telemetry source. Returns `undefined` for profiles with no snapshot yet
  *  (unauthed, polling never started, just-added profile). */
@@ -221,37 +241,62 @@ function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[]
 }
 
 /**
- * Smart Balance ranker. Returns a unified score in `[0, 1]` where higher is
- * better. Two signals merged onto one axis so fresh and stale candidates can
- * compete:
- *   - Fresh telemetry: `rank = headroom` (e.g. 0.9 means 10% of quota used)
- *   - Stale or missing: `rank = 1 / (1 + liveLoad/weight)` -- weight is
- *     capacity, so a weight=10 profile at load 5 ranks like a weight=1
- *     profile at load 0.5 (rank ~0.67). weight=1: load 0 -> 1.0, 1 -> 0.5.
+ * Smart Balance v2 ranker. Two-zone ranker on a unified `[0, 1]` axis:
  *
- * Consequences:
- *   - All-fresh pool: highest-headroom profile wins (the intent).
- *   - All-stale pool: lowest-load profile wins (the legacy least-active rule).
- *   - Mixed: a fresh-but-burned account (headroom 0.05) loses to a stale-but-
- *     idle account (load 0 -> rank 1.0). A fresh-and-fresh account
- *     (headroom 0.9) beats a stale-and-loaded one (load 2 -> 0.33). This is
- *     the desired bias: when in doubt, prefer demonstrably-idle.
+ *   In-budget zone (`worstUsedPercent < FUNGIBLE_BAND_PCT`):
+ *     rank = 0.5 + 0.5 * loadRank      -- maps to [0.5, 1.0]
+ *     loadRank = 1 / (1 + load/weight) -- weight is capacity
+ *
+ *   Drain zone (worstUsedPercent >= band):
+ *     rank = 0.5 * burnRank             -- maps to [0, 0.5)
+ *     burnRank = headroom% / minutesToReset, smooth-squashed to (0, 1)
+ *
+ *   Stale / missing telemetry:
+ *     rank = loadRank                   -- legacy least-active fallback
+ *
+ * Invariants:
+ *   - Any in-budget profile beats any drain-zone one (>= 0.5 vs < 0.5).
+ *   - Stale telemetry never enters the dead-band -- we don't trust old %s
+ *     to declare "in budget" (that's how you slam a maxed-out account).
+ *   - Tie-breaking is by name (stable; see `pickBalanced`).
+ *
+ * Goal: spread spawns across all in-budget profiles by live load, only
+ * biasing toward most-headroom when a profile is near its cap. Solves the
+ * monopoly pathology where the leader by tiny `%` deltas absorbed every
+ * spawn until it caught up.
  */
 // fallow-ignore-next-line complexity
 function rankCandidate(profile: ResolvedProfile, liveLoad: LiveLoadSource, usage: UsageHeadroomSource): number {
-  const u = usage(profile.name)
-  if (u && !u.stale) {
-    // Clamp defensively -- callers compute headroom from external data.
-    if (u.headroom < 0) return 0
-    if (u.headroom > 1) return 1
-    return u.headroom
-  }
-  // Weight as capacity: divide live load by weight so a weight=10 profile
-  // carries ~10x the load before it ranks as busy as a weight=1 profile.
-  // (v2 rate-limit-aware balancing will divide headroom by weight the same
-  // way -- deferred per plan-sentinel-profiles Phase 7b.)
   const load = Math.max(0, liveLoad(profile.name))
-  return 1 / (1 + load / profile.weight)
+  const loadRank = 1 / (1 + load / profile.weight)
+
+  const u = usage(profile.name)
+  if (!u || u.stale) {
+    // No fresh telemetry -- legacy live-load ranking. Returns [0, 1] so an
+    // idle stale profile can still beat a loaded one. By design this can
+    // outrank a fresh drain-zone profile (an idle account we haven't heard
+    // from in a while is probably still the safer choice over a known-burned
+    // one). See test 'partial telemetry: stale-but-idle beats fresh-low-...'.
+    return loadRank
+  }
+
+  const usedPct = Math.max(0, Math.min(100, u.worstUsedPercent))
+  if (usedPct < FUNGIBLE_BAND_PCT) {
+    // In-budget zone: lift load-balancing into [0.5, 1.0] so any in-budget
+    // profile beats any drain-zone one regardless of load.
+    return 0.5 + 0.5 * loadRank
+  }
+
+  // Drain zone: time-normalized burn rate. headroom% per minute-until-reset
+  // -- a profile at 80% with 4h left has more sustainable capacity than one
+  // at 80% with 5min left (which is about to flush; don't hoard it).
+  const headroomPct = 100 - usedPct
+  const minutesToReset = Math.max(MIN_RESET_MS, u.msUntilWorstReset) / 60_000
+  const burnPerMinute = headroomPct / minutesToReset
+  // Squash to (0, 1): `x / (1 + x)`. Smooth, monotonic, asymptotic to 1.
+  // Then scale into [0, 0.5) so drain-zone never crosses the band ceiling.
+  const burnRank = burnPerMinute / (1 + burnPerMinute)
+  return 0.5 * burnRank
 }
 
 /** Smart Balance picker. Returns the chosen profile + whether ANY candidate
