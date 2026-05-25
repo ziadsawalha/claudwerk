@@ -685,6 +685,150 @@ function canonicalizeUris(cacheDir: string): CanonicalizeResult {
 }
 
 /**
+ * Strip the legacy `daemon://` URI scheme down to `claude://` across every
+ * project-URI-bearing column. The daemon is the claude backend's daemon
+ * transport (see `src/broker/backends/claude-daemon.ts` header), not a
+ * peer backend -- carrying it in the URI scheme split the project bucket
+ * for the same folder (one row for PTY/headless, one for daemon). This
+ * migration unifies them.
+ *
+ * Sibling field `Conversation.agentHostType: 'daemon'` remains the
+ * authoritative "this is daemon-hosted" signal -- the URI scheme was a
+ * redundant copy.
+ *
+ * UPDATE OR IGNORE handles PK / UNIQUE collisions where a `claude://` row
+ * already exists for the same identity (sidebar grouping has already
+ * coalesced via the read-side `aliasScheme` alias, but the persisted rows
+ * were still split). The follow-up DELETE strips any leftover daemon rows
+ * whose update was skipped due to the constraint -- the existing claude
+ * row wins, the daemon duplicate dies.
+ *
+ * Idempotent: re-running is a no-op once stamp v6 is set.
+ */
+export interface DaemonStripResult {
+  storeTurns: { updated: number; deleted: number }
+  storeHourlyDeleted: number
+  storeConversations: { updated: number; deleted: number }
+  storeScopeLinks: { updated: number; deleted: number }
+  storeAddressBook: { updated: number; deleted: number }
+  storeMessageQueue: { updated: number; deleted: number }
+  storeRecaps: { updated: number; deleted: number }
+  analyticsTurns: { updated: number; deleted: number }
+  projectsScope: { updated: number; deleted: number }
+  projectsProjectUri: { updated: number; deleted: number }
+}
+
+function daemonReplaceColumn(db: Database, table: string, column: string): { updated: number; deleted: number } {
+  // OR IGNORE: if a row with the rewritten URI already exists (PK / UNIQUE
+  // collision), keep the existing claude row, skip the daemon update.
+  const u = db
+    .prepare(
+      `UPDATE OR IGNORE ${table} SET ${column} = REPLACE(${column}, 'daemon://', 'claude://')
+         WHERE ${column} LIKE 'daemon://%'`,
+    )
+    .run()
+  // Mop up: any rows whose update was skipped (because a claude row already
+  // owned the new key) are now stranded daemon-prefixed rows. Delete them.
+  const d = db.prepare(`DELETE FROM ${table} WHERE ${column} LIKE 'daemon://%'`).run()
+  return { updated: u.changes ?? 0, deleted: d.changes ?? 0 }
+}
+
+function daemonToClaudeUris(cacheDir: string): DaemonStripResult {
+  const result: DaemonStripResult = {
+    storeTurns: { updated: 0, deleted: 0 },
+    storeHourlyDeleted: 0,
+    storeConversations: { updated: 0, deleted: 0 },
+    storeScopeLinks: { updated: 0, deleted: 0 },
+    storeAddressBook: { updated: 0, deleted: 0 },
+    storeMessageQueue: { updated: 0, deleted: 0 },
+    storeRecaps: { updated: 0, deleted: 0 },
+    analyticsTurns: { updated: 0, deleted: 0 },
+    projectsScope: { updated: 0, deleted: 0 },
+    projectsProjectUri: { updated: 0, deleted: 0 },
+  }
+
+  const storeDbPath = join(cacheDir, 'store.db')
+  if (existsSync(storeDbPath)) {
+    const db = new Database(storeDbPath)
+    try {
+      result.storeTurns = daemonReplaceColumn(db, 'turns', 'project_uri')
+
+      // hourly_stats: project_uri is in the PK -- DELETE daemon rows and let
+      // materializeHourly() rebuild from the now-clean turns table on next
+      // query (same approach v2 took for the quad-slash scar).
+      const r = db.prepare("DELETE FROM hourly_stats WHERE project_uri LIKE 'daemon://%'").run()
+      result.storeHourlyDeleted = r.changes ?? 0
+
+      result.storeConversations = daemonReplaceColumn(db, 'conversations', 'scope')
+
+      // scope_links: composite PK (scope_a, scope_b). Apply per column;
+      // UPDATE OR IGNORE handles the (daemon, claude) / (claude, claude)
+      // collision, the per-column DELETE strips stranded daemon-prefixed rows.
+      const sl1 = daemonReplaceColumn(db, 'scope_links', 'scope_a')
+      const sl2 = daemonReplaceColumn(db, 'scope_links', 'scope_b')
+      result.storeScopeLinks = { updated: sl1.updated + sl2.updated, deleted: sl1.deleted + sl2.deleted }
+
+      const ab1 = daemonReplaceColumn(db, 'address_book', 'owner_scope')
+      const ab2 = daemonReplaceColumn(db, 'address_book', 'target_scope')
+      result.storeAddressBook = { updated: ab1.updated + ab2.updated, deleted: ab1.deleted + ab2.deleted }
+
+      const mq1 = daemonReplaceColumn(db, 'message_queue', 'from_scope')
+      const mq2 = daemonReplaceColumn(db, 'message_queue', 'to_scope')
+      result.storeMessageQueue = { updated: mq1.updated + mq2.updated, deleted: mq1.deleted + mq2.deleted }
+
+      // recaps table is created by createRecapSchema -- guard on existence in
+      // case a fresh DB hasn't run schema init yet (defensive; runStartupMigration
+      // is called after store.init() in production).
+      const hasRecaps = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='recaps'").get() as
+        | { name?: string }
+        | undefined
+      if (hasRecaps?.name) {
+        result.storeRecaps = daemonReplaceColumn(db, 'recaps', 'project_uri')
+        // recaps_fts is UNINDEXED on project_uri (data-only column); the FTS5
+        // virtual table's data lives in shadow tables, but the simplest fix
+        // is the same REPLACE against the virtual table.
+        const hasFts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='recaps_fts'").get() as
+          | { name?: string }
+          | undefined
+        if (hasFts?.name) {
+          db.prepare(
+            "UPDATE recaps_fts SET project_uri = REPLACE(project_uri, 'daemon://', 'claude://') WHERE project_uri LIKE 'daemon://%'",
+          ).run()
+        }
+      }
+    } finally {
+      db.close()
+    }
+  }
+
+  const analyticsDbPath = join(cacheDir, 'analytics.db')
+  if (existsSync(analyticsDbPath)) {
+    const db = new Database(analyticsDbPath)
+    try {
+      result.analyticsTurns = daemonReplaceColumn(db, 'turns', 'project_uri')
+    } finally {
+      db.close()
+    }
+  }
+
+  // projects.db: separate file from store.db. Has projects.scope (UNIQUE)
+  // and projects.project_uri (UNIQUE INDEX). Daemon-scheme rows may exist
+  // from previous boots; collapse them.
+  const projectsDbPath = join(cacheDir, 'projects.db')
+  if (existsSync(projectsDbPath)) {
+    const db = new Database(projectsDbPath)
+    try {
+      result.projectsScope = daemonReplaceColumn(db, 'projects', 'scope')
+      result.projectsProjectUri = daemonReplaceColumn(db, 'projects', 'project_uri')
+    } finally {
+      db.close()
+    }
+  }
+
+  return result
+}
+
+/**
  * Current schema version. Bumped whenever a startup-time migration step is added.
  * - 1: Phase 4 complete (legacy JSON/JSONL/cost-data.db absorbed into store.db)
  * - 2: all project URIs canonicalized to `claude://default/{path}` form
@@ -698,8 +842,13 @@ function canonicalizeUris(cacheDir: string): CanonicalizeResult {
  *      Restores the "tasks survive broker restart" invariant -- before this,
  *      tasks lived only in meta which was loaded but updates weren't always
  *      persisted on every change.
+ * - 5: polymorphic shares + recap tables. Backfills shares.target_id from
+ *      legacy conversation_id rows.
+ * - 6: strip `daemon://` URIs to `claude://` across every project-URI-bearing
+ *      column. The daemon is a transport, not a backend -- carrying it in
+ *      the URI scheme was splitting the project bucket for the same folder.
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 const SCHEMA_VERSION_KEY = 'schema-version'
 
@@ -711,6 +860,7 @@ export interface StartupMigrationResult {
   legacyHermesDeleted?: number
   tasksBackfilled?: { conversations: number; tasks: number; archived: number }
   sharesBackfilled?: number
+  daemonStripped?: DaemonStripResult
   skipped: boolean
 }
 
@@ -760,6 +910,15 @@ export function runStartupMigration(store: StoreDriver, cacheDir: string): Start
   // target_id from conversation_id for legacy rows.
   if (current < 5) {
     out.sharesBackfilled = backfillShareTargets(cacheDir)
+  }
+
+  // v6: strip `daemon://` URIs to `claude://` across every project-URI-bearing
+  // column. Belt-and-suspenders alias in `normalizeProjectUri` handles any row
+  // that escapes this pass (stale daemon-host binary mid-deploy, un-migrated
+  // revive payload), but the on-disk rewrite stops the sidebar / settings /
+  // permissions code from materializing two buckets for the same project.
+  if (current < 6) {
+    out.daemonStripped = daemonToClaudeUris(cacheDir)
   }
 
   store.kv.set(SCHEMA_VERSION_KEY, SCHEMA_VERSION)

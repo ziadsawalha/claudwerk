@@ -651,3 +651,70 @@ describe('projectIdentityKey -- canonical key for settings/order lookups', () =>
     expect(projectIdentityKey('claude:*')).toBe('claude:*')
   })
 })
+
+describe('daemon scheme alias', () => {
+  // The Claude Code daemon is the claude backend's daemon transport, not a
+  // peer backend. URIs minted by legacy daemon-host binaries used `daemon://`,
+  // splitting the project bucket for the same folder. The alias collapses
+  // them on read so existing rows still group with PTY / headless siblings.
+
+  test('normalizeProjectUri rewrites daemon:// to claude://', () => {
+    expect(normalizeProjectUri('daemon://default/Users/jonas/projects/foo')).toBe(
+      'claude://default/Users/jonas/projects/foo',
+    )
+  })
+
+  test('normalizeProjectUri rewrites daemon-scheme with non-default authority', () => {
+    expect(normalizeProjectUri('daemon://studio/Users/jonas/projects/foo')).toBe(
+      'claude://studio/Users/jonas/projects/foo',
+    )
+  })
+
+  test('normalizeProjectUri preserves fragment when aliasing scheme', () => {
+    expect(normalizeProjectUri('daemon://default/Users/jonas/projects/foo#conv_abc')).toBe(
+      'claude://default/Users/jonas/projects/foo#conv_abc',
+    )
+  })
+
+  test('projectIdentityKey collapses daemon:// and claude:// into the same bucket', () => {
+    expect(projectIdentityKey('daemon://default/Users/jonas/projects/foo')).toBe(
+      projectIdentityKey('claude://default/Users/jonas/projects/foo'),
+    )
+  })
+
+  test('isSameProject treats daemon and claude URIs as the same project', () => {
+    expect(
+      isSameProject('daemon://default/Users/jonas/projects/foo', 'claude://default/Users/jonas/projects/foo'),
+    ).toBe(true)
+  })
+
+  test('compareProjectUri returns 0 for daemon vs claude on same path', () => {
+    expect(
+      compareProjectUri('daemon://default/Users/jonas/projects/foo', 'claude://default/Users/jonas/projects/foo'),
+    ).toBe(0)
+  })
+
+  test('matchProjectUri exact match across daemon/claude alias', () => {
+    expect(matchProjectUri('claude://default/foo', 'daemon://default/foo')).toBe(true)
+    expect(matchProjectUri('daemon://default/foo', 'claude://default/foo')).toBe(true)
+  })
+
+  test('matchProjectUri scheme-wildcard claude:* matches daemon://', () => {
+    expect(matchProjectUri('claude:*', 'daemon://default/Users/jonas/projects/foo')).toBe(true)
+  })
+
+  test('matchProjectUri scheme-wildcard daemon:* matches claude://', () => {
+    expect(matchProjectUri('daemon:*', 'claude://default/Users/jonas/projects/foo')).toBe(true)
+  })
+
+  test('matchProjectUri trailing-glob claude://default/* matches daemon://', () => {
+    expect(
+      matchProjectUri('claude://default/Users/jonas/projects/*', 'daemon://default/Users/jonas/projects/foo'),
+    ).toBe(true)
+  })
+
+  test('non-daemon non-claude schemes are unaffected', () => {
+    expect(normalizeProjectUri('opencode://default/foo')).toBe('opencode://default/foo')
+    expect(isSameProject('opencode://default/foo', 'claude://default/foo')).toBe(false)
+  })
+})

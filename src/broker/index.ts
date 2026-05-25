@@ -309,6 +309,25 @@ async function main() {
       if (result.legacyHermesDeleted) {
         summary.push(`dropped ${result.legacyHermesDeleted} legacy hermes://gateway conversations`)
       }
+      if (result.daemonStripped) {
+        const d = result.daemonStripped
+        const parts: string[] = []
+        const fmt = (label: string, x: { updated: number; deleted: number }) => {
+          if (!x.updated && !x.deleted) return
+          parts.push(`${x.updated + x.deleted} ${label}${x.deleted ? ` (${x.deleted} merged)` : ''}`)
+        }
+        fmt('turns', d.storeTurns)
+        if (d.storeHourlyDeleted) parts.push(`${d.storeHourlyDeleted} stale hourly_stats deleted`)
+        fmt('sessions', d.storeConversations)
+        fmt('scope links', d.storeScopeLinks)
+        fmt('address book', d.storeAddressBook)
+        fmt('message queue', d.storeMessageQueue)
+        fmt('recaps', d.storeRecaps)
+        fmt('analytics turns', d.analyticsTurns)
+        fmt('projects.scope', d.projectsScope)
+        fmt('projects.project_uri', d.projectsProjectUri)
+        if (parts.length) summary.push(`daemon:// -> claude://: ${parts.join(', ')}`)
+      }
       if (result.tasksBackfilled) {
         const t = result.tasksBackfilled
         if (t.tasks || t.archived) {

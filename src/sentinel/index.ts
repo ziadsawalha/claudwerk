@@ -1191,7 +1191,7 @@ function spawnDaemonHostDirect(opts: {
         const msg: SpawnFailed = {
           type: 'spawn_failed',
           conversationId: opts.conversationId,
-          project: cwdToProjectUri(opts.cwd, 'daemon'),
+          project: cwdToProjectUri(opts.cwd),
           pid,
           exitCode,
           elapsedMs,

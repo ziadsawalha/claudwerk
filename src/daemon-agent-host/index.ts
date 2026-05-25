@@ -93,7 +93,7 @@ function buildBoot(cfg: DaemonHostConfig): AgentHostBoot {
     type: 'agent_host_boot',
     protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
     conversationId: cfg.conversationId,
-    project: cwdToProjectUri(cfg.cwd, 'daemon'),
+    project: cwdToProjectUri(cfg.cwd),
     capabilities: ['terminal', 'boot_stream'],
     claudeArgs: [],
     version: HOST_VERSION,
@@ -110,7 +110,7 @@ function buildMeta(cfg: DaemonHostConfig, ccSessionId: string): ConversationMeta
     protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
     ccSessionId,
     conversationId: cfg.conversationId,
-    project: cwdToProjectUri(cfg.cwd, 'daemon'),
+    project: cwdToProjectUri(cfg.cwd),
     startedAt: Date.now(),
     capabilities: ['terminal', 'boot_stream'],
     version: HOST_VERSION,
@@ -315,7 +315,7 @@ async function main(): Promise<void> {
     const reset: ConversationReset = {
       type: 'conversation_reset',
       conversationId: cfg.conversationId,
-      project: cwdToProjectUri(cfg.cwd, 'daemon'),
+      project: cwdToProjectUri(cfg.cwd),
     }
     transport.send(reset)
     transcriptBridge

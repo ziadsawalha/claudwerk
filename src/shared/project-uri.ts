@@ -189,13 +189,23 @@ function authorityForMatch(parsed: ProjectUri): string {
   return DEFAULT_SENTINEL_NAME
 }
 
+/** Alias legacy transport schemes onto their backend scheme. `daemon://...` is
+ *  the Claude backend's daemon transport, not a separate backend; treat it as
+ *  `claude://...` for identity, grouping, and permission matching. Lives at
+ *  the parse seam so every comparator (normalize, match, projectIdentityKey)
+ *  inherits the alias for free. New transport-vs-backend aliases go here. */
+function aliasScheme(scheme: string): string {
+  if (scheme === 'daemon') return 'claude'
+  return scheme
+}
+
 export function matchProjectUri(pattern: string, uri: string): boolean {
   if (pattern === '*') return true
 
   if (/^[a-z][a-z0-9+.-]*:\*$/i.test(pattern)) {
-    const patternScheme = pattern.slice(0, pattern.indexOf(':')).toLowerCase()
+    const patternScheme = aliasScheme(pattern.slice(0, pattern.indexOf(':')).toLowerCase())
     const parsed = parseProjectUri(uri)
-    return parsed.scheme === patternScheme
+    return aliasScheme(parsed.scheme) === patternScheme
   }
 
   if (pattern.endsWith('/*')) {
@@ -203,7 +213,7 @@ export function matchProjectUri(pattern: string, uri: string): boolean {
     const parsedPattern = parseProjectUri(patternBase)
     const parsedUri = parseProjectUri(uri)
 
-    if (parsedPattern.scheme !== parsedUri.scheme) return false
+    if (aliasScheme(parsedPattern.scheme) !== aliasScheme(parsedUri.scheme)) return false
     if (authorityForMatch(parsedPattern) !== authorityForMatch(parsedUri)) return false
 
     return parsedUri.path.startsWith(`${parsedPattern.path}/`) || parsedUri.path === parsedPattern.path
@@ -231,7 +241,7 @@ export function normalizeProjectUri(uri: string): string {
   // ('claude://default/path', 'opencode://default/path') forms canonicalize
   // identically. The authority slot IS the sentinel name regardless of scheme.
   const authority = parsed.authority || DEFAULT_SENTINEL_NAME
-  return `${parsed.scheme}://${authority}${path}${fragment}`
+  return `${aliasScheme(parsed.scheme)}://${authority}${path}${fragment}`
 }
 
 /** Collapse multi-slash leading scars and drop a trailing slash. Pre-2026-04-25

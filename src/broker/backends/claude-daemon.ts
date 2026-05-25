@@ -355,7 +355,7 @@ function resolveDaemonIdentity(
     reused: false,
     conversationId: randomUUID(),
     conversationName: daemonConversationName(req, usedNames),
-    project: cwdToProjectUri(req.cwd, 'daemon'),
+    project: cwdToProjectUri(req.cwd),
   }
 }
 
