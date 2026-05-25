@@ -401,10 +401,10 @@
         "count": 1
       },
       "crap_critical": {
-        "count": 7
+        "count": 8
       },
       "crap_high": {
-        "count": 11
+        "count": 10
       },
       "crap_moderate": {
         "count": 9
@@ -1022,10 +1022,10 @@
     },
     "src/broker/routes/mcp-server.ts": {
       "crap_high": {
-        "count": 1
+        "count": 3
       },
       "crap_moderate": {
-        "count": 3
+        "count": 4
       }
     },
     "src/broker/routes/recaps.ts": {
@@ -1153,10 +1153,10 @@
     },
     "src/broker/store/sqlite/conversations.ts": {
       "crap_critical": {
-        "count": 3
+        "count": 4
       },
       "crap_high": {
-        "count": 2
+        "count": 1
       }
     },
     "src/broker/store/sqlite/costs.ts": {
@@ -1487,7 +1487,7 @@
         "count": 5
       },
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "src/claude-agent-host/pty-spawn.ts": {
@@ -1543,6 +1543,12 @@
         "count": 1
       },
       "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -1689,10 +1695,10 @@
         "count": 9
       },
       "crap_high": {
-        "count": 10
+        "count": 11
       },
       "crap_moderate": {
-        "count": 16
+        "count": 15
       }
     },
     "src/sentinel/preflight.test.ts": {
@@ -1924,16 +1930,16 @@
     },
     "web/src/components/command-palette/batch-mode.tsx": {
       "complexity_critical": {
-        "count": 1
+        "count": 2
       },
       "crap_critical": {
-        "count": 1
+        "count": 3
       },
       "crap_high": {
-        "count": 1
+        "count": 2
       },
       "crap_moderate": {
-        "count": 1
+        "count": 9
       }
     },
     "web/src/components/command-palette/batch-progress.tsx": {
@@ -2394,10 +2400,10 @@
         "count": 9
       },
       "crap_high": {
-        "count": 3
+        "count": 4
       },
       "crap_moderate": {
-        "count": 2
+        "count": 5
       }
     },
     "web/src/components/project-list/conversation-sorting.tsx": {
@@ -2683,6 +2689,9 @@
       },
       "crap_high": {
         "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
       }
     },
     "web/src/components/transcript/parse-entries.ts": {
@@ -2874,6 +2883,14 @@
         "count": 1
       }
     },
+    "web/src/hooks/use-project-tasks.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "web/src/hooks/use-swipe-to-open.ts": {
       "crap_moderate": {
         "count": 1
@@ -2999,12 +3016,12 @@
     "web/src/components/launch-profiles/profile-dropdown.tsx:dead code",
     "web/src/components/spawn-dialog.tsx:complexity",
     "src/broker/routes/conversations.ts:complexity",
-    "src/acp-agent-host/dialect/from-acp-generic.ts:high impact",
     "web/src/components/project-list/project-node.tsx:untested risk",
+    "src/acp-agent-host/dialect/from-acp-generic.ts:high impact",
     "web/src/components/launch-config-fields.tsx:complexity",
     "src/broker/spawn-dispatch.ts:complexity",
-    "web/src/hooks/use-launch-progress.ts:high impact",
     "src/broker/conversation-store.ts:complexity",
+    "web/src/hooks/use-launch-progress.ts:high impact",
     "web/src/components/command-palette/use-conversation-mode.ts:untested risk",
     "web/src/components/transcript/agent-views.tsx:complexity",
     "src/shared/spawn-defaults.ts:high impact",
@@ -3020,6 +3037,7 @@
     "web/src/components/transcript/system-line.tsx:complexity",
     "src/broker/handlers/sentinel.ts:untested risk",
     "web/src/components/transcript/grouping/process-entry.ts:complexity",
+    "web/src/components/project-settings-editor.tsx:complexity",
     "src/broker/conversation-store/transcript-handlers/user-entry.ts:complexity",
     "web/src/components/transcript/grouping.tsx:complexity",
     "web/src/components/command-palette/command-palette.tsx:complexity",
@@ -3028,15 +3046,16 @@
     "web/src/components/transcript/tool-cases-search.tsx:complexity",
     "src/broker/handlers/recap.ts:untested risk",
     "src/broker/conversation-store/add-event.ts:complexity",
-    "web/src/components/project-settings-editor.tsx:complexity",
     "src/broker/conversation-store/transcript-handlers/mention-notify.ts:untested risk",
     "src/claude-agent-host/transcript-manager.ts:high impact",
     "src/broker/cli/parse-args.ts:high impact",
     "web/src/hooks/use-websocket.ts:complexity",
+    "src/broker/handlers/boot-lifecycle.ts:complexity",
+    "web/src/hooks/use-hover-popover.ts:high impact",
     "src/broker/conversation-store/project-links.ts:untested risk",
+    "web/src/components/project-list/conversation-item.tsx:complexity",
     "web/src/components/command-palette/conversation-results.tsx:untested risk",
     "src/broker/termination-log.ts:complexity",
-    "web/src/components/project-list/conversation-item.tsx:complexity",
     "src/broker/auth-routes.ts:complexity",
     "src/broker/auth.ts:complexity",
     "web/src/components/transcript/tool-cases-tasks.tsx:untested risk",
@@ -3044,7 +3063,6 @@
     "web/src/components/recap-jobs/recap-submenu.tsx:circular dependency",
     "web/src/lib/key-layers.ts:complexity",
     "web/src/components/command-palette/use-command-palette.ts:complexity",
-    "src/broker/handlers/boot-lifecycle.ts:complexity",
     "web/src/components/transcript/parse-entries.ts:complexity",
     "src/claude-agent-host/hook-processor.ts:complexity",
     "src/broker/cli/user-commands.ts:untested risk",
@@ -3066,12 +3084,12 @@
     "web/src/components/json-stream-panel.tsx:untested risk",
     "web/src/components/voice-fab.tsx:complexity",
     "web/src/hooks/use-build-update.ts:untested risk",
-    "src/broker/handlers/files.ts:untested risk",
+    "src/broker/store/sqlite/conversations.ts:untested risk",
     "web/src/components/command-palette/use-file-mode.ts:untested risk",
     "web/src/components/markdown-input/handle-key-down.ts:untested risk",
     "src/broker/cli/termination-commands.ts:complexity",
-    "src/broker/store/sqlite/conversations.ts:untested risk",
     "src/shared/dialog-schema.ts:complexity",
+    "web/src/components/command-palette/batch-mode.tsx:complexity",
     "src/broker/store/sqlite/tasks.ts:untested risk",
     "web/src/components/settings/notifications-section.tsx:untested risk",
     "src/claude-agent-host/stream-handlers.ts:untested risk",
