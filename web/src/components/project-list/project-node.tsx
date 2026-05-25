@@ -21,6 +21,12 @@ function idsEqual(a: string[], b: string[]): boolean {
   return true
 }
 
+function optionalIdsEqual(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b) return (a?.length ?? 0) === 0 && (b?.length ?? 0) === 0
+  return idsEqual(a, b)
+}
+
 // ─── Dismiss all ended conversations button ────────────────────────────
 
 function DismissAllEndedButton({ endedIds }: { endedIds: string[] }) {
@@ -58,7 +64,20 @@ function DismissAllEndedButton({ endedIds }: { endedIds: string[] }) {
 // referenced conversations' identity changes (because zustand's selector
 // short-circuits when the resolved array is shallow-equal to the previous).
 const ProjectConversationGroup = memo(
-  function ProjectConversationGroup({ conversationIds, project }: { conversationIds: string[]; project: string }) {
+  function ProjectConversationGroup({
+    conversationIds,
+    project,
+    crossProjectStubIds,
+  }: {
+    conversationIds: string[]
+    project: string
+    /** Lineage roots whose chains include a member living in THIS project but
+     *  rooted in a different project. Each id renders as a dimmed
+     *  `SpawnRootStub` at the top of the group, linking back to the root's
+     *  transcript. The lineage member itself appears nested under the root
+     *  in the root's project. */
+    crossProjectStubIds?: string[]
+  }) {
     const [showSettings, setShowSettings] = useState(false)
     const ps = useConversationsStore(s => s.projectSettings[projectIdentityKey(project)])
     const selectProject = useConversationsStore(s => s.selectProject)
@@ -162,6 +181,23 @@ const ProjectConversationGroup = memo(
             </div>
           </ProjectContextMenu>
           <div className="space-y-0.5 pb-1">
+            {crossProjectStubIds && crossProjectStubIds.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 px-3 py-1">
+                  <span className="flex-1 h-px bg-border" />
+                  <span
+                    className="text-[9px] text-muted-foreground/40 uppercase tracking-wider"
+                    title="A conversation in this project was spawned from a different project. Click to jump to the spawn root."
+                  >
+                    spawned from elsewhere
+                  </span>
+                  <span className="flex-1 h-px bg-border" />
+                </div>
+                {crossProjectStubIds.map(rootId => (
+                  <SpawnRootStub key={`xproj-${rootId}`} conversationId={rootId} />
+                ))}
+              </>
+            )}
             {normalGroups.map(group => (
               <div key={group.key} className={group.members.length > 1 ? 'space-y-0.5' : undefined}>
                 {group.members.map(member =>
@@ -225,7 +261,10 @@ const ProjectConversationGroup = memo(
       </div>
     )
   },
-  (prev, next) => prev.project === next.project && idsEqual(prev.conversationIds, next.conversationIds),
+  (prev, next) =>
+    prev.project === next.project &&
+    idsEqual(prev.conversationIds, next.conversationIds) &&
+    optionalIdsEqual(prev.crossProjectStubIds, next.crossProjectStubIds),
 )
 
 // ─── Pinned project node (no active conversations) ────────────────
@@ -293,9 +332,20 @@ const ConversationCardById = memo(function ConversationCardById({ conversationId
 // ─── Project node renderer (single or multi-conversation) ─────────────
 
 export const ProjectNode = memo(
-  function ProjectNode({ project, conversationIds }: { project: string; conversationIds: string[] }) {
+  function ProjectNode({
+    project,
+    conversationIds,
+    crossProjectStubIds,
+  }: {
+    project: string
+    conversationIds: string[]
+    crossProjectStubIds?: string[]
+  }) {
     const isPinned = useConversationsStore(s => s.projectSettings[projectIdentityKey(project)]?.pinned)
-    if (conversationIds.length === 1) {
+    // Stubs force the group rendering even for a single native conversation --
+    // the user needs to see the cross-project pointer alongside, which the
+    // single-card path doesn't expose.
+    if (conversationIds.length === 1 && (!crossProjectStubIds || crossProjectStubIds.length === 0)) {
       return (
         <div className="relative">
           <ConversationCardById conversationId={conversationIds[0]} />
@@ -303,7 +353,16 @@ export const ProjectNode = memo(
         </div>
       )
     }
-    return <ProjectConversationGroup conversationIds={conversationIds} project={project} />
+    return (
+      <ProjectConversationGroup
+        conversationIds={conversationIds}
+        project={project}
+        crossProjectStubIds={crossProjectStubIds}
+      />
+    )
   },
-  (prev, next) => prev.project === next.project && idsEqual(prev.conversationIds, next.conversationIds),
+  (prev, next) =>
+    prev.project === next.project &&
+    idsEqual(prev.conversationIds, next.conversationIds) &&
+    optionalIdsEqual(prev.crossProjectStubIds, next.crossProjectStubIds),
 )

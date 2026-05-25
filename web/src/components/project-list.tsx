@@ -81,22 +81,51 @@ export function ProjectList() {
     return projects
   }, [projectOrder])
 
-  // Group conversation IDs by project URI.
-  // Worktree URIs (/.claude/worktrees/{branch}) are re-keyed to their parent URI
-  // so worktree conversations appear nested under the parent project group.
-  // Exception: if the worktree URI itself is explicitly in the organized tree,
-  // the user has placed it there intentionally -- don't move it.
-  const idsByProject = useMemo(() => {
-    const map = new Map<string, string[]>()
+  // Effective project URI for each conversation: worktree URIs collapse to
+  // parent (legacy support -- post-v7 migration these are already canonical
+  // at the source, but the rewrite is cheap and protects unmigrated rows).
+  // Exception: if the worktree URI itself is explicitly in the organized
+  // tree, the user has placed it there intentionally -- don't move it.
+  const effectiveProjectByConvId = useMemo(() => {
+    const map = new Map<string, string>()
     for (const s of structure) {
       const wt = parseWorktreeUri(s.project)
-      const key = wt && !treeProjects.has(s.project) ? wt.parentUri : s.project
-      const group = map.get(key) || []
-      group.push(s.id)
-      map.set(key, group)
+      const eff = wt && !treeProjects.has(s.project) ? wt.parentUri : s.project
+      map.set(s.id, eff)
     }
     return map
   }, [structure, treeProjects])
+
+  // Group conversation IDs by lineage host project.
+  // Spawn lineage transcends project boundaries: a conversation whose root
+  // (rootConversationId) lives in a different project is filed under the
+  // root's project so the spawn chain stays visually together. The
+  // conversation's own project gets a dimmed cross-project stub pointing
+  // back to the root (rendered by `ProjectConversationGroup`).
+  // A conversation with no rootConversationId, or whose root isn't visible
+  // in `structure`, is filed under its own effective project.
+  const { idsByProject, crossProjectStubsByProject } = useMemo(() => {
+    const ids = new Map<string, string[]>()
+    const stubs = new Map<string, Set<string>>()
+    for (const s of structure) {
+      const ownProject = effectiveProjectByConvId.get(s.id) || s.project
+      const rootProject = s.rootConversationId
+        ? effectiveProjectByConvId.get(s.rootConversationId)
+        : undefined
+      const hostProject = rootProject ?? ownProject
+      const group = ids.get(hostProject) || []
+      group.push(s.id)
+      ids.set(hostProject, group)
+      if (rootProject && rootProject !== ownProject && s.rootConversationId) {
+        // Cross-project member: leave a dimmed pointer in the conversation's
+        // own project that links back to the root group.
+        const bag = stubs.get(ownProject) || new Set<string>()
+        bag.add(s.rootConversationId)
+        stubs.set(ownProject, bag)
+      }
+    }
+    return { idsByProject: ids, crossProjectStubsByProject: stubs }
+  }, [structure, effectiveProjectByConvId])
 
   // Filtered view: hide ended conversations from project groups when toggle is off.
   const visibleIdsByProject = useMemo(() => {
@@ -108,6 +137,17 @@ export function ProjectList() {
     }
     return map
   }, [idsByProject, showEnded, structureById])
+
+  // Stable-array form of crossProjectStubsByProject so ProjectNode's memo can
+  // shallow-compare without rebuilding from a Set each render. Sorted by
+  // root conversation id for deterministic ordering.
+  const stubIdsByProject = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const [project, rootIds] of crossProjectStubsByProject) {
+      map.set(project, Array.from(rootIds).sort())
+    }
+    return map
+  }, [crossProjectStubsByProject])
 
   // Pinned projects not in tree (show even with 0 conversations)
   const pinnedNotInTree = useMemo(() => {
@@ -127,8 +167,7 @@ export function ProjectList() {
     const seen = new Set<string>()
     const result: Array<{ project: string; conversationIds: string[] }> = []
     for (const s of structure) {
-      const wt = parseWorktreeUri(s.project)
-      const effectiveProject = wt && !treeProjects.has(s.project) ? wt.parentUri : s.project
+      const effectiveProject = effectiveProjectByConvId.get(s.id) || s.project
       if (s.status !== 'ended' && !treeProjects.has(effectiveProject) && !seen.has(effectiveProject)) {
         seen.add(effectiveProject)
         const ids = visibleIdsByProject.get(effectiveProject) || []
@@ -144,7 +183,7 @@ export function ProjectList() {
       return bMax - aMax
     })
     return result
-  }, [structure, treeProjects, visibleIdsByProject, structureById])
+  }, [structure, treeProjects, visibleIdsByProject, effectiveProjectByConvId, structureById])
 
   // Inactive conversations (ended, not in tree, not in unorganized).
   // lastActivity is read lazily from the live store at sort time -- ended
@@ -469,7 +508,11 @@ export function ProjectList() {
                           }
                           return (
                             <SortableNode key={child.id} id={child.id}>
-                              <ProjectNode project={childProject} conversationIds={childIds} />
+                              <ProjectNode
+                                project={childProject}
+                                conversationIds={childIds}
+                                crossProjectStubIds={stubIdsByProject.get(childProject)}
+                              />
                             </SortableNode>
                           )
                         })}
@@ -500,7 +543,11 @@ export function ProjectList() {
               }
               return (
                 <SortableNode key={node.id} id={node.id}>
-                  <ProjectNode project={nodeProject} conversationIds={nodeIds} />
+                  <ProjectNode
+                    project={nodeProject}
+                    conversationIds={nodeIds}
+                    crossProjectStubIds={stubIdsByProject.get(nodeProject)}
+                  />
                 </SortableNode>
               )
             })}
@@ -551,7 +598,11 @@ export function ProjectList() {
                           </div>
                         )}
                         <SortableNode id={project}>
-                          <ProjectNode project={project} conversationIds={conversationIds} />
+                          <ProjectNode
+                            project={project}
+                            conversationIds={conversationIds}
+                            crossProjectStubIds={stubIdsByProject.get(project)}
+                          />
                         </SortableNode>
                       </div>
                     )

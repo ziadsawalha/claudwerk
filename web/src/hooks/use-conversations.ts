@@ -542,6 +542,10 @@ export type ConversationStructure = {
   status: Conversation['status']
   capabilities?: string[]
   startedAt: number
+  /** Stable for the conversation's lifetime -- set once at boot from the
+   *  spawn rendezvous registry and never rotated. Safe to include here
+   *  because it never causes re-renders after the initial population. */
+  rootConversationId?: string
 }
 
 function toStructure(s: Conversation): ConversationStructure {
@@ -551,6 +555,7 @@ function toStructure(s: Conversation): ConversationStructure {
     status: s.status,
     capabilities: s.capabilities,
     startedAt: s.startedAt,
+    rootConversationId: s.rootConversationId,
   }
 }
 
@@ -570,6 +575,7 @@ function structureItemEqual(x: ConversationStructure, y: ConversationStructure):
     x.project === y.project &&
     x.status === y.status &&
     x.startedAt === y.startedAt &&
+    x.rootConversationId === y.rootConversationId &&
     capabilitiesEqual(x.capabilities, y.capabilities)
   )
 }
