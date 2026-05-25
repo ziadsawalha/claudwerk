@@ -15,21 +15,22 @@
  * The agent host reads `ctx.cwd`; conversations in the same project all
  * point at the same filesystem.
  */
-import { useEffect, useSyncExternalStore } from 'react'
+
 import type {
   ProjectTaskManifestEntry as ManifestEntry,
   ProjectTaskMeta,
   ProjectTaskRef as TaskRef,
 } from '@shared/project-task-types'
 import type { TaskStatus } from '@shared/task-statuses'
+import { useEffect, useSyncExternalStore } from 'react'
 import { useConversationsStore } from './use-conversations'
 
-export type { TaskStatus } from '@shared/task-statuses'
 export type {
   ProjectTaskManifestEntry as ManifestEntry,
   ProjectTaskMeta,
   ProjectTaskRef as TaskRef,
 } from '@shared/project-task-types'
+export type { TaskStatus } from '@shared/task-statuses'
 
 interface ProjectDiff {
   added: ManifestEntry[]
@@ -56,7 +57,11 @@ const REQUEST_TIMEOUT_MS = 10_000
 const projectCaches = new Map<string, ProjectCache>()
 const pendingRequests = new Map<
   string,
-  { resolve: (data: Record<string, unknown>) => void; reject: (err: Error) => void; timeout: ReturnType<typeof setTimeout> }
+  {
+    resolve: (data: Record<string, unknown>) => void
+    reject: (err: Error) => void
+    timeout: ReturnType<typeof setTimeout>
+  }
 >()
 let handlerInstalled = false
 
@@ -117,16 +122,12 @@ function pickConversationForProject(projectUri: string): string | null {
   // Prefer active > idle > starting > ended; tiebreak by lastActivity desc.
   const priority: Record<string, number> = { active: 0, idle: 1, starting: 2, ended: 3 }
   candidates.sort(
-    (a, b) =>
-      (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || (b.lastActivity ?? 0) - (a.lastActivity ?? 0),
+    (a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || (b.lastActivity ?? 0) - (a.lastActivity ?? 0),
   )
   return candidates[0]?.id ?? null
 }
 
-function sendRequest(
-  conversationId: string,
-  payload: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+function sendRequest(conversationId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const requestId = crypto.randomUUID()
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -138,12 +139,7 @@ function sendRequest(
   })
 }
 
-/**
- * Back-compat: apply a full `notes` snapshot from a legacy `project_changed`
- * broadcast (agent hosts older than Phase 1 of the incremental-tasks plan).
- * Replaces the manifest wholesale and refreshes meta from the snapshot.
- */
-function applyLegacyNotesSnapshot(cache: ProjectCache, notes: ProjectTaskMeta[]): void {
+function applyNotesSnapshot(cache: ProjectCache, notes: ProjectTaskMeta[]): void {
   const nextManifest = new Map<string, ManifestEntry>()
   const seen = new Set<string>()
   for (const note of notes) {
@@ -202,7 +198,7 @@ function installSharedHandler(): void {
         } else if (Array.isArray(msg.notes)) {
           // Back-compat: older agent hosts broadcast `notes` (full snapshot)
           // without a structured diff. Synthesize a manifest replacement.
-          applyLegacyNotesSnapshot(cache, msg.notes as ProjectTaskMeta[])
+          applyNotesSnapshot(cache, msg.notes as ProjectTaskMeta[])
         }
         return
       }
@@ -261,16 +257,7 @@ async function fetchManifestFromLegacyList(cache: ProjectCache, conversationId: 
   try {
     const resp = await sendRequest(conversationId, { type: 'project_list' })
     const notes = (resp.notes as ProjectTaskMeta[]) || []
-    const nextManifest = new Map<string, ManifestEntry>()
-    for (const note of notes) {
-      const k = refKey(note)
-      nextManifest.set(k, { slug: note.slug, status: note.status, mtime: note.mtime })
-      cache.meta.set(k, note)
-      cache.staleMeta.delete(k)
-    }
-    cache.manifest = nextManifest
-    cache.manifestFetched = true
-    notify(cache)
+    applyNotesSnapshot(cache, notes)
   } catch {
     // Both paths failed. Leave manifestFetched=false; a later trigger retries.
   }
@@ -425,4 +412,3 @@ function buildSnapshot(cache: ProjectCache): ProjectTasksApi {
   snapshotCache.set(cache, { version, api })
   return api
 }
-

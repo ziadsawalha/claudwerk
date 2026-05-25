@@ -25,13 +25,13 @@ import type {
 } from '../shared/project-task-types'
 import { TASK_STATUSES, type TaskStatus } from '../shared/task-statuses'
 
-export type { TaskStatus } from '../shared/task-statuses'
 export type {
   ProjectTask,
   ProjectTaskManifestEntry,
   ProjectTaskMeta,
   ProjectTaskRef,
 } from '../shared/project-task-types'
+export type { TaskStatus } from '../shared/task-statuses'
 
 const STATUSES = TASK_STATUSES
 

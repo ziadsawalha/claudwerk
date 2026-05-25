@@ -26,10 +26,7 @@ interface ProjectDiff {
   modified: ProjectTaskManifestEntry[]
 }
 
-function diffManifest(
-  prev: Map<ManifestKey, ProjectTaskManifestEntry>,
-  next: ProjectTaskManifestEntry[],
-): ProjectDiff {
+function diffManifest(prev: Map<ManifestKey, ProjectTaskManifestEntry>, next: ProjectTaskManifestEntry[]): ProjectDiff {
   const added: ProjectTaskManifestEntry[] = []
   const modified: ProjectTaskManifestEntry[] = []
   const seen = new Set<ManifestKey>()

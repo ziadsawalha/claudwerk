@@ -28,7 +28,7 @@ export interface ProjectTask extends ProjectTaskMeta {
 export function useProject(conversationId: string | null) {
   // Resolve projectUri for this conversation -- same project = same cache.
   const projectUri = useConversationsStore(s =>
-    conversationId ? s.conversationsById[conversationId]?.project ?? null : null,
+    conversationId ? (s.conversationsById[conversationId]?.project ?? null) : null,
   )
   const cache = useProjectTasks(projectUri)
 
