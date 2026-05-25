@@ -76,6 +76,31 @@ export function useConversationMode(
     [registryCommands],
   )
 
+  // Pinned projects (the projectSettings key is a normalized project URI, directly
+  // usable as a selectProject() argument -- see PinnedProjectNode). All pinned
+  // projects surface, even ones that already have active conversation rows.
+  const pinnedProjectUris = useMemo(
+    () =>
+      Object.entries(projectSettings)
+        .filter(([, ps]) => ps.pinned)
+        .map(([uri]) => uri),
+    [projectSettings],
+  )
+
+  const projectFzf = useMemo(
+    () =>
+      new Fzf(pinnedProjectUris, {
+        selector: (uri: string) => {
+          const ps = projectSettings[projectIdentityKey(uri)]
+          const label = ps?.label || ''
+          const path = projectPath(uri)
+          return `${label} ${label} ${path}`
+        },
+        casing: 'case-insensitive',
+      }),
+    [pinnedProjectUris, projectSettings],
+  )
+
   const conversationSearchResults = useMemo(() => {
     if (!isConversationMode || !filter) return []
     return conversationFzf.find(filter).map(r => {
@@ -108,14 +133,33 @@ export function useConversationMode(
     }))
   }, [isConversationMode, filter, paletteCommandFzf])
 
+  const projectSearchResults = useMemo(() => {
+    if (!isConversationMode || !filter) return []
+    // Plain fzf score: a matching pinned project sits above commands (which carry a
+    // penalty) but below a live conversation with an equally strong match (which gets boosts).
+    return projectFzf.find(filter).map(r => ({
+      kind: 'project' as const,
+      projectUri: r.item,
+      score: r.score,
+      live: false,
+    }))
+  }, [isConversationMode, filter, projectFzf])
+
   const mergedItems: MergedItem[] = useMemo(() => {
     if (!isConversationMode) return []
     if (!filter) {
-      return allConversations
+      const convItems: MergedItem[] = allConversations
         .filter(s => s.status !== 'ended' && s.id !== selectedConversationId)
         .map(s => ({ kind: 'conversation' as const, conversation: s, score: 0, live: true }))
+      const projItems: MergedItem[] = pinnedProjectUris.map(uri => ({
+        kind: 'project' as const,
+        projectUri: uri,
+        score: 0,
+        live: false,
+      }))
+      return [...convItems, ...projItems]
     }
-    const merged: MergedItem[] = [...conversationSearchResults, ...commandSearchResults]
+    const merged: MergedItem[] = [...conversationSearchResults, ...projectSearchResults, ...commandSearchResults]
     merged.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score
       // Stable tiebreaker: MRU asc, then lastActivity desc
@@ -138,7 +182,9 @@ export function useConversationMode(
     filter,
     allConversations,
     selectedConversationId,
+    pinnedProjectUris,
     conversationSearchResults,
+    projectSearchResults,
     commandSearchResults,
     mruIndex,
   ])

@@ -112,3 +112,47 @@ export function ConversationRow({
     </button>
   )
 }
+
+interface ProjectRowProps {
+  projectUri: string
+  projectSettings: ConversationResultsProps['projectSettings']
+  active: boolean
+  onSelect: () => void
+  onMouseEnter: () => void
+}
+
+/**
+ * Pinned-project row in the no-prefix palette. Selecting it navigates to the
+ * project launch/summary screen (ProjectActionPanel) via selectProject().
+ */
+export function ProjectRow({ projectUri, projectSettings, active, onSelect, onMouseEnter }: ProjectRowProps) {
+  const ps = projectSettings[projectIdentityKey(projectUri)]
+  return (
+    <button
+      type="button"
+      data-active={active}
+      onClick={onSelect}
+      onMouseEnter={onMouseEnter}
+      className={cn(
+        'w-full px-3 py-2 flex items-center gap-3 text-left transition-colors',
+        active ? 'bg-primary/20' : 'hover:bg-primary/10',
+      )}
+    >
+      <span className="text-sm text-accent">{'◈'}</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-foreground truncate flex items-center gap-1.5">
+          {ps?.icon && (
+            <span style={ps.color ? { color: ps.color } : undefined}>
+              {renderProjectIcon(ps.icon, 'w-3 h-3 inline')}
+            </span>
+          )}
+          <span style={ps?.color ? { color: ps.color } : undefined}>
+            {projectDisplayName(projectPath(projectUri), ps?.label)}
+          </span>
+        </div>
+        <div className="text-[10px] text-comment truncate">{projectPath(projectUri)}</div>
+      </div>
+      <span className="text-[10px] text-comment">launch</span>
+    </button>
+  )
+}

@@ -2,7 +2,7 @@ import { FileText, FolderPlus } from 'lucide-react'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { useKeyLayer } from '@/lib/key-layers'
 import { CommandResults, CommandRow } from './command-results'
-import { ConversationRow } from './conversation-results'
+import { ConversationRow, ProjectRow } from './conversation-results'
 import { FileResults } from './file-results'
 import { FooterHints } from './footer-hints'
 import { SpawnResults } from './spawn-results'
@@ -184,6 +184,18 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
                     const sess = useConversationsStore.getState().conversationsById[item.conversation.id]
                     if (sess) palette.selectConversationWithTracking(sess, onSelect)
                     else onSelect(item.conversation.id)
+                  }}
+                  onMouseEnter={() => palette.setActiveIndex(i)}
+                />
+              ) : item.kind === 'project' ? (
+                <ProjectRow
+                  key={`p:${item.projectUri}`}
+                  projectUri={item.projectUri}
+                  projectSettings={palette.projectSettings}
+                  active={i === palette.activeIndex}
+                  onSelect={() => {
+                    useConversationsStore.getState().selectProject(item.projectUri)
+                    onClose()
                   }}
                   onMouseEnter={() => palette.setActiveIndex(i)}
                 />

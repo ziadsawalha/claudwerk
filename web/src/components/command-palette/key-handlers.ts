@@ -174,6 +174,9 @@ function submitConversation(ctx: KeyHandlerContext, callbacks: KeyHandlerCallbac
   const item = ctx.conversation.mergedItems[ctx.activeIndex]
   if (item?.kind === 'conversation') {
     selectConversationWithTracking(item.conversation, callbacks.onSelectConversation)
+  } else if (item?.kind === 'project') {
+    useConversationsStore.getState().selectProject(item.projectUri)
+    ctx.onClose()
   } else if (item?.kind === 'command') {
     const cmd = item.command as RegistryCommand
     if (cmd.submenu) {

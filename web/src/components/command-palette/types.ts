@@ -12,9 +12,10 @@ export interface PaletteCommand {
 
 export type PaletteMode = 'conversation' | 'command' | 'file' | 'spawn' | 'task' | 'theme' | 'batch'
 
-/** Merged result item for the no-prefix palette: conversations + commands fuzzy-matched together. */
+/** Merged result item for the no-prefix palette: conversations + pinned projects + commands fuzzy-matched together. */
 export type MergedItem =
   | { kind: 'conversation'; conversation: Conversation; score: number; live: boolean }
+  | { kind: 'project'; projectUri: string; score: number; live: boolean }
   | { kind: 'command'; command: PaletteCommand; score: number; live: boolean }
 
 export interface CommandPaletteProps {
