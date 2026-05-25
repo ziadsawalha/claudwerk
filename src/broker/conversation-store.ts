@@ -143,6 +143,11 @@ export interface ConversationStore {
   getActiveConversationCount: (conversationId: string) => number
   getConnectionIds: (conversationId: string) => string[]
   reapPhantomConversations: () => string[]
+  /** Test seam: run the periodic maintenance pass synchronously (idle marking,
+   *  stale subagent cleanup, ended-eviction). Production code calls this on a
+   *  10s setInterval; tests invoke it directly to assert reaper behavior
+   *  without timer mocking. */
+  _runMaintenancePassForTesting: () => void
   // Transcript cache methods
   addTranscriptEntries: (conversationId: string, entries: TranscriptEntry[], isInitial: boolean) => void
   getTranscriptEntries: (conversationId: string, limit?: number) => TranscriptEntry[]
@@ -680,7 +685,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
   const ZOMBIE_EVICTION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days for stale STARTING conversations
   const MAX_ENDED_CONVERSATIONS = 200 // hard cap on ended conversations in memory
 
-  setInterval(() => {
+  function runMaintenancePass(): void {
     const now = Date.now()
     const STALE_AGENT_MS = 10 * 60 * 1000 // 10 minutes
     const LIVENESS_MS = 5 * 60_000 // 5m without hooks = not "actively receiving"
@@ -704,16 +709,23 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         }
       }
 
-      // Clean up stale "running" agents (SubagentStop may have been missed)
-      for (const agent of conv.subagents) {
-        if (
-          agent.status === 'running' &&
-          now - agent.startedAt > STALE_AGENT_MS &&
-          now - conv.lastActivity > STALE_AGENT_MS
-        ) {
-          agent.status = 'stopped'
-          agent.stoppedAt = now
-          changed = true
+      // Clean up stale "running" agents (SubagentStop may have been missed).
+      // Primary signal: no live socket (agent host gone, so any "running" we
+      // still see is a zombie). lastActivity is a secondary corroborating
+      // signal -- on its own it's unreliable because resumeConversation no
+      // longer bumps it on reconnect (preserving true activity timestamps).
+      const liveSockets = conversationSockets.get(conv.id)?.size ?? 0
+      if (liveSockets === 0) {
+        for (const agent of conv.subagents) {
+          if (
+            agent.status === 'running' &&
+            now - agent.startedAt > STALE_AGENT_MS &&
+            now - conv.lastActivity > STALE_AGENT_MS
+          ) {
+            agent.status = 'stopped'
+            agent.stoppedAt = now
+            changed = true
+          }
         }
       }
 
@@ -756,7 +768,8 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       const evictedCount = toEvict.length + Math.max(0, ended.length - MAX_ENDED_CONVERSATIONS)
       console.log(`[eviction] Removed ${evictedCount} ended conversations (${conversations.size} remaining)`)
     }
-  }, 10000)
+  }
+  setInterval(runMaintenancePass, 10000)
 
   // StoreDriver writes are immediate -- no debounced save needed
 
@@ -1195,10 +1208,17 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         }
         // Clear endedBy so a future end re-records cleanly with fresh causality.
         conv.endedBy = undefined
+        // Un-end IS meaningful activity (the conv just came back from the
+        // dead). Stamp lastActivity so reaper liveness checks have a fresh
+        // anchor. For non-ended reconnects (active/idle), preserve the real
+        // last-activity timestamp from prior hook events -- otherwise every
+        // reconnect (broker restart, dashboard reload, network blip)
+        // overwrites it and the dashboard "last activity" column shows the
+        // reconnect time instead of true activity.
+        conv.lastActivity = now
       }
 
       conv.status = 'idle'
-      conv.lastActivity = now
       // Reset stale state from previous run
       conv.subagents = []
       conv.teammates = []
@@ -2526,6 +2546,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     getActiveConversationCount,
     getConnectionIds,
     reapPhantomConversations,
+    _runMaintenancePassForTesting: runMaintenancePass,
     addTerminalViewer,
     getTerminalViewers,
     removeTerminalViewer,

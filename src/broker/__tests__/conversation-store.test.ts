@@ -139,6 +139,75 @@ describe('conversation lifecycle', () => {
     expect(store.getConversation('resume-me')!.status).toBe('idle')
   })
 
+  it('resumeConversation on an active/idle conv preserves lastActivity (no reconnect overwrite)', () => {
+    const conv = store.createConversation('resume-active', '/cwd')
+    // Pin lastActivity to an old timestamp -- simulates real activity from 30
+    // minutes ago. A reconnect (meta arrival) must NOT overwrite this; the
+    // dashboard "last activity" column depends on it.
+    const realLastActivity = Date.now() - 30 * 60_000
+    conv.lastActivity = realLastActivity
+    conv.status = 'idle'
+
+    store.resumeConversation('resume-active')
+
+    expect(store.getConversation('resume-active')!.lastActivity).toBe(realLastActivity)
+  })
+
+  it('resumeConversation on an ENDED conv stamps lastActivity (un-end is real activity)', () => {
+    const conv = store.createConversation('resume-ended', '/cwd')
+    conv.lastActivity = Date.now() - 30 * 60_000
+    store.endConversation('resume-ended', { source: 'cc-exit-normal' })
+    const beforeResume = Date.now()
+
+    store.resumeConversation('resume-ended')
+
+    const after = store.getConversation('resume-ended')!.lastActivity
+    expect(after).toBeGreaterThanOrEqual(beforeResume)
+  })
+
+  it('maintenance reaper does NOT mark subagents stopped on a long-idle conv that still has a live socket', () => {
+    const conv = store.createConversation('reaper-with-socket', '/cwd')
+    // Old lastActivity (45m ago) -- pre-fix, the reaper would have killed
+    // running subagents based on this alone. Post-fix, a live socket gates
+    // the cleanup so we don't kill subagents on reconnected conversations.
+    conv.lastActivity = Date.now() - 45 * 60_000
+    conv.subagents.push({
+      agentId: 'sa-1',
+      agentType: 'general',
+      startedAt: Date.now() - 45 * 60_000,
+      status: 'running',
+      events: [],
+    })
+    const ws = mockSocket()
+    store.setConversationSocket('reaper-with-socket', 'conn-1', ws)
+
+    store._runMaintenancePassForTesting()
+
+    const subagent = store.getConversation('reaper-with-socket')!.subagents[0]
+    expect(subagent.status).toBe('running')
+    expect(subagent.stoppedAt).toBeUndefined()
+  })
+
+  it('maintenance reaper marks stale subagents stopped when no live socket (agent host gone)', () => {
+    const conv = store.createConversation('reaper-no-socket', '/cwd')
+    conv.lastActivity = Date.now() - 45 * 60_000
+    conv.subagents.push({
+      agentId: 'sa-1',
+      agentType: 'general',
+      startedAt: Date.now() - 45 * 60_000,
+      status: 'running',
+      events: [],
+    })
+    // No socket registered: agent host is gone, so any "running" subagent is
+    // a zombie that should be cleaned up.
+
+    store._runMaintenancePassForTesting()
+
+    const subagent = store.getConversation('reaper-no-socket')!.subagents[0]
+    expect(subagent.status).toBe('stopped')
+    expect(subagent.stoppedAt).toBeGreaterThan(0)
+  })
+
   it('getConversation on nonexistent id returns undefined', () => {
     expect(store.getConversation('ghost-session')).toBeUndefined()
   })
