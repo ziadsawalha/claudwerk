@@ -226,8 +226,11 @@ export function createSqliteTranscriptStore(db: Database): TranscriptStore {
       const offset = Math.max(opts?.offset ?? 0, 0)
 
       // FTS5 MATCH expression. Caller can use FTS5 syntax (AND/OR/NOT, "phrases", prefix*).
-      // If parsing fails, fall back to a quoted literal phrase so casual queries don't error.
-      const ftsQuery = needsQuoting(trimmed) ? `"${trimmed.replace(/"/g, '""')}"` : trimmed
+      // sanitizeFtsQuery quotes individual tokens that contain characters FTS5 would
+      // misparse (hyphens become NOT, colons become column refs, etc.) while leaving
+      // operators, phrases, and parens alone. If everything still fails, fall back
+      // to a single quoted literal phrase so casual queries don't error.
+      const ftsQuery = sanitizeFtsQuery(trimmed)
 
       let sql = `
         SELECT t.*, bm25(transcript_fts) AS rank,
@@ -261,10 +264,17 @@ export function createSqliteTranscriptStore(db: Database): TranscriptStore {
       try {
         rows = db.prepare(sql).all(params) as Params[]
       } catch (err) {
-        // FTS5 syntax error -- retry as a literal phrase
+        // FTS5 parse failure -- retry as a single literal phrase. SQLite surfaces
+        // these as several error shapes: "fts5: syntax error", "no such column: X"
+        // (when a bareword looks like a column ref), "unknown special query: ...",
+        // etc. We catch all of them and degrade to a phrase search.
         const msg = err instanceof Error ? err.message : ''
-        if (/syntax error|fts5/i.test(msg) && ftsQuery !== `"${trimmed.replace(/"/g, '""')}"`) {
-          params.q = `"${trimmed.replace(/"/g, '""')}"`
+        const literalPhrase = `"${trimmed.replace(/"/g, '""')}"`
+        if (
+          /syntax error|fts5|no such column|unknown special query|malformed match/i.test(msg) &&
+          ftsQuery !== literalPhrase
+        ) {
+          params.q = literalPhrase
           rows = db.prepare(sql).all(params) as Params[]
         } else {
           throw err
@@ -359,17 +369,51 @@ export function createSqliteTranscriptStore(db: Database): TranscriptStore {
   }
 }
 
-// Determine if the user query needs to be quoted as a phrase. Recognizable
-// FTS5 syntax passes through; anything else gets quoted defensively to avoid
-// syntax errors on casual queries (hyphens, apostrophes, multi-word phrases,
-// etc. all confuse the FTS5 parser when not quoted).
-function needsQuoting(query: string): boolean {
-  // If it looks like FTS5 syntax (contains parens, quotes, *, :), pass through.
-  if (/["()*:]/.test(query)) return false
-  if (/\b(AND|OR|NOT|NEAR)\b/.test(query)) return false
-  // Anything else -- quote it. Pure ASCII alphanumeric singletons are the only
-  // safe pass-through case.
-  return !/^[a-zA-Z0-9]+$/.test(query)
+// Token-level FTS5 sanitizer. Walks the query, leaves operators (AND/OR/NOT/
+// NEAR), already-quoted phrases, parens, and column refs alone, and wraps any
+// remaining token in double quotes if it contains characters FTS5 would
+// misparse -- most notably hyphens (parsed as NOT), apostrophes, and dots.
+// Bareword tokens and the trailing `*` prefix-match marker pass through.
+//
+// Example: `universe OR war-council OR foo*` -> `universe OR "war-council" OR foo*`
+function sanitizeFtsQuery(query: string): string {
+  const out: string[] = []
+  let i = 0
+  while (i < query.length) {
+    const ch = query[i] as string
+    if (/[\s()]/.test(ch)) {
+      out.push(ch)
+      i++
+      continue
+    }
+    if (ch === '"') {
+      const end = query.indexOf('"', i + 1)
+      if (end === -1) {
+        out.push(`${query.slice(i)}"`)
+        break
+      }
+      out.push(query.slice(i, end + 1))
+      i = end + 1
+      continue
+    }
+    let j = i
+    while (j < query.length && !/[\s()"]/.test(query[j] as string)) j++
+    out.push(quoteFtsToken(query.slice(i, j)))
+    i = j
+  }
+  return out.join('')
+}
+
+const FTS_OPERATORS = /^(AND|OR|NOT|NEAR)$/
+const FTS_COLUMN_REF = /^[a-zA-Z_][a-zA-Z0-9_]*:[^\s]+$/
+const FTS_BAREWORD = /^[a-zA-Z0-9_]+$/
+
+function quoteFtsToken(token: string): string {
+  if (FTS_OPERATORS.test(token) || FTS_COLUMN_REF.test(token)) return token
+  const hasWildcard = token.endsWith('*')
+  const core = hasWildcard ? token.slice(0, -1) : token
+  if (FTS_BAREWORD.test(core)) return token
+  return `"${core.replace(/"/g, '""')}"${hasWildcard ? '*' : ''}`
 }
 
 function getNextId(

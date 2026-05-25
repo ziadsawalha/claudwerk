@@ -327,6 +327,20 @@ for (const flavor of flavors) {
           // Should not throw a syntax error
           expect(() => store.transcripts.search("user's token: failed")).not.toThrow()
         })
+
+        it('hyphenated token inside boolean query is auto-quoted (no "no such column" error)', () => {
+          // Regression: `war-council` used to be parsed as `war NOT council`,
+          // with `council` interpreted as a column name -> "no such column: council".
+          store.transcripts.append('c1', 'e2', [
+            makeEntry('user', 'planning the war-council session today', 'wc1'),
+            makeEntry('user', 'universe of options to explore', 'wc2'),
+          ])
+          expect(() => store.transcripts.search('universe OR war-council OR quest OR mockup')).not.toThrow()
+          const hits = store.transcripts.search('universe OR war-council OR quest OR mockup')
+          const texts = hits.map(h => (h.content as { text: string }).text).join(' ')
+          expect(texts).toContain('war-council')
+          expect(texts).toContain('universe')
+        })
       })
 
       describe('search() FTS triggers (insert/update/delete sync)', () => {
