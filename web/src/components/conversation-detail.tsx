@@ -17,6 +17,7 @@ import { TabContentPanels } from './conversation-detail/tab-content-panels'
 import { TaskEditorOverlay } from './conversation-detail/task-editor-overlay'
 import { TerminalOverlay } from './conversation-detail/terminal-overlay'
 import { useConversationTab } from './conversation-detail/use-conversation-tab'
+import { useEventsFetch } from './conversation-detail/use-events-fetch'
 import { useSubagentFetch } from './conversation-detail/use-subagent-fetch'
 import { useTaskEditor } from './conversation-detail/use-task-editor'
 import { ShareBanner } from './share-panel'
@@ -90,6 +91,8 @@ export const ConversationDetail = memo(function ConversationDetail() {
 
   // Perf-monitor-only: attribute slow switches to a concrete region (see hook).
   useSwitchDiagnostics(selectedConversationId)
+  // On-demand hook events: only fetch when the events/agents tab needs them.
+  useEventsFetch(selectedConversationId, activeTab)
 
   const selectedProjectUri = useConversationsStore(state => state.selectedProjectUri)
 

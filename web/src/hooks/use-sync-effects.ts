@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
 import {
-  fetchConversationEvents,
   fetchGlobalSettings,
   fetchProjectOrder,
   fetchProjectSettings,
@@ -45,10 +44,13 @@ function useSidebarMetadata() {
 }
 
 function useConversationFetcher() {
-  const setEvents = useConversationsStore(s => s.setEvents)
   const setTranscript = useConversationsStore(s => s.setTranscript)
   const fetchedAtRef = useRef<Record<string, number>>({})
 
+  // Transcript-only switch fetch. Hook events are NOT fetched here -- they are
+  // loaded on demand by useEventsFetch when the events/agents tab is active.
+  // Eagerly fetching ~200 events on every switch (even on the transcript tab,
+  // which never renders them) was doubling the cold-open payload for no benefit.
   const fetchConversationData = useCallback(
     (convId: string, reason?: string) => {
       const now = Date.now()
@@ -63,15 +65,14 @@ function useConversationFetcher() {
         `[sync] FETCH ${convId.slice(0, 8)} (${reason || '?'}) cached=${cachedCount} lastFetch=${lastFetch ? `${elapsed}ms ago` : 'never'}`,
       )
       fetchedAtRef.current[convId] = now
-      Promise.all([fetchConversationEvents(convId), fetchTranscript(convId)]).then(([events, transcript]) => {
+      fetchTranscript(convId).then(transcript => {
         console.log(
-          `[sync] GOT ${convId.slice(0, 8)}: events=${events.length} transcript=${transcript?.entries.length ?? 'null'} lastSeq=${transcript?.lastSeq ?? '-'} (was ${cachedCount})`,
+          `[sync] GOT ${convId.slice(0, 8)}: transcript=${transcript?.entries.length ?? 'null'} lastSeq=${transcript?.lastSeq ?? '-'} (was ${cachedCount})`,
         )
-        setEvents(convId, events)
         if (transcript) setTranscript(convId, transcript.entries)
       })
     },
-    [setEvents, setTranscript],
+    [setTranscript],
   )
 
   function resetFetchedAt() {
