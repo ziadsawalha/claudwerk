@@ -103,7 +103,14 @@ function getGroupingCache(key: string): GroupingCache {
 // (e.g. the subagent transcript view, which renders different entries while
 // selectedConversationId still points at the parent) to fall back to a
 // per-instance cache and avoid colliding with the parent conversation.
-export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: string | null) {
+// `resetSignal` (optional): when its value changes between renders, the next
+// grouping pass is forced to fully re-group from scratch instead of taking the
+// incremental tail-append path. Progressive transcript loading passes the window
+// start index here -- a window prepend grows the entries array at the HEAD, which
+// the incremental path (slice(cache.len) == tail) would mis-group. Streaming
+// (window start unchanged) leaves the signal stable, so tail append stays
+// incremental. Undefined for callers that never window (e.g. subagent view).
+export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: string | null, resetSignal?: unknown) {
   // Per-instance fallback used when cacheKey is null/undefined (no shared
   // cache slot to point at). Created lazily and reused across renders of the
   // same hook instance, so a keyless view (e.g. subagent transcript) is
@@ -111,6 +118,7 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
   const localCacheRef = useRef<GroupingCache | null>(null)
   const cacheRef = useRef<GroupingCache | null>(null)
   const lastCacheKeyRef = useRef<string | null | undefined>(undefined)
+  const lastResetSignalRef = useRef<unknown>(resetSignal)
   // Run swap during render so the useMemo below reads the right cache. This
   // is a read of a stable module-level Map; idempotent and safe in render.
   if (cacheRef.current === null || cacheKey !== lastCacheKeyRef.current) {
@@ -128,8 +136,16 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
     if (!Array.isArray(entries)) return cache.groups
     const t0 = performance.now()
 
+    // Window prepend (or any caller-signalled change): force a full re-group.
+    // The incremental path assumes new entries land at the tail; a head-prepend
+    // violates that.
+    const signalChanged = resetSignal !== lastResetSignalRef.current
+    lastResetSignalRef.current = resetSignal
+
     // Full reset if entries shrunk OR array was replaced entirely (HTTP refetch)
-    const isReset = entries.length < cache.len || (entries !== cache.lastEntries && entries.length <= cache.len)
+    // OR the caller signalled a window change.
+    const isReset =
+      signalChanged || entries.length < cache.len || (entries !== cache.lastEntries && entries.length <= cache.len)
     cache.lastEntries = entries
     if (isReset) {
       cache.len = 0
@@ -214,7 +230,7 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
       console.log(`[grouping] ${newEntries.length} new entries -> ${newGroups.length} groups (${elapsed.toFixed(1)}ms)`)
     }
     return newGroups
-  }, [entries])
+  }, [entries, resetSignal])
 
   // Stable lookup function -- never changes identity, reads from the ref's live Map
   const getResult = useCallback((id: string) => cacheRef.current?.resultMap.get(id), [])

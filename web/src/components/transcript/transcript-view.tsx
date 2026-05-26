@@ -123,6 +123,33 @@ function getConvSizeCache(conversationId: string | null): Map<string, number> {
   return fresh
 }
 
+// Progressive transcript loading (Phase 1a). Render only the last WINDOW_SIZE
+// entries on open/switch; "Load earlier" prepends LOAD_CHUNK more. Conversations
+// at or below WINDOW_THRESHOLD entries render whole (no window, no button) -- the
+// lever only matters for long transcripts that grouping collapses into a few
+// giant groups (see .claude/docs/plan-progressive-transcript-spike.md).
+const WINDOW_SIZE = 50
+const WINDOW_THRESHOLD = 80
+const LOAD_CHUNK = 100
+
+/** Default window start: show the last WINDOW_SIZE entries, or all of them when
+ *  the transcript is short enough that windowing buys nothing. */
+function defaultWindowStart(len: number): number {
+  return len > WINDOW_THRESHOLD ? len - WINDOW_SIZE : 0
+}
+
+/** Stable virtualizer key for a group. Keyed on the group's TAIL entry (last
+ *  entry's seq/uuid) so it is invariant under a HEAD prepend -- "Load earlier"
+ *  grows the boundary group at its head, and an index- or first-entry-keyed key
+ *  would change, busting the measured-height cache and causing a scroll jump.
+ *  (Streaming grows the LAST group at its tail, changing that one group's key --
+ *  a re-measure there is correct and absorbed by the pin-to-bottom effect.) */
+function stableGroupKey(group: DisplayGroup): string {
+  const tail = group.entries[group.entries.length - 1] as { seq?: number; uuid?: string } | undefined
+  const id = tail?.seq ?? tail?.uuid ?? group.timestamp
+  return `${group.type}-${id}`
+}
+
 const EMPTY_STREAMING = ''
 
 /** Isolated streaming text component - subscribes to its own store slice so token updates don't re-render the virtualizer */
@@ -331,7 +358,28 @@ export const TranscriptView = memo(function TranscriptView({
   const parentRef = useRef<HTMLDivElement>(null)
   const followKilledRef = useRef(false)
 
-  const { getResult, groups } = useIncrementalGroups(entries, cacheKey)
+  // Progressive load window (Phase 1a). windowStart is an ABSOLUTE index into
+  // `entries`: set to the last-N default on open, only ever REDUCED by "Load
+  // earlier". Keeping it fixed during streaming means `windowed` stays a pure
+  // tail-append of the previous `windowed`, so grouping stays on the cheap
+  // incremental path (resetSignal below only changes on a prepend).
+  const [windowStart, setWindowStart] = useState(() => defaultWindowStart(entries.length))
+  const prevCacheKeyRef = useRef(cacheKey)
+  // Derived-state reset (the documented "adjust state on prop change in render"
+  // pattern -- re-renders before commit, no flash): snap the window back to the
+  // last-N default when the conversation switches, or when the entries array
+  // shrank out from under a stale start (e.g. /clear replacing the transcript).
+  // The `windowStart > 0` guard is load-bearing: it stops an empty/zero-length
+  // transcript (windowStart 0, len 0) from re-triggering the reset forever, and
+  // `>=` catches the exact-boundary case where slice(windowStart) would be empty.
+  if (cacheKey !== prevCacheKeyRef.current || (windowStart > 0 && windowStart >= entries.length)) {
+    prevCacheKeyRef.current = cacheKey
+    setWindowStart(defaultWindowStart(entries.length))
+  }
+  const windowed = useMemo(() => (windowStart > 0 ? entries.slice(windowStart) : entries), [entries, windowStart])
+  const hasEarlier = windowStart > 0
+
+  const { getResult, groups } = useIncrementalGroups(windowed, cacheKey, windowStart)
 
   // Lift settings selectors here (once) instead of per-GroupView (N times)
   const expandAll = useConversationsStore(state => state.expandAll)
@@ -447,13 +495,7 @@ export const TranscriptView = memo(function TranscriptView({
   // captured once on mount).
   const measuredSizes = useMemo(() => getConvSizeCache(cacheKey ?? null), [cacheKey])
 
-  const getItemKey = useCallback(
-    (index: number) => {
-      const g = mainGroups[index]
-      return `${g.type}-${g.timestamp}-${index}`
-    },
-    [mainGroups],
-  )
+  const getItemKey = useCallback((index: number) => stableGroupKey(mainGroups[index]), [mainGroups])
 
   const virtualizer = useVirtualizer({
     count: mainGroups.length,
@@ -559,6 +601,40 @@ export const TranscriptView = memo(function TranscriptView({
       record('scroll', 'scrollRepin', performance.now() - t0, `drift ${drift.toFixed(0)}px`)
     }
   }, [totalSize, follow])
+
+  // Scroll-anchor correction for "Load earlier" (progressive load Phase 1a).
+  // Prepending older entries grows the content ABOVE the viewport (new groups +
+  // possible removal of the Load-earlier button when the head is reached). This
+  // effect runs after the prepend commit but BEFORE paint and shifts scrollTop by
+  // the scrollHeight delta, so the content the user was reading stays pinned --
+  // no jump. Measured 0px steady-state in the spike. scrollHeight (not
+  // getTotalSize) so the button's appearance/removal is accounted for too. The
+  // pin-to-bottom effect above early-returns because loadEarlier kills follow,
+  // so the two never fight.
+  const prependPendingRef = useRef(false)
+  const prevScrollHeightRef = useRef(0)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize/windowStart are intentional triggers; scrollHeight is read live, not a dep
+  useLayoutEffect(() => {
+    const el = parentRef.current
+    const newSH = el ? el.scrollHeight : 0
+    if (prependPendingRef.current && el) {
+      const t0 = performance.now()
+      const added = newSH - prevScrollHeightRef.current
+      el.scrollTop = el.scrollTop + added
+      prependPendingRef.current = false
+      record('scroll', 'loadEarlierAnchor', performance.now() - t0, `+${Math.round(added)}px`)
+    }
+    prevScrollHeightRef.current = newSH
+  }, [totalSize, windowStart])
+
+  // "Load earlier": prepend a chunk of older entries. Kill follow (this is an
+  // explicit history action) so the pin-to-bottom effect stands down, mark the
+  // prepend so the anchor effect corrects scroll on the resulting commit.
+  const loadEarlier = useCallback(() => {
+    followKilledRef.current = true
+    prependPendingRef.current = true
+    setWindowStart(s => Math.max(0, s - LOAD_CHUNK))
+  }, [])
 
   const killFollow = useCallback(
     (e: React.WheelEvent | React.TouchEvent) => {
@@ -671,6 +747,19 @@ export const TranscriptView = memo(function TranscriptView({
       onWheel={killFollow}
       onTouchStart={killFollow}
     >
+      {/* Progressive load (Phase 1a): only the last N entries render; this button
+          prepends older history with a synchronous scroll-anchor (no jump). */}
+      {hasEarlier && (
+        <div className="flex justify-center pb-3">
+          <button
+            type="button"
+            onClick={loadEarlier}
+            className="rounded-full border border-border bg-muted/40 px-3 py-1 text-[11px] font-mono text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Load earlier ({windowStart} more)
+          </button>
+        </div>
+      )}
       <div
         style={{
           height: `${totalSize}px`,
