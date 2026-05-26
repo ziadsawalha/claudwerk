@@ -23,7 +23,6 @@
     "src/broker/recap/__tests__/synthetic-fixtures.ts:makeOpenQuestions",
     "src/broker/recap/__tests__/synthetic-fixtures.ts:makeCommits",
     "src/sentinel/sentinel-config.ts:DEFAULT_PROFILE_WEIGHT",
-    "src/shared/cc-daemon/socket-path.ts:resolveWorkerPtySock",
     "src/shared/opencode-config.ts:OPENCODE_FALLBACK_MODEL",
     "src/shared/tool-vocab.ts:TOOL_KINDS",
     "src/shared/tool-vocab.ts:displayNameFor",
@@ -125,10 +124,7 @@
     "web/src/lib/types.ts:TranscriptSystemEntry"
   ],
   "private_type_leaks": [],
-  "unused_dependencies": [
-    "web/package.json:@codemirror/theme-one-dark",
-    "web/package.json:codemirror"
-  ],
+  "unused_dependencies": [],
   "unused_dev_dependencies": [],
   "circular_dependencies": [
     "web/src/components/recap-jobs/recap-custom-range-dialog.tsx->web/src/components/recap-jobs/recap-submenu.tsx"
@@ -141,20 +137,7 @@
   "unresolved_imports": [
     "scripts/lint-inline-import-type.ts:...",
     "scripts/lint-inline-import-type.ts:...",
-    "scripts/lint-inline-import-type.ts:./x",
-    "src/acp-agent-host/index.ts:../shared/version",
-    "src/broker/backup.ts:../shared/version",
-    "src/broker/conversation-store.ts:../shared/version",
-    "src/broker/routes/mcp-server.ts:../../shared/version",
-    "src/claude-agent-host/mcp-tools/identity.ts:../../shared/version",
-    "src/claude-agent-host/ws-client.ts:../shared/version",
-    "src/daemon-agent-host/index.ts:../shared/version",
-    "src/opencode-agent-host/index.ts:../shared/version",
-    "src/shared/update-check.ts:./version",
-    "web/src/components/error-boundary.tsx:../../../src/shared/version",
-    "web/src/components/settings-page.tsx:../../../src/shared/version",
-    "web/src/hooks/use-build-update.ts:../../../src/shared/version",
-    "web/src/lib/utils.ts:../../../src/shared/version"
+    "scripts/lint-inline-import-type.ts:./x"
   ],
   "unlisted_dependencies": [],
   "duplicate_exports": [
