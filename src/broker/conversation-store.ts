@@ -372,6 +372,40 @@ export interface ConversationStore {
   removeGatewaySocketByRef: (ws: ServerWebSocket<unknown>) => string | undefined
 }
 
+/** Fast-eviction TTL for dead daemon ghost rows (much shorter than the 28-day
+ *  ended TTL -- a worthless empty ghost should not linger for weeks). */
+export const GHOST_EVICTION_TTL_MS = 15 * 60 * 1000
+
+/**
+ * PURE: is this a dead daemon GHOST safe to evict fast?
+ *
+ * A ghost is a roster-mirrored daemon worker the broker surfaced read-only and
+ * NEVER hosted -- it has `events.length === 0` (no agent-host lifecycle ever
+ * ran), no transcript, and no live socket. When it has ended and sat idle past
+ * the ghost TTL it is worthless clutter -- exactly the duplicate ghosts the
+ * split-identity bug produced (now prevented at the source by the daemon-map
+ * registration). Conservative ON PURPOSE: EVERY signal must hold, so a real
+ * hosted daemon conversation (which always has boot events + a transcript) can
+ * never be hit. Boundary-safe: reads agentHostType/status/events, never
+ * ccSessionId.
+ */
+export function isEvictableDaemonGhost(
+  conv: { agentHostType?: string; status: string; events: unknown[]; lastActivity: number },
+  hasTranscript: boolean,
+  hasLiveSocket: boolean,
+  now: number,
+  ttlMs: number,
+): boolean {
+  return (
+    conv.agentHostType === 'daemon' &&
+    conv.status === 'ended' &&
+    conv.events.length === 0 &&
+    !hasTranscript &&
+    !hasLiveSocket &&
+    now - conv.lastActivity > ttlMs
+  )
+}
+
 /**
  * Create a conversation store with optional persistence
  */
@@ -756,6 +790,24 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           console.log(`[evict] Zombie conversation ${conv.id.slice(0, 8)} (STARTING, 0 events, idle ${hours}h)`)
           toEvict.push(conv.id)
         }
+      }
+
+      // Fast-evict dead daemon GHOST rows: a roster-mirrored daemon worker that
+      // ended having never been hosted (0 events), with no transcript and no
+      // live socket. These are the duplicate ghosts the split-identity bug
+      // produced; the daemon-map registration now prevents new ones, and the
+      // user should not wait the 28-day ended TTL for the existing backlog.
+      if (
+        isEvictableDaemonGhost(
+          conv,
+          hasTranscriptCache(conv.id),
+          conversationSockets.has(conv.id),
+          now,
+          GHOST_EVICTION_TTL_MS,
+        )
+      ) {
+        console.log(`[evict] Dead daemon ghost ${conv.id.slice(0, 8)} (ended, 0 events, no transcript, no worker)`)
+        toEvict.push(conv.id)
       }
 
       if (changed) {

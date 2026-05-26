@@ -13,7 +13,7 @@ import type { ServerWebSocket } from 'bun'
 import { deriveModelName } from '../../shared/models'
 import type { HookEvent, TaskInfo, TranscriptEntry } from '../../shared/protocol'
 import type { ConversationStore } from '../conversation-store'
-import { createConversationStore } from '../conversation-store'
+import { createConversationStore, isEvictableDaemonGhost } from '../conversation-store'
 
 // Minimal mock socket -- used only for identity / set membership.
 // No actual send() calls reach these in non-persistence, no-subscriber mode
@@ -920,5 +920,45 @@ describe('broadcast scoping (project URI)', () => {
     store.createConversation('bw-2', '/projects/wrap2')
     const count = store.broadcastToConversationsForProject('claude://default/projects/wrap2', { type: 'test' })
     expect(count).toBe(0)
+  })
+})
+
+describe('isEvictableDaemonGhost (dead daemon ghost cleanup)', () => {
+  const NOW = 1_000_000_000
+  const TTL = 15 * 60 * 1000
+  const ghost = (over: Record<string, unknown> = {}) => ({
+    agentHostType: 'daemon',
+    status: 'ended',
+    events: [] as unknown[],
+    lastActivity: NOW - TTL - 1,
+    ...over,
+  })
+
+  it('evicts a dead empty daemon ghost past the TTL', () => {
+    expect(isEvictableDaemonGhost(ghost(), false, false, NOW, TTL)).toBe(true)
+  })
+
+  it('keeps a ghost still within the TTL', () => {
+    expect(isEvictableDaemonGhost(ghost({ lastActivity: NOW - 1000 }), false, false, NOW, TTL)).toBe(false)
+  })
+
+  it('never evicts a hosted daemon conv (has boot events)', () => {
+    expect(isEvictableDaemonGhost(ghost({ events: [{ type: 'boot' }] }), false, false, NOW, TTL)).toBe(false)
+  })
+
+  it('never evicts a conv that has a transcript', () => {
+    expect(isEvictableDaemonGhost(ghost(), true, false, NOW, TTL)).toBe(false)
+  })
+
+  it('never evicts a conv with a live socket', () => {
+    expect(isEvictableDaemonGhost(ghost(), false, true, NOW, TTL)).toBe(false)
+  })
+
+  it('never evicts a non-ended ghost', () => {
+    expect(isEvictableDaemonGhost(ghost({ status: 'idle' }), false, false, NOW, TTL)).toBe(false)
+  })
+
+  it('never evicts a non-daemon conversation', () => {
+    expect(isEvictableDaemonGhost(ghost({ agentHostType: 'claude' }), false, false, NOW, TTL)).toBe(false)
   })
 })
