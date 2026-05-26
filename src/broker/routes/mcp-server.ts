@@ -20,6 +20,61 @@ import { isPushConfigured, sendPushToAll } from '../push'
 import { dispatchSpawn, type SpawnDispatchDeps } from '../spawn-dispatch'
 import type { StoreDriver } from '../store/types'
 
+export interface LineageRow {
+  conversationId: string
+  title?: string
+  project?: string
+  status?: string
+  agentHostType?: string
+  parentConversationId?: string
+  rootConversationId?: string
+  directChildCount: number
+}
+
+/** Render a forest of conversations as an ASCII spawn tree.
+ *
+ *  Roots = rows whose parent isn't in the row set (or is missing entirely).
+ *  When the input is filtered (e.g. status='active'), parents may live
+ *  outside the result -- those rows still surface as forest roots so the
+ *  caller doesn't lose them. */
+export function renderLineageTree(rows: LineageRow[]): string {
+  if (rows.length === 0) return '(no conversations)'
+  const byId = new Map<string, LineageRow>()
+  for (const r of rows) byId.set(r.conversationId, r)
+  const childrenOf = new Map<string, LineageRow[]>()
+  const roots: LineageRow[] = []
+  for (const r of rows) {
+    const parent = r.parentConversationId
+    if (parent && byId.has(parent)) {
+      const arr = childrenOf.get(parent) ?? []
+      arr.push(r)
+      childrenOf.set(parent, arr)
+    } else {
+      roots.push(r)
+    }
+  }
+  const sortRows = (xs: LineageRow[]) =>
+    xs.slice().sort((a, b) => (a.title ?? a.conversationId).localeCompare(b.title ?? b.conversationId))
+
+  const lines: string[] = []
+  function emit(row: LineageRow, prefix: string, isLast: boolean, isRoot: boolean) {
+    const branch = isRoot ? '' : isLast ? '└── ' : '├── '
+    const title = row.title?.trim() ? row.title.trim() : '(untitled)'
+    const tags = [row.status, row.agentHostType, row.project].filter(Boolean).join(' · ')
+    const extra = row.directChildCount > 0 ? ` (+${row.directChildCount} children)` : ''
+    lines.push(`${prefix}${branch}${row.conversationId}  [${tags}]  ${title}${extra}`)
+    const kids = sortRows(childrenOf.get(row.conversationId) ?? [])
+    const nextPrefix = isRoot ? prefix : prefix + (isLast ? '    ' : '│   ')
+    kids.forEach((kid, i) => emit(kid, nextPrefix, i === kids.length - 1, false))
+  }
+  const sortedRoots = sortRows(roots)
+  sortedRoots.forEach((root, i) => {
+    if (i > 0) lines.push('')
+    emit(root, '', i === sortedRoots.length - 1, true)
+  })
+  return lines.join('\n')
+}
+
 function createMcpServer(
   conversationStore: ConversationStore,
   store: StoreDriver,
@@ -290,14 +345,37 @@ function createMcpServer(
   // ─── list_conversations ─────────────────────────────────────────────
   mcp.tool(
     'list_conversations',
-    "List Claudwerk conversations (CC, Hermes, chat-api). Default excludes ended sessions. Pass status:'all' to see the full graveyard. Returns conversationId, title, project, status, model, agentHostType, startedAt, lastActivity for each.",
+    "List Claudwerk conversations (CC, Hermes, chat-api). Default excludes ended sessions. Pass status:'all' to see the full graveyard. Lineage filters: rootConversationId returns a whole spawn subtree (conv X + everything spawned from it, transitively); parentConversationId returns just direct children of X. The two are mutually exclusive. format:'tree' renders an ASCII spawn tree instead of JSON. Returns conversationId, title, project, status, model, agentHostType, startedAt, lastActivity, parentConversationId, rootConversationId, directChildCount for each row.",
     {
       status: z
         .enum(['active', 'idle', 'ended', 'all'])
         .optional()
         .describe('Filter. Default = active+idle (everything not ended).'),
+      rootConversationId: z
+        .string()
+        .optional()
+        .describe('Return the full spawn subtree rooted at this conversationId (inclusive). Mutually exclusive with parentConversationId.'),
+      parentConversationId: z
+        .string()
+        .optional()
+        .describe('Return only direct children of this conversationId. Mutually exclusive with rootConversationId.'),
+      format: z
+        .enum(['json', 'tree'])
+        .optional()
+        .describe("Output format. 'json' (default) returns a flat array. 'tree' renders an ASCII spawn tree."),
     },
-    async ({ status }) => {
+    async ({ status, rootConversationId, parentConversationId, format }) => {
+      if (rootConversationId && parentConversationId) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: rootConversationId and parentConversationId are mutually exclusive.',
+            },
+          ],
+          isError: true,
+        }
+      }
       const all = conversationStore.getAllConversations()
       // directChildCount aggregate: built against the FULL set so a filter
       // (e.g. status='active') still surfaces accurate counts for parents whose
@@ -314,6 +392,13 @@ function createMcpServer(
       } else if (!status) {
         conversations = conversations.filter(c => c.status !== 'ended')
       }
+      if (rootConversationId) {
+        conversations = conversations.filter(
+          c => c.id === rootConversationId || c.rootConversationId === rootConversationId,
+        )
+      } else if (parentConversationId) {
+        conversations = conversations.filter(c => c.parentConversationId === parentConversationId)
+      }
       const summary = conversations.map(c => ({
         conversationId: c.id,
         title: c.title,
@@ -327,6 +412,9 @@ function createMcpServer(
         rootConversationId: c.rootConversationId,
         directChildCount: childCounts.get(c.id) ?? 0,
       }))
+      if (format === 'tree') {
+        return { content: [{ type: 'text', text: renderLineageTree(summary) }] }
+      }
       return { content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }] }
     },
   )
