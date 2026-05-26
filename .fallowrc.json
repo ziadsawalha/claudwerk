@@ -1,4 +1,5 @@
 {
   "entry": ["web/public/sw.js", "scripts/**/*.ts", "**/*.test.ts", "**/*.test.tsx"],
-  "ignoreDependencies": ["bun:sqlite", "bun:test"]
+  "ignoreDependencies": ["bun:sqlite", "bun:test"],
+  "ignorePatterns": [".claude/**", ".rclaude/**"]
 }
