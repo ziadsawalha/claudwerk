@@ -2634,7 +2634,10 @@ export interface DaemonControlResult {
   // daemon-agent-host now routes). set_model is live (reply /model -- spike 3b);
   // set_effort is recorded-for-respawn (live /effort is a no-op -- spike 3a);
   // interrupt writes Ctrl+C to the worker PTY.
-  op: 'reply' | 'permission_response' | 'kill' | 'respawn_stale' | 'set_model' | 'set_effort' | 'interrupt'
+  // `permission_response` removed 2026-05-27 (sweep P1-2 / P3-5) -- the daemon
+  // permission-response op is a stub; the verified path is PermissionResponse
+  // + daemonControl.reply() (see src/daemon-agent-host/index.ts handleInbound).
+  op: 'reply' | 'kill' | 'respawn_stale' | 'set_model' | 'set_effort' | 'interrupt'
   ok: boolean
   /** Daemon error code on failure (EPROTO, ENOJOB, ENOREPLY, ...). */
   code?: string
@@ -2747,21 +2750,12 @@ export interface DaemonSessionRetired {
   retiredAt: number
 }
 
-/**
- * Control panel -> broker: answer a tool-use permission gate a daemon worker
- * is blocked on. Phase G. The sentinel/host translate this to the daemon's
- * `permission-response` op once that op's schema is live-verified (plan
- * Section 8 spike 5).
- */
-export interface DaemonPermissionResponse {
-  type: 'daemon_permission_response'
-  conversationId: string
-  /** Tool-use request id the worker is gated on (from JobRecord.needs / subscribe). */
-  requestId: string
-  decision: 'allow' | 'deny'
-  /** Optional: persist the decision for the session. */
-  scope?: 'once' | 'session'
-}
+// DaemonPermissionResponse was removed 2026-05-27 (sweep finding P1-2). The
+// daemon's `permission-response` op is a stub in 2.1.150 -- the verified
+// path is `reply()` with a "1"/"2"/"3" numbered-menu choice (see
+// src/shared/permission-decision.ts + plan-daemon-launch-ux.md § 8). The
+// generic `permission_response` wire message (PermissionResponse), forwarded
+// by the broker to the daemon-agent-host's handleInbound, is the live path.
 
 /**
  * Sentinel -> Broker: the Claude Code daemon version or control-protocol
@@ -2787,6 +2781,32 @@ export interface CcVersionChanged {
   observedAt: number
 }
 
+/**
+ * Sentinel -> Broker: the installed Claude Code version is below the minimum
+ * required for the requested `defaultTransport`. Emitted on every poll while
+ * the condition holds so a freshly-loaded dashboard surfaces the gap; the
+ * sentinel suppresses identical re-emits within the same poll window so it is
+ * idempotent (one fire per (sentinelId, requiredVersion, installedVersion)).
+ *
+ * Drives the safety-net banner: prod cannot silently default to the daemon
+ * backend when the local `claude` binary is too old (sleep/wake stale
+ * recovery + dispatch socket op land in 2.1.142). Sweep P1-3, second wire msg.
+ *
+ * BOUNDARY-clean: scoped to a sentinel, no ccSessionId touched.
+ */
+export interface CcMinVersionUnmet {
+  type: 'cc_min_version_unmet'
+  sentinelId: string
+  /** Installed CC version as reported by the daemon ping. */
+  installedVersion: string
+  /** Minimum CC version required by the active configuration. */
+  requiredVersion: string
+  /** What this minimum protects -- for the banner copy. */
+  requiredFor: 'daemon-backend' | string
+  /** Epoch ms the sentinel observed the gap. */
+  observedAt: number
+}
+
 export type SentinelMessage =
   | SentinelIdentify
   | ReviveResult
@@ -2800,6 +2820,7 @@ export type SentinelMessage =
   | DaemonRosterUpdate
   | DaemonJobState
   | CcVersionChanged
+  | CcMinVersionUnmet
   | SentinelPatchConfigAck
 
 // Broker -> Sentinel messages

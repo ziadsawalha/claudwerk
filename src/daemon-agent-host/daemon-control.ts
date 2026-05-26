@@ -14,9 +14,11 @@
  *   broker `terminate_conversation`-> daemon `kill`          (terminate worker)
  *   broker `daemon_respawn_stale`  -> daemon `respawn-stale`  (sleep/wake fix)
  *
- * `permission-response` is spike-gated (plan Section 8 spike 5) and NOT wired
- * here yet -- `DaemonPermissionResponse` stays a stable wire contract until
- * the daemon op's schema is live-verified.
+ * `permission-response` is handled via the generic PermissionResponse wire
+ * message (broker forwards to daemon-agent-host handleInbound -> reply '1' /
+ * '2' / '3'). The dedicated DaemonPermissionResponse contract + daemon
+ * `permission-response` op were removed 2026-05-27 (sweep P1-2). See
+ * src/shared/permission-decision.ts + plan-daemon-launch-ux.md § 8 spike 5.
  *
  * Every op LOGS full context (op, conversationId, short, outcome, daemon
  * error code) per the LOG EVERYTHING covenant.

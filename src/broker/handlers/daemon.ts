@@ -376,10 +376,11 @@ const daemonLaunchEvent: MessageHandler = (ctx, data) => {
 
 // ─── Phase G -- remote control (reply / kill / respawn-stale) ──────────────
 
-/** The four ops a DaemonControlResult can report on. */
+/** Ops a DaemonControlResult can report on. `permission_response` removed
+ *  2026-05-27 (sweep P1-2 / P3-5) -- the daemon op is a stub; the verified
+ *  path goes through PermissionResponse + daemonControl.reply() instead. */
 const DAEMON_CONTROL_OPS = new Set<DaemonControlResult['op']>([
   'reply',
-  'permission_response',
   'kill',
   'respawn_stale',
   'set_model',

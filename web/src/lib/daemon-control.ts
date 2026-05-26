@@ -26,10 +26,11 @@ export interface DaemonControlResultLike {
   conversationId?: unknown
 }
 
-/** Human labels for the control ops. */
+/** Human labels for the control ops. `permission_response` removed 2026-05-27
+ *  (sweep P1-2 / P3-5): the daemon op is a stub; permission gates resolve via
+ *  the live PermissionResponse + daemonControl.reply() path instead. */
 const DAEMON_OP_LABELS: Record<string, string> = {
   reply: 'Reply',
-  permission_response: 'Permission response',
   kill: 'Kill worker',
   respawn_stale: 'Respawn stale worker',
   set_model: 'Set model',

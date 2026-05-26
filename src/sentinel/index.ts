@@ -2282,6 +2282,23 @@ function connect(
           } catch {}
         }
       },
+      // Min-version safety net (sweep P1-3 / C4). The sentinel does not see
+      // the broker's GlobalSettings.defaultTransport directly; the broker's
+      // current default IS 'claude-daemon' (post Phase-3 migration), so we
+      // always check the floor here. A dashboard that knows daemon is opted
+      // OUT can suppress the banner client-side.
+      isDaemonDefault: () => true,
+      emitMinUnmet: event => {
+        log(
+          `[cc-version] MIN UNMET sentinel=${event.sentinelId} installed=${event.installedVersion}` +
+            ` required=${event.requiredVersion} for=${event.requiredFor} at=${event.observedAt}`,
+        )
+        if (activeWs?.readyState === WebSocket.OPEN) {
+          try {
+            activeWs.send(JSON.stringify(event))
+          } catch {}
+        }
+      },
       onError: err => diag('cc-version', `ping failed: ${err.message}`),
     })
     ccVersionWatcher.start()

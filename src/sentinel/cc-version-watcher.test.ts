@@ -6,8 +6,16 @@
  * exercised without a real socket or filesystem.
  */
 import { describe, expect, it } from 'bun:test'
-import type { CcVersionChanged } from '../shared/protocol'
-import { createCcVersionWatcher, diffCcVersion, type LastSeenCcVersion, type PingResult } from './cc-version-watcher'
+import type { CcMinVersionUnmet, CcVersionChanged } from '../shared/protocol'
+import {
+  CC_MIN_VERSION_FOR_DAEMON,
+  ccVersionBelow,
+  createCcVersionWatcher,
+  diffCcVersion,
+  type LastSeenCcVersion,
+  parseCcVersion,
+  type PingResult,
+} from './cc-version-watcher'
 
 describe('diffCcVersion', () => {
   it('returns null when both axes match', () => {
@@ -130,5 +138,109 @@ describe('createCcVersionWatcher', () => {
     const w = makeWatcher(h)
     await Promise.all([w.runOnce(), w.runOnce()])
     expect(h.emitted).toHaveLength(1)
+  })
+})
+
+describe('parseCcVersion', () => {
+  it('parses 2.1.150 -> [2,1,150]', () => {
+    expect(parseCcVersion('2.1.150')).toEqual([2, 1, 150])
+  })
+  it('rejects garbage', () => {
+    expect(parseCcVersion('not.a.version')).toBeNull()
+    expect(parseCcVersion('2.1')).toBeNull()
+  })
+})
+
+describe('ccVersionBelow', () => {
+  it('returns true when installed is strictly below required', () => {
+    expect(ccVersionBelow('2.1.141', '2.1.142')).toBe(true)
+    expect(ccVersionBelow('2.0.999', '2.1.142')).toBe(true)
+  })
+  it('returns false when installed equals or exceeds required', () => {
+    expect(ccVersionBelow('2.1.142', '2.1.142')).toBe(false)
+    expect(ccVersionBelow('2.1.143', '2.1.142')).toBe(false)
+    expect(ccVersionBelow('2.2.0', '2.1.142')).toBe(false)
+  })
+  it('returns false for unparseable input (defensive: no false-positive banner)', () => {
+    expect(ccVersionBelow('garbage', '2.1.142')).toBe(false)
+  })
+})
+
+describe('createCcVersionWatcher -- min-version safety net (sweep C4)', () => {
+  function makeMinHarness(versionToPing: string) {
+    const emittedMin: CcMinVersionUnmet[] = []
+    const watcher = createCcVersionWatcher({
+      sentinelId: 'snt_min',
+      now: () => 1_700_000_000_000,
+      ping: async () => ({ version: versionToPing, proto: 1 }),
+      loadLastSeen: () => ({ version: versionToPing, proto: 1 }), // no diff -- isolate the min path
+      persistLastSeen: () => {},
+      emit: () => {},
+      isDaemonDefault: () => true,
+      emitMinUnmet: ev => emittedMin.push(ev),
+    })
+    return { emittedMin, watcher }
+  }
+
+  it('fires once when installed CC is below the floor and daemon is the default', async () => {
+    const { emittedMin, watcher } = makeMinHarness('2.1.141')
+    await watcher.runOnce()
+    expect(emittedMin).toHaveLength(1)
+    expect(emittedMin[0]).toMatchObject({
+      type: 'cc_min_version_unmet',
+      sentinelId: 'snt_min',
+      installedVersion: '2.1.141',
+      requiredVersion: CC_MIN_VERSION_FOR_DAEMON,
+      requiredFor: 'daemon-backend',
+    })
+  })
+
+  it('is idempotent across polls for the same (installed, required) gap', async () => {
+    const { emittedMin, watcher } = makeMinHarness('2.1.141')
+    await watcher.runOnce()
+    await watcher.runOnce()
+    await watcher.runOnce()
+    expect(emittedMin).toHaveLength(1)
+  })
+
+  it('does NOT fire when the installed version meets the floor', async () => {
+    const { emittedMin, watcher } = makeMinHarness('2.1.142')
+    await watcher.runOnce()
+    expect(emittedMin).toEqual([])
+  })
+
+  it('does NOT fire when daemon is opted out (isDaemonDefault returns false)', async () => {
+    const emittedMin: CcMinVersionUnmet[] = []
+    const watcher = createCcVersionWatcher({
+      sentinelId: 'snt_min',
+      ping: async () => ({ version: '2.1.140', proto: 1 }),
+      loadLastSeen: () => ({ version: '2.1.140', proto: 1 }),
+      persistLastSeen: () => {},
+      emit: () => {},
+      isDaemonDefault: () => false,
+      emitMinUnmet: ev => emittedMin.push(ev),
+    })
+    await watcher.runOnce()
+    expect(emittedMin).toEqual([])
+  })
+
+  it('re-fires after the gap closes and re-opens (suppressor reset)', async () => {
+    const emittedMin: CcMinVersionUnmet[] = []
+    const versions: string[] = ['2.1.141', '2.1.142', '2.1.140']
+    const watcher = createCcVersionWatcher({
+      sentinelId: 'snt_min',
+      ping: async () => ({ version: versions.shift() ?? '2.1.142', proto: 1 }),
+      loadLastSeen: () => ({ version: '2.1.142', proto: 1 }), // never diffs
+      persistLastSeen: () => {},
+      emit: () => {},
+      isDaemonDefault: () => true,
+      emitMinUnmet: ev => emittedMin.push(ev),
+    })
+    await watcher.runOnce() // 2.1.141 -- fire
+    await watcher.runOnce() // 2.1.142 -- gap closes, suppressor resets
+    await watcher.runOnce() // 2.1.140 -- gap reopens, fire again
+    expect(emittedMin).toHaveLength(2)
+    expect(emittedMin[0]?.installedVersion).toBe('2.1.141')
+    expect(emittedMin[1]?.installedVersion).toBe('2.1.140')
   })
 })

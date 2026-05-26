@@ -4,6 +4,7 @@
  */
 
 import type {
+  CcMinVersionUnmet,
   CcVersionChanged,
   ProfileUsageSnapshot,
   SelectionMode,
@@ -300,6 +301,52 @@ const ccVersionChanged: MessageHandler = (ctx, data) => {
   ctx.broadcast({ ...event })
 }
 
+/**
+ * Validate + normalize a raw `cc_min_version_unmet` payload. Sweep P1-3 / C4.
+ * Pure -- unit-testable without a HandlerContext.
+ */
+export function normalizeCcMinVersionUnmet(data: Record<string, unknown>): CcMinVersionUnmet | null {
+  const { sentinelId, installedVersion, requiredVersion, requiredFor, observedAt } = data
+  if (typeof sentinelId !== 'string' || !sentinelId) return null
+  if (typeof installedVersion !== 'string' || !installedVersion) return null
+  if (typeof requiredVersion !== 'string' || !requiredVersion) return null
+  if (typeof requiredFor !== 'string' || !requiredFor) return null
+  if (typeof observedAt !== 'number') return null
+  return {
+    type: 'cc_min_version_unmet',
+    sentinelId,
+    installedVersion,
+    requiredVersion,
+    requiredFor,
+    observedAt,
+  }
+}
+
+/**
+ * Sentinel -> broker: the installed CC version is below the floor required
+ * for the active default transport. Broadcasted to dashboard subscribers so
+ * the safety-net banner renders. Idempotent -- the sentinel-side suppressor
+ * already collapses re-emits for the same gap.
+ *
+ * EVERYTHING IS A STRUCTURED MESSAGE / LOG EVERYTHING.
+ * BOUNDARY-clean -- no conversationId, no ccSessionId.
+ */
+const ccMinVersionUnmet: MessageHandler = (ctx, data) => {
+  const normalized = normalizeCcMinVersionUnmet(data)
+  if (!normalized) {
+    ctx.log.debug('[cc-version] malformed cc_min_version_unmet, ignoring')
+    return
+  }
+  const sentinelId = ctx.ws.data.sentinelId ?? normalized.sentinelId
+  const event = { ...normalized, sentinelId }
+  ctx.log.info(
+    `[cc-version] MIN UNMET sentinel=${sentinelId} installed=${event.installedVersion}` +
+      ` required=${event.requiredVersion} for=${event.requiredFor} observedAt=${event.observedAt}` +
+      ` reportedId=${normalized.sentinelId}`,
+  )
+  ctx.broadcast({ ...event })
+}
+
 const sentinelDiag: MessageHandler = (ctx, data) => {
   if (Array.isArray(data.entries)) {
     for (const entry of data.entries) {
@@ -433,6 +480,7 @@ export function registerSentinelHandlers(): void {
       usage_update: usageUpdate,
       sentinel_usage_report: sentinelUsageReport,
       cc_version_changed: ccVersionChanged,
+      cc_min_version_unmet: ccMinVersionUnmet,
       sentinel_patch_config_ack: sentinelPatchConfigAck,
     },
     SENTINEL_ONLY,
