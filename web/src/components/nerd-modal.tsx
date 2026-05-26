@@ -376,7 +376,7 @@ const CAT_COLORS: Record<PerfCategory, string> = {
   other: 'text-muted-foreground',
 }
 
-const SIGNIFICANT_THRESHOLD_MS = 1
+const SIGNIFICANT_THRESHOLD_MS = 2.5
 
 function PerfTab() {
   const entries = useSyncExternalStore(subscribePerfMetrics, getPerfEntries) as PerfEntry[]
