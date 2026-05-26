@@ -54,9 +54,28 @@ function asString(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined
 }
 
-/** Map the daemon run-state to the coarse conversation active/idle signal. */
-function statusFromState(state: DaemonRunState | undefined): 'active' | 'idle' {
-  return state && IDLE_STATES.has(state) ? 'idle' : 'active'
+/**
+ * Map the daemon run-state + tempo to the coarse conversation active/idle
+ * signal.
+ *
+ * `tempo:'idle'` is the daemon's per-turn STOP signal -- the turn ended and the
+ * worker is alive awaiting input. It is the closest daemon equivalent of the
+ * headless `Stop` hook / `end_turn`, and is exactly what makes a finished-but-
+ * alive worker stop showing "running". A terminal `state` (done/failed/crashed)
+ * is idle too. Everything else is active.
+ *
+ * This honors the documented ConversationStatusSignal contract ("status is
+ * derived from the daemon tempo") -- before this, status keyed on `state` alone,
+ * so a worker sitting at `state:running, tempo:idle` between turns stayed
+ * "active" forever.
+ */
+function statusFromState(
+  state: DaemonRunState | undefined,
+  tempo: 'active' | 'idle' | undefined,
+): 'active' | 'idle' {
+  if (state && IDLE_STATES.has(state)) return 'idle'
+  if (tempo === 'idle') return 'idle'
+  return 'active'
 }
 
 /** Build the granular typed patch from a raw subscribe `state` patch. Optional
@@ -136,7 +155,7 @@ function toStatusSignal(conversationId: string, next: MirrorState): Conversation
   return {
     type: 'conversation_status',
     conversationId,
-    status: statusFromState(next.state),
+    status: statusFromState(next.state, next.tempo),
     daemonState: next.state,
     detail: next.detail || undefined,
   }

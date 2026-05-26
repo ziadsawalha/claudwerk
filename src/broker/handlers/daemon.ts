@@ -41,11 +41,22 @@ const STARTING_STATES = new Set(['starting', 'resuming', 'adopted'])
 /** Daemon job states that mean the session is alive but awaiting input. */
 const IDLE_STATES = new Set(['question', 'blocked', 'idle'])
 
-/** Map a daemon job `state` onto a claudewerk Conversation status. */
-export function mapDaemonState(state: string): Conversation['status'] {
+/**
+ * Map a daemon job `state` (+ optional `tempo`) onto a claudewerk Conversation
+ * status.
+ *
+ * `tempo:'idle'` is the daemon's per-turn STOP signal: the worker finished its
+ * turn but is still ALIVE awaiting the next input. That is `idle`, not `active`
+ * and not `ended` -- the headless equivalent is the `Stop` hook. Without this, a
+ * long-lived resumable worker sitting at `state:running, tempo:idle` between
+ * turns would show "active"/running forever (the bug Jonas reported).
+ * Terminal/starting/explicit-idle states take precedence over tempo.
+ */
+export function mapDaemonState(state: string, tempo?: string): Conversation['status'] {
   if (ENDED_STATES.has(state)) return 'ended'
   if (STARTING_STATES.has(state)) return 'starting'
   if (IDLE_STATES.has(state)) return 'idle'
+  if (tempo === 'idle') return 'idle' // turn ended, worker alive awaiting input
   return 'active' // working / tool_use / midturn / running / active
 }
 
@@ -171,7 +182,7 @@ function upsertDaemonConversation(
   sentinelId: string | undefined,
   alias: string | undefined,
 ): void {
-  const status = mapDaemonState(job.state)
+  const status = mapDaemonState(job.state, job.tempo)
   const existing = ctx.conversations.getConversation(job.conversationId)
   if (existing) {
     applyDaemonState(ctx, existing, job, status)

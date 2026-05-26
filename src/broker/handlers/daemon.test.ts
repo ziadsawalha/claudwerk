@@ -40,6 +40,29 @@ describe('mapDaemonState', () => {
     }
   })
 
+  it('maps tempo:idle (turn-end stop signal) to idle while the worker is alive', () => {
+    // A finished-but-alive worker reports a running state + tempo:idle. That is
+    // the per-turn stop -- idle, not active (the bug Jonas reported).
+    for (const s of ['working', 'tool_use', 'midturn', 'running', 'active']) {
+      expect(mapDaemonState(s, 'idle')).toBe('idle')
+    }
+  })
+
+  it('keeps tempo:active running workers active', () => {
+    for (const s of ['working', 'running']) {
+      expect(mapDaemonState(s, 'active')).toBe('active')
+    }
+  })
+
+  it('lets terminal state win over tempo (done + tempo:idle -> ended, not idle)', () => {
+    expect(mapDaemonState('done', 'idle')).toBe('ended')
+    expect(mapDaemonState('crashed', 'active')).toBe('ended')
+  })
+
+  it('lets starting state win over tempo', () => {
+    expect(mapDaemonState('resuming', 'idle')).toBe('starting')
+  })
+
   it('falls back to active for an unknown state', () => {
     expect(mapDaemonState('some-future-state')).toBe('active')
   })

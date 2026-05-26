@@ -27,23 +27,42 @@ describe('translatePatch', () => {
   })
 
   it('emits a daemon_state_patch + conversation_status for a working patch', () => {
-    const patch = { state: 'working', detail: 'running echo SPIKE_OK', tempo: 'idle', needs: '' }
+    const patch = { state: 'working', detail: 'running echo SPIKE_OK', tempo: 'active', needs: '' }
     const { messages, next } = translatePatch(CONV, patch, {}, T)
 
     const sp = must<DaemonStatePatch>(messages, 'daemon_state_patch')
     expect(sp.state).toBe('working')
-    expect(sp.tempo).toBe('idle')
+    expect(sp.tempo).toBe('active')
     expect(sp.detail).toBe('running echo SPIKE_OK')
     expect(sp.needs).toBe('')
     expect(sp.raw).toEqual(patch)
     expect(sp.t).toBe(T)
 
     const cs = must<ConversationStatusSignal>(messages, 'conversation_status')
-    expect(cs.status).toBe('active') // working -> active
+    expect(cs.status).toBe('active') // working + tempo:active -> active
     expect(cs.daemonState).toBe('working')
     expect(cs.detail).toBe('running echo SPIKE_OK')
 
-    expect(next).toEqual({ state: 'working', tempo: 'idle', detail: 'running echo SPIKE_OK' })
+    expect(next).toEqual({ state: 'working', tempo: 'active', detail: 'running echo SPIKE_OK' })
+  })
+
+  it('maps tempo:idle (the per-turn stop signal) to idle even while state is non-terminal', () => {
+    // A daemon worker that finished its turn but stays alive reports
+    // state:working/running + tempo:idle. That is the turn-end "stop" -- the
+    // conversation must read idle, not active (the bug Jonas reported).
+    const patch = { state: 'working', tempo: 'idle', detail: 'Listed first 5 entries.' }
+    const cs = must<ConversationStatusSignal>(translatePatch(CONV, patch, {}, T).messages, 'conversation_status')
+    expect(cs.status).toBe('idle')
+    expect(cs.daemonState).toBe('working') // coarse state still carried for the detail view
+    expect(cs.detail).toBe('Listed first 5 entries.')
+  })
+
+  it('keeps a mid-turn worker (tempo:active) active', () => {
+    const cs = must<ConversationStatusSignal>(
+      translatePatch(CONV, { state: 'running', tempo: 'active' }, {}, T).messages,
+      'conversation_status',
+    )
+    expect(cs.status).toBe('active')
   })
 
   it('maps terminal states (done) to idle', () => {
