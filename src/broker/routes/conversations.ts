@@ -92,6 +92,31 @@ export function createConversationsRouter(
     const filter = c.req.query('filter')
     const sinceSeqRaw = c.req.query('sinceSeq')
     const sinceSeq = sinceSeqRaw !== undefined ? parseInt(sinceSeqRaw, 10) : undefined
+
+    // Backward pagination (infinite scrollback): `?before=<seq>` returns the
+    // entries older than that seq, oldest-first, straight from SQLite (bypasses
+    // the in-memory ring cap). Response: { entries, oldestSeq, hasMore }.
+    const beforeRaw = c.req.query('before')
+    if (beforeRaw !== undefined) {
+      const before = parseInt(beforeRaw, 10)
+      if (Number.isNaN(before)) return c.json({ error: 'Invalid before cursor' }, 400)
+      const page = conversationStore.loadTranscriptPageBefore(conversationId, before, limit)
+      let pageEntries = page?.entries ?? []
+      const beforeShareToken = new URL(c.req.raw.url).searchParams.get('share')
+      if (beforeShareToken) {
+        const share = validateShare(beforeShareToken)
+        if (share?.hideUserInput) pageEntries = pageEntries.filter(e => (e as { type?: string }).type !== 'user')
+      }
+      console.log(
+        `[${conversationId.slice(0, 8)}] GET transcript before=${before} limit=${limit} -> ${pageEntries.length} entries oldestSeq=${page?.oldestSeq ?? 0} hasMore=${page?.hasMore ?? false}`,
+      )
+      return c.json({
+        entries: pageEntries.map(e => processImagesInEntry(e as Record<string, unknown>)),
+        oldestSeq: page?.oldestSeq ?? 0,
+        hasMore: page?.hasMore ?? false,
+      })
+    }
+
     let allEntries = conversationStore.getTranscriptEntries(conversationId)
     let source = 'cache'
 

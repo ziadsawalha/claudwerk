@@ -164,6 +164,13 @@ export interface ConversationStore {
   getTranscriptEntries: (conversationId: string, limit?: number) => TranscriptEntry[]
   hasTranscriptCache: (conversationId: string) => boolean
   loadTranscriptFromStore: (conversationId: string, limit: number) => TranscriptEntry[] | null
+  /** Backward pagination for infinite scrollback: the `limit` entries with
+   *  seq < beforeSeq (oldest-first), plus the cursor for the next older page. */
+  loadTranscriptPageBefore: (
+    conversationId: string,
+    beforeSeq: number,
+    limit: number,
+  ) => { entries: TranscriptEntry[]; oldestSeq: number; hasMore: boolean } | null
   addSubagentTranscriptEntries: (
     conversationId: string,
     agentId: string,
@@ -2449,6 +2456,19 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     return entries
   }
 
+  function loadTranscriptPageBefore(
+    conversationId: string,
+    beforeSeq: number,
+    limit: number,
+  ): { entries: TranscriptEntry[]; oldestSeq: number; hasMore: boolean } | null {
+    if (!store) return null
+    const page = store.transcripts.getBeforeSeq(conversationId, beforeSeq, limit)
+    const entries = page.entries.map(r => ({ ...r.content, seq: r.seq }) as TranscriptEntry)
+    // NOTE: does NOT touch transcriptSeqCounters -- this is OLDER history, it
+    // must not move the live-tail seq cursor.
+    return { entries, oldestSeq: page.oldestSeq, hasMore: page.hasMore }
+  }
+
   function addSubagentTranscriptEntries(
     conversationId: string,
     agentId: string,
@@ -2756,6 +2776,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     getTranscriptEntries,
     hasTranscriptCache,
     loadTranscriptFromStore,
+    loadTranscriptPageBefore,
     addSubagentTranscriptEntries,
     getSubagentTranscriptEntries,
     hasSubagentTranscriptCache,

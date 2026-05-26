@@ -152,6 +152,7 @@ function createMockStoreDriver(): StoreDriver {
       getPage: () => ({ entries: [], nextCursor: null, prevCursor: null, totalCount: 0 }),
       getLatest: () => [],
       getSinceSeq: () => ({ entries: [], lastSeq: 0, gap: false }),
+      getBeforeSeq: () => ({ entries: [], oldestSeq: 0, hasMore: false }),
       getLastSeq: () => 0,
       find: () => [],
       search: () => [],

@@ -167,6 +167,30 @@ export function createSqliteTranscriptStore(db: Database): TranscriptStore {
       return { entries, lastSeq, gap }
     },
 
+    getBeforeSeq(conversationId, beforeSeq, limit) {
+      // The `limit` highest-seq entries below beforeSeq, fetched DESC then
+      // reversed to oldest-first (ready to prepend in the client).
+      const rows = (
+        db
+          .prepare(
+            'SELECT * FROM transcript_entries WHERE conversation_id = $conversationId AND seq < $beforeSeq ORDER BY seq DESC LIMIT $limit',
+          )
+          .all({ conversationId: conversationId, beforeSeq, limit }) as Params[]
+      ).reverse()
+      const entries = rows.map(rowToEntry)
+      const oldestSeq = entries.length > 0 ? entries[0].seq : 0
+      // More history exists iff any entry is strictly older than the oldest one
+      // we just returned.
+      const hasMore =
+        oldestSeq > 0 &&
+        !!db
+          .prepare(
+            'SELECT 1 FROM transcript_entries WHERE conversation_id = $conversationId AND seq < $oldestSeq LIMIT 1',
+          )
+          .get({ conversationId: conversationId, oldestSeq })
+      return { entries, oldestSeq, hasMore }
+    },
+
     getLastSeq(conversationId) {
       return (stmtMaxSeq.get({ conversationId: conversationId }) as { max_seq: number }).max_seq
     },

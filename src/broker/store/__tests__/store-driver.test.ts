@@ -240,6 +240,34 @@ function runStoreTests(name: string, createDriver: () => StoreDriver) {
         expect(result.lastSeq).toBe(3)
       })
 
+      it('getBeforeSeq returns older entries oldest-first with cursor + hasMore', () => {
+        store.transcripts.append(SESSION, EPOCH, [
+          makeTranscriptEntry('user', 'bs-1'),
+          makeTranscriptEntry('assistant', 'bs-2'),
+          makeTranscriptEntry('user', 'bs-3'),
+          makeTranscriptEntry('assistant', 'bs-4'),
+          makeTranscriptEntry('user', 'bs-5'),
+        ])
+
+        // page just before seq 4, limit 2 -> seq 2,3 (oldest-first); seq 1 remains
+        const page = store.transcripts.getBeforeSeq(SESSION, 4, 2)
+        expect(page.entries.map(e => e.seq)).toEqual([2, 3])
+        expect(page.oldestSeq).toBe(2)
+        expect(page.hasMore).toBe(true)
+
+        // reaching the head: before seq 3, big limit -> seq 1,2; nothing older
+        const head = store.transcripts.getBeforeSeq(SESSION, 3, 10)
+        expect(head.entries.map(e => e.seq)).toEqual([1, 2])
+        expect(head.oldestSeq).toBe(1)
+        expect(head.hasMore).toBe(false)
+
+        // nothing before seq 1
+        const empty = store.transcripts.getBeforeSeq(SESSION, 1, 10)
+        expect(empty.entries).toHaveLength(0)
+        expect(empty.oldestSeq).toBe(0)
+        expect(empty.hasMore).toBe(false)
+      })
+
       it('getLastSeq returns 0 for empty conversation', () => {
         expect(store.transcripts.getLastSeq(SESSION)).toBe(0)
       })

@@ -242,6 +242,16 @@ function createTranscriptStore(): TranscriptStore {
       }
     },
 
+    getBeforeSeq(conversationId, beforeSeq, limit) {
+      const arr = getEntries(conversationId)
+      const below = arr.filter(e => e.seq < beforeSeq)
+      // Highest-seq `limit` below the cursor, already ascending (prepend-ready).
+      const entries = below.slice(-limit)
+      const oldestSeq = entries.length > 0 ? entries[0].seq : 0
+      const hasMore = oldestSeq > 0 && below.length > entries.length
+      return { entries, oldestSeq, hasMore }
+    },
+
     getLastSeq(conversationId) {
       return seqCounters.get(conversationId) ?? 0
     },

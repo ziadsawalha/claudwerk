@@ -208,6 +208,15 @@ export interface TranscriptStore {
     sinceSeq: number,
     limit?: number,
   ): { entries: TranscriptEntryRecord[]; lastSeq: number; gap: boolean }
+  /** Backward pagination for infinite scrollback: the `limit` entries with
+   *  seq < beforeSeq, returned OLDEST-first (prepend-ready). `oldestSeq` is the
+   *  smallest seq returned (the cursor for the next older page); `hasMore` is
+   *  true when entries older than `oldestSeq` still exist. */
+  getBeforeSeq(
+    conversationId: string,
+    beforeSeq: number,
+    limit: number,
+  ): { entries: TranscriptEntryRecord[]; oldestSeq: number; hasMore: boolean }
   getLastSeq(conversationId: string): number
   find(conversationId: string, filter: TranscriptFilter): TranscriptEntryRecord[]
   search(query: string, opts?: SearchOpts): SearchHit[]
