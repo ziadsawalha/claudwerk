@@ -739,24 +739,20 @@ describe('worktree path alias', () => {
 
   test('normalizeProjectUri collapses nested worktrees in one pass', () => {
     expect(
-      normalizeProjectUri(
-        'claude://default/Users/jonas/projects/foo/.claude/worktrees/a/.claude/worktrees/b',
-      ),
+      normalizeProjectUri('claude://default/Users/jonas/projects/foo/.claude/worktrees/a/.claude/worktrees/b'),
     ).toBe('claude://default/Users/jonas/projects/foo')
   })
 
   test('normalizeProjectUri preserves trailing path after nested worktrees', () => {
     expect(
-      normalizeProjectUri(
-        'claude://default/Users/jonas/projects/foo/.claude/worktrees/a/.claude/worktrees/b/src/x.ts',
-      ),
+      normalizeProjectUri('claude://default/Users/jonas/projects/foo/.claude/worktrees/a/.claude/worktrees/b/src/x.ts'),
     ).toBe('claude://default/Users/jonas/projects/foo/src/x.ts')
   })
 
   test('normalizeProjectUri preserves fragment when stripping a worktree', () => {
-    expect(
-      normalizeProjectUri('claude://default/Users/jonas/projects/foo/.claude/worktrees/feature-x#conv_abc'),
-    ).toBe('claude://default/Users/jonas/projects/foo#conv_abc')
+    expect(normalizeProjectUri('claude://default/Users/jonas/projects/foo/.claude/worktrees/feature-x#conv_abc')).toBe(
+      'claude://default/Users/jonas/projects/foo#conv_abc',
+    )
   })
 
   test('projectIdentityKey collapses worktree and parent into the same bucket', () => {
@@ -823,8 +819,8 @@ describe('worktree path alias', () => {
   })
 
   test('worktree alias composes with daemon scheme alias', () => {
-    expect(
-      normalizeProjectUri('daemon://default/Users/jonas/projects/foo/.claude/worktrees/feature-x'),
-    ).toBe('claude://default/Users/jonas/projects/foo')
+    expect(normalizeProjectUri('daemon://default/Users/jonas/projects/foo/.claude/worktrees/feature-x')).toBe(
+      'claude://default/Users/jonas/projects/foo',
+    )
   })
 })

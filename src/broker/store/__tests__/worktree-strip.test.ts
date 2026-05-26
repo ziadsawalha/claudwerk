@@ -276,13 +276,7 @@ describe('v7: /.claude/worktrees/<name> strip migration', () => {
       db.prepare(
         `INSERT INTO message_queue (from_scope, to_scope, content, created_at, expires_at)
          VALUES (?, ?, ?, ?, ?)`,
-      ).run(
-        'claude://default/a/.claude/worktrees/wt',
-        'claude://default/b',
-        'hello',
-        Date.now(),
-        Date.now() + 3600000,
-      )
+      ).run('claude://default/a/.claude/worktrees/wt', 'claude://default/b', 'hello', Date.now(), Date.now() + 3600000)
     })
 
     runStartupMigration(store, cacheDir)

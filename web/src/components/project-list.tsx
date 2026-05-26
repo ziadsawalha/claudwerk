@@ -109,9 +109,7 @@ export function ProjectList() {
     const stubs = new Map<string, Set<string>>()
     for (const s of structure) {
       const ownProject = effectiveProjectByConvId.get(s.id) || s.project
-      const rootProject = s.rootConversationId
-        ? effectiveProjectByConvId.get(s.rootConversationId)
-        : undefined
+      const rootProject = s.rootConversationId ? effectiveProjectByConvId.get(s.rootConversationId) : undefined
       const hostProject = rootProject ?? ownProject
       const group = ids.get(hostProject) || []
       group.push(s.id)
