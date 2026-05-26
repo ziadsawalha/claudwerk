@@ -131,6 +131,49 @@ describe('pending-state persistence', () => {
     expect(cs2.getConversation('conv-5')?.hasNotification).toBe(true)
   })
 
+  it('pendingSpawnApproval (full request incl. prompt) + spawnAutoApproved survive broker restart', () => {
+    const cs1 = createConversationStore({ store })
+    cs1.createConversation('conv-spawn', 'claude://default/home/user/proj')
+    const conv = cs1.getConversation('conv-spawn')!
+    conv.pendingSpawnApproval = {
+      requestId: 'spawn-req-1',
+      requestedAt: 1700000000000,
+      // The whole SpawnRequest is stashed verbatim and replayed on ALLOW. The
+      // prompt is the field most likely to be assumed "dropped" -- assert it
+      // round-trips intact along with the rest of the request.
+      request: {
+        cwd: 'claude://default/home/user/proj',
+        prompt: 'Session A: create floors + areas, assign devices.',
+        name: 'ha-session-a',
+        description: 'HA org session A',
+        headless: true,
+      },
+      reason: 'mcp caller is not benevolent',
+    }
+    conv.pendingAttention = { type: 'spawn_approval', timestamp: 1700000000000 }
+    cs1.persistConversationById('conv-spawn')
+
+    const cs2 = createConversationStore({ store })
+    const rehydrated = cs2.getConversation('conv-spawn')
+    expect(rehydrated?.pendingSpawnApproval?.requestId).toBe('spawn-req-1')
+    expect(rehydrated?.pendingSpawnApproval?.reason).toBe('mcp caller is not benevolent')
+    expect(rehydrated?.pendingSpawnApproval?.request.prompt).toBe('Session A: create floors + areas, assign devices.')
+    expect(rehydrated?.pendingSpawnApproval?.request.cwd).toBe('claude://default/home/user/proj')
+    expect(rehydrated?.pendingSpawnApproval?.request.name).toBe('ha-session-a')
+    expect(rehydrated?.pendingAttention?.type).toBe('spawn_approval')
+  })
+
+  it('spawnAutoApproved sticky bit survives broker restart', () => {
+    const cs1 = createConversationStore({ store })
+    cs1.createConversation('conv-sticky', 'claude://default/home/user/proj')
+    const conv = cs1.getConversation('conv-sticky')!
+    conv.spawnAutoApproved = true
+    cs1.persistConversationById('conv-sticky')
+
+    const cs2 = createConversationStore({ store })
+    expect(cs2.getConversation('conv-sticky')?.spawnAutoApproved).toBe(true)
+  })
+
   it('clearConversation wipes pending* state AND persists the cleared state', () => {
     const cs1 = createConversationStore({ store })
     cs1.createConversation('conv-6', 'claude://default/home/user/proj')

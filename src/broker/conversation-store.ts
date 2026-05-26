@@ -916,6 +916,8 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           pendingPermission: fullMeta.pendingPermission as Conversation['pendingPermission'],
           pendingAskQuestion: fullMeta.pendingAskQuestion as Conversation['pendingAskQuestion'],
           pendingAttention: fullMeta.pendingAttention as Conversation['pendingAttention'],
+          pendingSpawnApproval: fullMeta.pendingSpawnApproval as Conversation['pendingSpawnApproval'],
+          spawnAutoApproved: fullMeta.spawnAutoApproved as boolean | undefined,
           planMode: fullMeta.planMode as boolean | undefined,
           hasNotification: fullMeta.hasNotification as boolean | undefined,
         }
@@ -1002,6 +1004,12 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         pendingPermission: conv.pendingPermission,
         pendingAskQuestion: conv.pendingAskQuestion,
         pendingAttention: conv.pendingAttention,
+        // Spawn-approval state. The caller's in-banner ALLOW/DENY prompt and the
+        // sticky auto-approve bit must survive a broker restart -- otherwise the
+        // pending request (prompt and all) is silently lost and the later ALLOW
+        // click is a no-op. The original request is replayed verbatim on approval.
+        pendingSpawnApproval: conv.pendingSpawnApproval,
+        spawnAutoApproved: conv.spawnAutoApproved,
         planMode: conv.planMode,
         hasNotification: conv.hasNotification,
       }
