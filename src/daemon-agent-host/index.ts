@@ -50,6 +50,7 @@ import type { AttachCloseReason, AttachHandle } from '../shared/cc-daemon/attach
 import { has } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import { createHostTransport, type HostTransport } from '../shared/host-transport'
+import { permissionDecisionToText } from '../shared/permission-decision'
 import { cwdToProjectUri } from '../shared/project-uri'
 import {
   AGENT_HOST_PROTOCOL_VERSION,
@@ -64,6 +65,7 @@ import {
   type DaemonControlResult,
   type DaemonSessionRetired,
   type EffortChanged,
+  type PermissionResponse,
   type SendInput,
 } from '../shared/protocol'
 import { BUILD_VERSION } from '../shared/version'
@@ -275,6 +277,22 @@ async function main(): Promise<void> {
       } else {
         debug('input message with empty/invalid input -- ignored')
       }
+      return
+    }
+    if (t === 'permission_response') {
+      // The control panel answered a tool-use permission gate. The daemon has
+      // no typed permission-response op (2.1.150 stub); the verified path is
+      // `reply()` with the numbered menu choice -- the worker resolves its own
+      // active gate when it sees text on the rendezvous socket. Mapping lives
+      // in src/shared/permission-decision.ts; see plan-daemon-launch-ux.md § 8.
+      const resp = msg as PermissionResponse
+      const text = permissionDecisionToText(resp.behavior)
+      log(
+        `[permission] response received behavior=${resp.behavior} -> reply='${text}' requestId=${resp.requestId.slice(0, 12)}`,
+      )
+      void daemonControl
+        .reply(text)
+        .catch((err: unknown) => log(`permission reply op error: ${(err as Error).message}`))
       return
     }
     if (t === 'transcript_request' || t === 'transcript_kick') {
