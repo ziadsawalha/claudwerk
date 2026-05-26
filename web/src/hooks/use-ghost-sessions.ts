@@ -15,6 +15,7 @@
  * "solidifies" into a normal interactive conversation -- no new id, no new row.
  */
 
+import { useMemo } from 'react'
 import { blankDaemonForm, buildDaemonSpawnFields } from '@/components/spawn-dialog/daemon-launch'
 import { useConversationsStore } from './use-conversations'
 import type { DaemonRosterEntry } from './use-daemon-roster'
@@ -37,6 +38,25 @@ export function useGhostShort(conversationId: string): string | null {
     }
     return null
   })
+}
+
+/**
+ * The full live roster entry for a conversation, or null when it is not a live
+ * daemon worker. Subscribes to the roster ref so the ghost peek re-renders with
+ * fresh state/detail as the sentinel polls. One-instance use (the selected
+ * conversation's peek), so the roster-ref subscription is fine -- unlike the
+ * per-row useGhostShort which must stay primitive.
+ */
+export function useGhostEntry(conversationId: string): DaemonRosterEntry | null {
+  const rosters = useConversationsStore(s => s.daemonRosters)
+  return useMemo(() => {
+    if (!rosters) return null
+    for (const fwd of Object.values(rosters)) {
+      const job = fwd.jobs.find(j => j.conversationId === conversationId)
+      if (job) return { ...job, sentinelId: fwd.sentinelId, sentinelAlias: fwd.sentinelAlias }
+    }
+    return null
+  }, [rosters, conversationId])
 }
 
 /** Find the full roster entry for a conversation, tagged with its owning

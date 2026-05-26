@@ -28,6 +28,7 @@ import {
   SpawnApprovalBanners,
 } from '../conversation-detail/conversation-banners'
 import { Markdown } from '../markdown'
+import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
 
@@ -657,18 +658,9 @@ export const TranscriptView = memo(function TranscriptView({
   }, [follow, pendingAskCount, scrollToBottom])
 
   if (mainGroups.length === 0 && queuedGroups.length === 0) {
-    return (
-      <div className="text-muted-foreground text-center py-10 font-mono">
-        <pre className="text-xs">
-          {`
-┌─────────────────────────┐
-│   [ NO TRANSCRIPT ]     │
-│   Waiting for data...   │
-└─────────────────────────┘
-`.trim()}
-        </pre>
-      </div>
-    )
+    // Ghost (unattached daemon worker) -> live peek + attach. Else NO TRANSCRIPT.
+    // cacheKey is the conversationId for the main transcript view.
+    return <TranscriptEmptyState conversationId={cacheKey} />
   }
 
   return (

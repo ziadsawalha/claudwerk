@@ -35,7 +35,7 @@ import { ShareIndicator } from '../share-panel'
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { BackendIcon } from './backend-icon'
 import { ConversationContextMenu } from './conversation-context-menu'
-import { GhostAttachButton, GhostBadge } from './ghost-attach'
+import { GhostAttachButton, GhostBadge, GhostStatusDot } from './ghost-attach'
 import { InlineConfirmButton } from './inline-confirm-button'
 import { SentinelProfileBadge } from './sentinel-profile-badge'
 
@@ -1005,10 +1005,13 @@ const ConversationItemFull = memo(function ConversationItemFull({ conversation }
   const projectName = projectDisplayName(projectPath(conversation.project), ps?.label)
   const conversationName = conversation.title || conversation.agentName
   const displayColor = ps?.color
-  // Ghost: a live daemon worker (in the roster) we are mirroring but not yet
-  // hosting (transport not flipped to claude-daemon). Attaching solidifies it.
+  // Ghost: a live daemon worker (in the roster) that claudewerk is NOT hosting.
+  // "Hosted" = has a live agent-host connection (connectionIds). A pure roster
+  // mirror has none; attaching connects a daemon-host -> connectionIds populate
+  // -> the ghost solidifies. (transport is not plumbed to the FE, so we key on
+  // connectionIds, which is -- and which also re-ghosts if the host drops.)
   const ghostShort = useGhostShort(conversation.id)
-  const isGhost = !!ghostShort && conversation.transport !== 'claude-daemon'
+  const isGhost = !!ghostShort && (conversation.connectionIds?.length ?? 0) === 0
 
   function handleClick() {
     haptic('tap')
@@ -1025,7 +1028,11 @@ const ConversationItemFull = memo(function ConversationItemFull({ conversation }
       onClick={handleClick}
     >
       <div className="flex items-center gap-1.5">
-        <StatusIndicator status={conversation.status} adHoc={conversation.capabilities?.includes('ad-hoc')} />
+        {isGhost ? (
+          <GhostStatusDot />
+        ) : (
+          <StatusIndicator status={conversation.status} adHoc={conversation.capabilities?.includes('ad-hoc')} />
+        )}
         <BackendIcon backend={conversation.backend} transport={conversation.transport} />
         {ps?.icon && (
           <span style={displayColor && !isSelected ? { color: displayColor } : undefined}>
@@ -1315,9 +1322,9 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
   const isEditingDescription = useConversationsStore(s => s.editingDescriptionConversationId === conversation.id)
   const displayColor = ps?.color
   const isMobile = useIsMobile()
-  // Ghost: live daemon worker in the roster, not yet attached (see Full card).
+  // Ghost: live daemon worker in the roster, not hosted by us (see Full card).
   const ghostShort = useGhostShort(conversation.id)
-  const isGhost = !!ghostShort && conversation.transport !== 'claude-daemon'
+  const isGhost = !!ghostShort && (conversation.connectionIds?.length ?? 0) === 0
 
   function handleClick() {
     haptic('tap')
@@ -1396,7 +1403,11 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
     >
       {/* ── TITLE ROW: status, backend, title, action/attention badges, %, info ─ */}
       <div className="flex items-center gap-1.5">
-        <StatusIndicator status={conversation.status} adHoc={conversation.capabilities?.includes('ad-hoc')} />
+        {isGhost ? (
+          <GhostStatusDot />
+        ) : (
+          <StatusIndicator status={conversation.status} adHoc={conversation.capabilities?.includes('ad-hoc')} />
+        )}
         <BackendIcon backend={conversation.backend} transport={conversation.transport} size={11} />
         {isRenaming ? (
           <div className="flex-1 min-w-0">

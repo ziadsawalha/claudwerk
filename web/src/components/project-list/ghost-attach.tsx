@@ -25,6 +25,20 @@ export function GhostBadge({ compact = false }: { compact?: boolean }) {
   )
 }
 
+/** Static ghost status glyph -- replaces the animated StatusIndicator on ghost
+ *  rows. A ghost is a read-only mirror claudewerk is NOT running, so the
+ *  spinning "active" indicator would be a lie. Phantom dotted circle, no motion. */
+export function GhostStatusDot() {
+  return (
+    <span
+      className="w-3 h-3 shrink-0 flex items-center justify-center text-violet-300/80 text-[11px] leading-none"
+      title="Ghost -- discovered daemon worker, not hosted by claudewerk"
+    >
+      {'◌'}
+    </span>
+  )
+}
+
 /** Inline "attach" button. Stops propagation so it never triggers row-select. */
 export function GhostAttachButton({ conversationId, compact = false }: { conversationId: string; compact?: boolean }) {
   const [pending, setPending] = useState(false)
