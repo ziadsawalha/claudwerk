@@ -5,7 +5,11 @@ Reference for how claudewerk speaks the Claude Code background-session daemon
 dispatch modes, the `attach` handshake, 5-byte PTY framing, the `subscribe`
 event schema, job-state lifecycle, and error handling.
 
-**Protocol version:** `proto: 1`, verified against CC 2.1.143.\
+**Protocol version:** `proto: 1`, verified against CC 2.1.143 -- 2.1.150 (the
+running binary at the time of the 2026-05-27 sweep). 2.1.147 added a daemon
+"restart-in-place on update" behavior -- the daemon supervisorPid changes
+under us without an explicit shutdown; sentinel's roster watcher absorbs this
+via the chokidar + 10s poll fallback.\
 **Implementation:** `src/shared/cc-daemon/` in this repo.\
 **Full per-op recon:** `.claude/docs/cc-daemon-control-protocol.md` (binary
 reverse-engineered notes + live-verification log).
@@ -503,3 +507,55 @@ The transcript JSONL lives at:
 `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl` -- the same format as every
 CC session. `transcript-bridge.ts` watches it directly and sends entries to the
 broker exactly as `claude-agent-host` does.
+
+---
+
+## 11. Roster schema (VERIFIED on CC 2.1.150)
+
+`~/.claude/daemon/roster.json` is the daemon's live worker index. Top-level
+shape:
+
+```jsonc
+{
+  "proto": 1,                  // VERIFIED 2.1.143 -- 2.1.150
+  "supervisorPid": 12345,      // PID of the supervising daemon process
+  "updatedAt": 1716800000000,  // epoch ms of last roster write
+  "workers": { "<short>": WorkerEntry, ... }
+}
+```
+
+`WorkerEntry` shape (VERIFIED 2.1.150 -- field-by-field via direct read):
+
+| Field | Type | Stability | Notes |
+|---|---|---|---|
+| `pid` | number | VERIFIED 2.1.143+ | Worker process PID. |
+| `procStart` | number | VERIFIED 2.1.143+ | Worker process start time (epoch ms). |
+| `sessionId` | string | VERIFIED 2.1.143+ | Worker's `ccSessionId` (immutable for the JobRecord; the on-disk JSONL filename rotates via `/clear` independently -- see Section 9). |
+| `rendezvousSock` | string | VERIFIED 2.1.143+ | Absolute path to `rv/<short>.sock`. Sentinel uses this to derive the control socket (Section 1). |
+| `ptySock` | string | VERIFIED 2.1.143+ | Absolute path to the worker's PTY socket (Section 5). |
+| `messagingSock` | string | OBSERVED only on adopt / unverified-claim paths | Populated when the worker was adopted from a prior daemon run rather than dispatched by this daemon. See plan-daemon-launch-ux.md § 8 (line 1378 of the spike notes). |
+| `cliVersion` | string | VERIFIED 2.1.143+ | The `claude --version` string for the binary running this worker. |
+| `startedAt` | number | VERIFIED 2.1.143+ | Epoch ms the worker entered the roster. |
+| `attempt` | number | VERIFIED 2.1.143+ | Dispatch attempt counter (re-dispatch on the same nonce increments this). |
+| `cwd` | string | VERIFIED 2.1.143+ | Worker's working directory. |
+| `dispatch` | object | VERIFIED 2.1.143+ | Frozen copy of the `DispatchSpec` the daemon ran. Sub-fields below. |
+| `dispatch.proto` | number | VERIFIED 2.1.143+ | Always `1` in proto:1 daemons. |
+| `dispatch.short` | string | VERIFIED 2.1.143+ | Sentinel-minted short id. |
+| `dispatch.nonce` | string | VERIFIED 2.1.143+ | Per-dispatch nonce -- the recovery path uses it for `await-ack` replay. |
+| `dispatch.sessionId` | string | VERIFIED 2.1.143+ | Sentinel-minted ccSessionId (32-hex). |
+| `dispatch.createdAt` | number | VERIFIED 2.1.143+ | Epoch ms of dispatch. |
+| `dispatch.source` | string | VERIFIED 2.1.143+ | One of `'shell' \| 'slash' \| 'fleet' \| 'spare' \| 'respawn'`. |
+| `dispatch.cwd` | string | VERIFIED 2.1.143+ | Mirror of top-level `cwd`. |
+| `dispatch.launch` | object | VERIFIED 2.1.143+ | `{ mode, args }` -- the `claude` launch configuration. |
+| `dispatch.env` | object | VERIFIED 2.1.143+ | Worker env DELTA (NOT the full env). |
+| `dispatch.isolation` | object | VERIFIED 2.1.150 | Reserved for future isolation flags (worktree.bgIsolation). Currently observed empty. |
+| `dispatch.respawnFlags` | object | VERIFIED 2.1.150 | Reserved -- governs the auto-respawn behavior. |
+| `dispatch.agent` | string\|null | VERIFIED 2.1.143+ | Reserved for future agent typing. |
+| `dispatch.seed.intent` | string | VERIFIED 2.1.150 | Per-dispatch intent string (free-form; matches the conversation description). |
+| `dispatch.cols` / `dispatch.rows` | number | VERIFIED 2.1.143+ | Initial PTY size. |
+| `decModes` | array | VERIFIED 2.1.143+ | DEC ANSI modes the PTY entered (e.g. `?1049h` = altscreen). Used by the attach replay. |
+
+**Schema diff process:** to detect schema drift in a future CC release, run
+`jq '.workers[]' ~/.claude/daemon/roster.json` against a live worker and diff
+the keys against this table. Anything new is a candidate for `JobRecord` /
+`DispatchSpec` extensions in `src/shared/cc-daemon/types.ts`.
