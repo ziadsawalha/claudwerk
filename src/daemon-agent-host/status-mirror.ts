@@ -218,8 +218,17 @@ export function createStatusMirror(deps: StatusMirrorDeps): StatusMirror {
       prev = next
       for (const msg of messages) send(msg)
     },
-    onClose: reason => log?.(`status-mirror: subscribe closed (${reason}) short=${daemonShort}`),
-    onError: err => log?.(`status-mirror: subscribe error: ${err.message} short=${daemonShort}`),
+    // LOG EVERYTHING: a mirror that closes/errors stops all status flow for this
+    // conversation -- it must be visible in production, not only under debug.
+    // The daemon-host supplies an always-on logger (see index.ts). `client-closed`
+    // is our own shutdown; everything else is an unexpected loss of the status
+    // stream (ENOJOB = the subscribed worker is gone, daemon-error, socket drop).
+    onClose: reason => {
+      if (reason === 'client-closed') return
+      log?.(`status-mirror: subscribe closed (${reason}) conv=${conversationId.slice(0, 8)} short=${daemonShort}`)
+    },
+    onError: err =>
+      log?.(`status-mirror: subscribe error: ${err.message} conv=${conversationId.slice(0, 8)} short=${daemonShort}`),
   })
 
   return {

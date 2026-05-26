@@ -537,7 +537,11 @@ async function main(): Promise<void> {
       daemonShort: cfg.daemonShort,
       conversationId: cfg.conversationId,
       send: msg => transport.send(msg),
-      log: debugEnabled ? (m: string) => debug(m) : undefined,
+      // Always-on logger (NOT debug-gated): a dead status mirror stops all status
+      // flow for this conversation and must be visible in production logs
+      // (LOG EVERYTHING). The mirror only logs lifecycle close/error, never
+      // per-frame churn, so this does not spam.
+      log,
     })
     emitBoot('conversation_ready')
   }
