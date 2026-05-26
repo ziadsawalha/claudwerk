@@ -360,9 +360,14 @@ const daemonLaunchEvent: MessageHandler = (ctx, data) => {
     )
     return
   }
+  // LOG EVERYTHING -- include source role + sentinel + conversation status so a
+  // future engineer reconstructs the launch flap from broker logs alone.
+  const sourceRole = ctx.ws.data.sentinelId ? 'sentinel' : 'agent-host'
   ctx.log.info(
     `[daemon] launch event conv=${event.conversationId.slice(0, 8)} mode=${event.daemonMode} step=${event.step}` +
-      `${event.short ? ` short=${event.short}` : ''}${event.detail ? ` -- ${event.detail}` : ''}`,
+      `${event.short ? ` short=${event.short}` : ''} source=${sourceRole}` +
+      ` sentinelId=${ctx.ws.data.sentinelId ?? '-'} convStatus=${conv.status}` +
+      `${event.detail ? ` -- ${event.detail}` : ''}`,
   )
   // Spread into a fresh object literal -- interfaces lack the implicit index
   // signature that Record<string, unknown> requires; an object literal has one.
@@ -667,13 +672,19 @@ const effortChanged: MessageHandler = (ctx, data) => {
 }
 
 export function registerDaemonHandlers(): void {
-  // Roster ingest is sentinel-sourced; launch events + control results are
-  // agent-host-sourced; the roster replay request + respawn-stale are
-  // dashboard-sourced.
+  // Roster ingest is sentinel-sourced; control results / retirement / state /
+  // block / effort are agent-host-sourced; the roster replay request +
+  // respawn-stale are dashboard-sourced.
   registerHandlers({ daemon_roster_update: daemonRosterUpdate, daemon_job_state: daemonJobState }, SENTINEL_ONLY)
+  // daemon_launch_event accepts from BOTH sentinel and daemon-agent-host:
+  // sentinel emits the 2 dispatch steps (dispatch_requested / worker_dispatched
+  // -- they fire BEFORE the daemon-host process exists), daemon-host emits the
+  // 6 attach-side steps (attach_started / attach_retry / attached /
+  // attach_lost / reattached / worker_gone). Without the dual-source role,
+  // the sentinel's dispatch steps were silently rejected by the role gate.
+  registerHandlers({ daemon_launch_event: daemonLaunchEvent }, ['agent-host', 'sentinel'])
   registerHandlers(
     {
-      daemon_launch_event: daemonLaunchEvent,
       daemon_control_result: daemonControlResult,
       daemon_session_retired: daemonSessionRetired,
       daemon_state_patch: daemonStatePatch,

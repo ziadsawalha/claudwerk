@@ -67,7 +67,9 @@ import {
   type EffortChanged,
   type PermissionResponse,
   type SendInput,
+  type UpdateConversationMetadata,
 } from '../shared/protocol'
+import { createDaemonLaunchEvents, type DaemonLaunchEvents } from './launch-events'
 import { BUILD_VERSION } from '../shared/version'
 import { attachWithRetry } from './attach-retry'
 import { type BrokerBridge, createBrokerBridge } from './broker-bridge'
@@ -146,6 +148,15 @@ async function main(): Promise<void> {
   let shuttingDown = false
   /** True while a socket-drop re-attach is in flight -- guards re-entrancy. */
   let reattaching = false
+  /** Lazily-built once transport exists -- the typed daemon launch timeline. */
+  let launchEvents: DaemonLaunchEvents | null = null
+  /** /clear ccSessionId rotations observed this process lifetime -- stamped on
+   *  the structured rotation log so a flap is reconstructable from logs alone. */
+  let ccRotationCount = 0
+  /** Set when (a) reattachAfterDrop confirms the worker is gone, or (b) the
+   *  observer's `onGone` fires -- guards the worker_gone launch event so it
+   *  emits exactly once per process. */
+  let workerGoneEmitted = false
 
   // --- broker transport (created up front so boot events have a channel) -----
   const transport: HostTransport = createHostTransport({
@@ -158,10 +169,26 @@ async function main(): Promise<void> {
     onConnected: () => {
       debug('broker connected')
       emitBoot('broker_connected')
+      // Replay buffered daemon launch events so a late-attaching dashboard
+      // sees the full timeline (EVERYTHING IS A STRUCTURED MESSAGE +
+      // LOG EVERYTHING -- the timeline is the user-facing audit trail).
+      launchEvents?.replay()
     },
     onDisconnected: () => debug('broker disconnected'),
     onError: err => debug(`transport error: ${err.message}`),
     onDiag: (_kind, m, args) => debug(`diag: ${m} ${args ? JSON.stringify(args) : ''}`),
+  })
+
+  // --- typed daemon launch timeline ------------------------------------------
+  // Mirrors src/claude-agent-host/launch-events.ts -- emit helper + 500-entry
+  // replay buffer + replay-on-reconnect. ATTACH-mode launches inherit the
+  // sentinel-emitted dispatch_requested / worker_dispatched (broker-persisted).
+  launchEvents = createDaemonLaunchEvents({
+    conversationId: cfg.conversationId,
+    daemonMode: cfg.mode,
+    short: cfg.daemonShort,
+    transport,
+    log,
   })
 
   // --- remote-control surface (reply / kill / respawn-stale) -----------------
@@ -312,12 +339,23 @@ async function main(): Promise<void> {
    */
   function onSessionId(nextSessionId: string): void {
     if (shuttingDown) return
-    const isFirst = ccSessionId === null
+    const prev = ccSessionId
+    const isFirst = prev === null
     ccSessionId = nextSessionId
     transport.setSessionId(nextSessionId, 'stream_json')
 
     if (isFirst) {
-      emitBoot('init_received', nextSessionId)
+      // ATTACH-mode tagging (P1-5): the init detail string carries the launch
+      // mode + ccSessionId so log scrapes can distinguish ATTACH from NEW/RESUME
+      // without joining against agentHostMeta. Wire/payload remains a string;
+      // structured daemon_launch_event carries mode in payload.
+      const resumeNote =
+        cfg.mode === 'resume' && cfg.resumeSessionId
+          ? ` resumeFrom=${cfg.resumeSessionId.slice(0, 8)}`
+          : cfg.mode === 'attach'
+            ? ` attachShort=${cfg.daemonShort}`
+            : ''
+      emitBoot('init_received', `mode=${cfg.mode} ccSessionId=${nextSessionId.slice(0, 8)}${resumeNote}`)
       bootstrap(nextSessionId).catch((err: unknown) => {
         log(`FATAL: bootstrap failed: ${(err as Error).message}`)
         emitBoot('boot_error', (err as Error).message)
@@ -327,15 +365,36 @@ async function main(): Promise<void> {
     }
 
     // /clear rotated the session id -- the worker is the same PTY, only its
-    // transcript file changed. Tell the broker to wipe ephemeral state, then
-    // re-point the transcript watcher at the new JSONL.
-    log(`ccSessionId rotated -> ${nextSessionId.slice(0, 8)} (/clear)`)
+    // transcript file changed. Tell the broker to (a) wipe ephemeral state via
+    // conversation_reset, then (b) update the opaque agentHostMeta with the
+    // new ccSessionId so transcript-folder mapping + status logger see the
+    // current id without waiting for the next reconnect (P0-3 sweep finding).
+    ccRotationCount += 1
+    log(
+      `[ccSessionId-rotation] conv=${cfg.conversationId.slice(0, 8)} prev=${prev?.slice(0, 8) ?? '-'} ` +
+        `next=${nextSessionId.slice(0, 8)} rotation=${ccRotationCount} trigger=/clear ` +
+        `transcriptPath=${cfg.cwd}`,
+    )
     const reset: ConversationReset = {
       type: 'conversation_reset',
       conversationId: cfg.conversationId,
       project: cwdToProjectUri(cfg.cwd),
     }
     transport.send(reset)
+    // Push the new ccSessionId into agentHostMeta (opaque bag, boundary-clean
+    // -- the broker never reads it back as a typed field). Mirrors the meta
+    // update claude-agent-host does on the same rotation.
+    const metaUpdate: UpdateConversationMetadata = {
+      type: 'update_conversation_metadata',
+      conversationId: cfg.conversationId,
+      metadata: {
+        ccSessionId: nextSessionId,
+        prevCcSessionId: prev,
+        rotationCount: ccRotationCount,
+        rotatedAt: Date.now(),
+      },
+    }
+    transport.send(metaUpdate)
     transcriptBridge
       ?.watch(nextSessionId, cfg.cwd)
       .catch((err: unknown) => debug(`re-watch failed: ${(err as Error).message}`))
@@ -348,6 +407,7 @@ async function main(): Promise<void> {
    * and the socket-drop re-attach path.
    */
   async function doAttach(): Promise<AttachHandle> {
+    launchEvents?.emit('attach_started', { detail: `short=${cfg.daemonShort} mode=${cfg.mode}` })
     const handle = await attachWithRetry(
       controlSock as string,
       cfg.daemonShort,
@@ -359,13 +419,22 @@ async function main(): Promise<void> {
         onError: err => debug(`attach error: ${err.message}`),
       },
       {
-        onRetry: (attempt, maxAttempts, code) =>
-          emitBoot('awaiting_init', `attach retry ${attempt}/${maxAttempts} (${code ?? 'transient'})`),
+        onRetry: (attempt, maxAttempts, code) => {
+          emitBoot('awaiting_init', `attach retry ${attempt}/${maxAttempts} (${code ?? 'transient'})`)
+          launchEvents?.emit('attach_retry', {
+            detail: `${attempt}/${maxAttempts} ${code ?? 'transient'}`,
+            raw: { attempt, maxAttempts, code },
+          })
+        },
       },
     )
     attachHandle = handle
     bridge?.setAttachHandle(handle)
     debug(`attached: short=${cfg.daemonShort} state=${handle.ack.state} via=${handle.ack.via}`)
+    launchEvents?.emit('attached', {
+      detail: `state=${handle.ack.state} via=${handle.ack.via}`,
+      raw: { state: handle.ack.state, via: handle.ack.via },
+    })
     return handle
   }
 
@@ -380,6 +449,7 @@ async function main(): Promise<void> {
     reattaching = true
     log(`attach socket dropped: reason=${reason} short=${cfg.daemonShort} -- probing worker liveness`)
     emitBoot('awaiting_init', `attach lost (${reason}); probing worker`)
+    launchEvents?.emit('attach_lost', { detail: `reason=${reason}`, raw: { reason } })
     reattachAfterDrop(reason)
       .catch((err: unknown) => {
         log(`re-attach failed: ${(err as Error).message}`)
@@ -397,13 +467,23 @@ async function main(): Promise<void> {
     const present = probe.ok === true && probe.present === true
     if (!alive || !present) {
       log(`worker gone after attach drop: short=${cfg.daemonShort} alive=${alive} present=${present} reason=${reason}`)
+      emitWorkerGone({ reason: `attach-drop+probe alive=${alive} present=${present}`, source: reason })
       maybeEmitRetired()
       shutdown('daemon-job-gone', true)
       return
     }
     log(`worker still alive after attach drop -- re-attaching: short=${cfg.daemonShort} reason=${reason}`)
     await doAttach()
+    launchEvents?.emit('reattached', { detail: `reason=${reason}`, raw: { reason } })
     emitBoot('conversation_ready', `re-attached after socket drop (${reason})`)
+  }
+
+  /** Single worker_gone emitter -- guards against double-emit when both the
+   *  attach-drop probe AND the observer's onGone hook fire on the same vanish. */
+  function emitWorkerGone(payload: { reason: string; source?: string }): void {
+    if (workerGoneEmitted) return
+    workerGoneEmitted = true
+    launchEvents?.emit('worker_gone', { detail: payload.reason, raw: { ...payload } })
   }
 
   /** One-time setup after the worker's first ccSessionId is known. */
@@ -476,6 +556,7 @@ async function main(): Promise<void> {
     onGone: () => {
       if (!shuttingDown) {
         log('worker no longer in daemon roster')
+        emitWorkerGone({ reason: 'observer:onGone -- worker left the daemon roster', source: 'observer' })
         maybeEmitRetired()
         shutdown('daemon-job-gone', true)
       }

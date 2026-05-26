@@ -1415,6 +1415,48 @@ function launchLog(jobId: string | undefined, step: string, status: 'info' | 'ok
 }
 
 /**
+ * Sentinel-side daemon_launch_event emitter. EVERYTHING IS A STRUCTURED MESSAGE
+ * -- the sentinel owns the two dispatch-side steps (`dispatch_requested` +
+ * `worker_dispatched`) because they happen BEFORE the daemon-agent-host
+ * process exists. The daemon-host emits the 6 attach-side steps from its own
+ * buffer (`src/daemon-agent-host/launch-events.ts`). Late-attaching dashboards
+ * see the dispatch steps via the broker's transcript-entry persistence path.
+ *
+ * Fires + logs even when activeWs is down (the LOG EVERYTHING covenant -- the
+ * decision is logged regardless of whether the wire send succeeds). When the
+ * broker receives this from a sentinel-role connection it accepts it (see
+ * `daemon_launch_event` registration in src/broker/handlers/daemon.ts).
+ */
+function emitDaemonLaunchEvent(opts: {
+  conversationId: string
+  step: 'dispatch_requested' | 'worker_dispatched'
+  daemonMode: 'new' | 'resume' | 'attach'
+  short?: string
+  detail?: string
+  raw?: Record<string, unknown>
+}) {
+  log(
+    `[daemon-launch] step=${opts.step} mode=${opts.daemonMode} conv=${opts.conversationId.slice(0, 8)}` +
+      `${opts.short ? ` short=${opts.short}` : ''}${opts.detail ? ` -- ${opts.detail}` : ''}`,
+  )
+  if (activeWs?.readyState !== WebSocket.OPEN) return
+  try {
+    activeWs.send(
+      JSON.stringify({
+        type: 'daemon_launch_event',
+        conversationId: opts.conversationId,
+        step: opts.step,
+        daemonMode: opts.daemonMode,
+        short: opts.short,
+        detail: opts.detail,
+        raw: opts.raw,
+        t: Date.now(),
+      }),
+    )
+  } catch {}
+}
+
+/**
  * Revive a conversation. Headless conversations are spawned directly via Bun.spawn(),
  * PTY conversations use the external revive-session.sh script for tmux.
  *
@@ -3022,6 +3064,21 @@ function connect(
                 sendDaemonFail(pathCheck.error ?? 'daemon spawn: config path validation failed')
                 break
               }
+              emitDaemonLaunchEvent({
+                conversationId: spawnMsg.conversationId,
+                step: 'dispatch_requested',
+                daemonMode,
+                detail: `cwd=${expandedCwd} model=${spawnMsg.model ?? 'default'}`,
+                raw: {
+                  cwd: expandedCwd,
+                  model: spawnMsg.model,
+                  resumeSessionId: daemonResumeSessionId,
+                  hasSettings: !!daemonSettingsPath,
+                  hasMcpConfig: !!daemonMcpConfigPath,
+                  hasAppendSystemPrompt: !!daemonAppendSystemPrompt,
+                  profileName: resolvedSpawnProfile?.name,
+                },
+              })
               const dispatched = await dispatchDaemonWorker({
                 cwd: expandedCwd,
                 mode: daemonMode,
@@ -3042,6 +3099,13 @@ function connect(
               }
               daemonShort = dispatched.short
               launchLog(spawnMsg.jobId, 'daemon worker dispatched', 'ok', `short=${daemonShort} mode=${daemonMode}`)
+              emitDaemonLaunchEvent({
+                conversationId: spawnMsg.conversationId,
+                step: 'worker_dispatched',
+                daemonMode,
+                short: daemonShort,
+                detail: dispatched.output,
+              })
             }
 
             const daemonRes = spawnDaemonHostDirect({
