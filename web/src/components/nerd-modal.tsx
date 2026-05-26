@@ -449,15 +449,27 @@ function PerfTab() {
                 }
                 lines.push('')
               }
-              const entriesToCopy = visibleEntries.slice(-200)
+              // Unified timeline: perf entries + debug-log entries interleaved by
+              // timestamp, so chunk loads / nav / sync / long tasks sit right next
+              // to the commit->paint spikes they explain. A perf number is only
+              // trustworthy with this context -- see the rAF-suspension misread.
+              const iso = (t: number) => new Date(t).toISOString().slice(11, 23)
+              type Row = { t: number; line: string }
+              const perfRows: Row[] = visibleEntries.slice(-300).map(e => ({
+                t: e.t,
+                line: `${iso(e.t)}  ${e.category.padEnd(9)} ${e.label} ${e.durationMs.toFixed(1)}ms${e.detail ? ` ${e.detail}` : ''}`,
+              }))
+              const logRows: Row[] = getLogEntries()
+                .slice(-400)
+                .map(l => ({
+                  t: l.t,
+                  line: `${iso(l.t)}  ${l.level.toUpperCase().padEnd(9)} ${l.args.replace(/\s+/g, ' ').slice(0, 240)}`,
+                }))
+              const merged = [...perfRows, ...logRows].sort((a, b) => a.t - b.t).slice(-500)
               const heading = significantOnly
-                ? `## Entries (significant, \u2265${SIGNIFICANT_THRESHOLD_MS}ms)`
-                : '## Entries'
-              lines.push(heading, '', '| Time | Category | Label | Duration | Detail |', '|---|---|---|---|---|')
-              for (const e of entriesToCopy) {
-                const t = new Date(e.t).toLocaleTimeString('en-GB', { hour12: false })
-                lines.push(`| ${t} | ${e.category} | ${e.label} | ${e.durationMs.toFixed(1)}ms | ${e.detail || ''} |`)
-              }
+                ? `## Timeline (perf \u2265${SIGNIFICANT_THRESHOLD_MS}ms + debug log, chronological)`
+                : '## Timeline (perf + debug log, chronological)'
+              lines.push(heading, '', '```', ...merged.map(r => r.line), '```')
               navigator.clipboard.writeText(lines.join('\n'))
             }}
             className="text-[10px] text-comment hover:text-foreground transition-colors"
