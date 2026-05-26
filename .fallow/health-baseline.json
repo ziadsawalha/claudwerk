@@ -2659,6 +2659,11 @@
         "count": 1
       }
     },
+    "web/src/components/transcript/ghost-peek.tsx": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "web/src/components/transcript/grep-results.tsx": {
       "complexity_critical": {
         "count": 1
@@ -2879,11 +2884,6 @@
         "count": 3
       }
     },
-    "web/src/hooks/use-ghost-sessions.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "web/src/hooks/use-global-commands.ts": {
       "crap_critical": {
         "count": 1
@@ -3041,12 +3041,12 @@
     "web/src/components/project-list/project-node.tsx:untested risk",
     "src/acp-agent-host/dialect/from-acp-generic.ts:high impact",
     "web/src/components/launch-config-fields.tsx:complexity",
-    "src/broker/spawn-dispatch.ts:complexity",
     "src/broker/conversation-store.ts:complexity",
+    "src/broker/spawn-dispatch.ts:complexity",
     "web/src/hooks/use-launch-progress.ts:high impact",
     "web/src/components/transcript/agent-views.tsx:complexity",
-    "src/shared/spawn-defaults.ts:high impact",
     "src/shared/transcript-filter.ts:high impact",
+    "src/shared/spawn-defaults.ts:high impact",
     "web/src/components/command-palette/use-conversation-mode.ts:untested risk",
     "src/broker/handlers/inter-conversation.ts:complexity",
     "src/broker/recap/shared/transcript-extract.ts:high impact",
@@ -3063,8 +3063,8 @@
     "web/src/components/transcript/grouping/process-entry.ts:complexity",
     "web/src/components/project-settings-editor.tsx:complexity",
     "src/broker/conversation-store/transcript-handlers/user-entry.ts:complexity",
-    "web/src/components/command-palette/command-palette.tsx:complexity",
     "web/src/components/transcript/grouping.tsx:complexity",
+    "web/src/components/command-palette/command-palette.tsx:complexity",
     "src/broker/routes/sentinels.ts:complexity",
     "web/src/components/transcript/tool-cases-core.tsx:untested risk",
     "web/src/components/transcript/tool-cases-search.tsx:complexity",
@@ -3074,9 +3074,9 @@
     "src/claude-agent-host/transcript-manager.ts:high impact",
     "src/broker/cli/parse-args.ts:high impact",
     "web/src/hooks/use-websocket.ts:complexity",
-    "src/broker/handlers/boot-lifecycle.ts:complexity",
     "web/src/hooks/use-hover-popover.ts:high impact",
     "src/broker/conversation-store/project-links.ts:untested risk",
+    "src/broker/handlers/boot-lifecycle.ts:complexity",
     "web/src/components/project-list/conversation-item.tsx:complexity",
     "src/broker/termination-log.ts:complexity",
     "src/broker/auth-routes.ts:complexity",
@@ -3092,15 +3092,15 @@
     "src/broker/cli/user-commands.ts:untested risk",
     "src/broker/permissions.ts:complexity",
     "src/opencode-agent-host/dialect/from-opencode-ndjson.ts:untested risk",
+    "web/src/components/project-list.tsx:complexity",
     "src/broker/conversation-store/parsers.ts:untested risk",
     "src/broker/recap/shared/json-parse.ts:high impact",
     "src/claude-agent-host/permission-rules.ts:high impact",
     "web/src/components/subagent-view.tsx:untested risk",
-    "web/src/components/project-list.tsx:complexity",
+    "web/src/components/transcript/transcript-view.tsx:complexity",
     "src/claude-agent-host/local-server.ts:complexity",
     "web/src/components/recap-jobs/recap-custom-range-dialog.tsx:circular dependency",
     "src/sentinel/config-patch.ts:complexity",
-    "web/src/components/transcript/transcript-view.tsx:complexity",
     "web/src/components/transcript/tool-cases-misc.tsx:untested risk",
     "src/claude-agent-host/mcp-tools/dialog.ts:complexity",
     "web/src/components/json-stream-panel.tsx:untested risk",
