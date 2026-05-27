@@ -961,4 +961,24 @@ describe('isEvictableDaemonGhost (dead daemon ghost cleanup)', () => {
   it('never evicts a non-daemon conversation', () => {
     expect(isEvictableDaemonGhost(ghost({ agentHostType: 'claude' }), false, false, NOW, TTL)).toBe(false)
   })
+
+  // 2026-05-27 incident "conv_U1hmr7d6eRpv": claudewerk-spawned daemon convs were
+  // evicted because `events.length === 0` is true for ALL daemon convs (the
+  // hook-addEvent path is PTY/headless only -- daemon convs accumulate
+  // transcript entries, not `events`). When the worker reappeared in the
+  // roster, the broker created a bare mirror row with only `{ daemonShort }` --
+  // dropping launchConfig, ccSessionId, and the original title. The fix
+  // requires `!agentHostMeta?.daemonMode` since `daemonMode` is written
+  // exclusively by `buildDaemonLaunchMeta` in claudewerk's spawn path.
+  it('never evicts a claudewerk-spawned daemon conv (agentHostMeta.daemonMode is set)', () => {
+    expect(
+      isEvictableDaemonGhost(ghost({ agentHostMeta: { daemonMode: 'new' } }), false, false, NOW, TTL),
+    ).toBe(false)
+  })
+
+  it('still evicts a bare roster-mirror ghost (agentHostMeta has only daemonShort, no daemonMode)', () => {
+    expect(
+      isEvictableDaemonGhost(ghost({ agentHostMeta: { daemonShort: 'b764469d' } }), false, false, NOW, TTL),
+    ).toBe(true)
+  })
 })

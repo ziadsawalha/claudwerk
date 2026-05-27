@@ -381,16 +381,32 @@ const GHOST_EVICTION_TTL_MS = 15 * 60 * 1000
  *
  * A ghost is a roster-mirrored daemon worker the broker surfaced read-only and
  * NEVER hosted -- it has `events.length === 0` (no agent-host lifecycle ever
- * ran), no transcript, and no live socket. When it has ended and sat idle past
- * the ghost TTL it is worthless clutter -- exactly the duplicate ghosts the
- * split-identity bug produced (now prevented at the source by the daemon-map
- * registration). Conservative ON PURPOSE: EVERY signal must hold, so a real
- * hosted daemon conversation (which always has boot events + a transcript) can
- * never be hit. Boundary-safe: reads agentHostType/status/events, never
- * ccSessionId.
+ * ran), no transcript, no live socket, AND no `daemonMode` in agentHostMeta
+ * (the latter is written exclusively by `buildDaemonLaunchMeta` in claudewerk's
+ * spawn flow, so its absence proves the row was created purely by the roster
+ * mirror -- never via claudewerk's `dispatchClaudeDaemon`). When all hold past
+ * the ghost TTL it is worthless clutter.
+ *
+ * Origin: 2026-05-27. The earlier version omitted the `daemonMode` check and
+ * evicted claudewerk-spawned daemon conversations because `events.length === 0`
+ * is true for ALL daemon convs (the hook-event addEvent path is PTY/headless
+ * only; daemon convs receive transcript entries, not `events`). After eviction,
+ * the next roster forward re-created a bare mirror row with only
+ * `{ daemonShort }` -- losing launchConfig, ccSessionId, profile, and the
+ * original conversation title. See `.claude/docs/title-wipe-race.md` and the
+ * "links:6852e0ce / conv_U1hmr7d6eRpv" incident.
+ *
+ * Conservative ON PURPOSE: EVERY signal must hold. Boundary-safe: reads
+ * agentHostType/status/events/agentHostMeta keys, never ccSessionId itself.
  */
 export function isEvictableDaemonGhost(
-  conv: { agentHostType?: string; status: string; events: unknown[]; lastActivity: number },
+  conv: {
+    agentHostType?: string
+    status: string
+    events: unknown[]
+    lastActivity: number
+    agentHostMeta?: Record<string, unknown>
+  },
   hasTranscript: boolean,
   hasLiveSocket: boolean,
   now: number,
@@ -400,6 +416,7 @@ export function isEvictableDaemonGhost(
     conv.agentHostType === 'daemon' &&
     conv.status === 'ended' &&
     conv.events.length === 0 &&
+    !conv.agentHostMeta?.daemonMode &&
     !hasTranscript &&
     !hasLiveSocket &&
     now - conv.lastActivity > ttlMs
