@@ -151,17 +151,12 @@ function useConversationSwitchFetch(
   // biome-ignore lint/correctness/useExhaustiveDependencies: isConnected and fetchConversationData intentionally omitted - only re-run on conversation switch
   useEffect(() => {
     if (!selectedConversationId || !isConnected) return
-    const { transcripts, events } = useConversationsStore.getState()
-    const cachedTranscript = transcripts[selectedConversationId]?.length ?? 0
-    const cachedEvents = events[selectedConversationId]?.length ?? 0
-    if (cachedTranscript > 0) {
-      console.log(
-        `[sync] HIT ${selectedConversationId.slice(0, 8)}: transcript=${cachedTranscript} events=${cachedEvents} (no fetch, WS sub alive)`,
-      )
-    } else {
-      console.log(`[sync] MISS ${selectedConversationId.slice(0, 8)}: no cached transcript, fetching full`)
-      fetchConversationData(selectedConversationId, 'conversation-switch-empty')
-    }
+    // Always fetch on switch. The old "HIT if cache.length>0" short-circuit
+    // stranded users on partial WS-only caches (a single launch/boot entry,
+    // or an isInitial snapshot taken before CC flushed the rest). Same class
+    // of bug as d059a9a0; the 2s debounce in fetchConversationData + setTranscript's
+    // no-shrink guard make the per-switch HTTP roundtrip safe and cheap.
+    fetchConversationData(selectedConversationId, 'conversation-switch')
   }, [selectedConversationId]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 

@@ -7,7 +7,7 @@ import { openManageChatConnections } from '@/components/settings/manage-chat-con
 import { openManageProjectLinks } from '@/components/settings/manage-project-links-dialog'
 import { openSpawnDialog } from '@/components/spawn-dialog'
 import { openTerminateConfirm } from '@/components/terminate-confirm'
-import { sendInput, useConversationsStore, wsSend } from '@/hooks/use-conversations'
+import { fetchTranscript, sendInput, useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { formatShortcut, useChordCommand, useCommand, validateChordBindings } from '@/lib/commands'
 import { canRespawnStaleDaemon } from '@/lib/daemon-control'
 import { focusInputEditor } from '@/lib/focus-input'
@@ -151,6 +151,25 @@ export function useGlobalCommands(toggleSidebar: () => void) {
       }
     },
     { label: 'Rename conversation', shortcut: 'ctrl+shift+r', group: 'Conversation' },
+  )
+
+  useChordCommand(
+    'reload-transcript',
+    async () => {
+      const store = useConversationsStore.getState()
+      const sid = store.selectedConversationId
+      if (!sid) return
+      const cached = store.transcripts[sid]?.length ?? 0
+      console.log(`[reload] manual reload ${sid.slice(0, 8)}: cached=${cached}`)
+      const result = await fetchTranscript(sid)
+      if (!result) {
+        console.log(`[reload] ${sid.slice(0, 8)}: fetch failed`)
+        return
+      }
+      console.log(`[reload] ${sid.slice(0, 8)}: got ${result.entries.length} entries lastSeq=${result.lastSeq}`)
+      useConversationsStore.getState().setTranscript(sid, result.entries)
+    },
+    { label: 'Reload current transcript', key: 'u', group: 'Conversation' },
   )
 
   useChordCommand(
