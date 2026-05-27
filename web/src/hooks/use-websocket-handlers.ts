@@ -33,6 +33,7 @@ import type {
   TranscriptEntry,
 } from '@/lib/types'
 import { formatRateBucketName, haptic } from '@/lib/utils'
+import { recordTokenSample } from './token-flow-store'
 import {
   applyHashRoute,
   buildConversationsById,
@@ -1137,6 +1138,22 @@ interface RateLimitFields {
   sentinelAlias: string
 }
 
+// Live per-message token sample -> the token-flow ring (outside React/Zustand,
+// so the high-frequency fleet stream never churns the store). The widget reads
+// the ring via useSyncExternalStore.
+function handleTokenSample(msg: DashboardMessage): void {
+  recordTokenSample({
+    ts: (msg.timestamp as number | undefined) || Date.now(),
+    sentinelId: (msg.sentinelId as string | undefined) || '',
+    profile: (msg.profile as string | undefined) || 'default',
+    model: (msg.model as string | undefined) || '',
+    input: (msg.inputTokens as number | undefined) || 0,
+    output: (msg.outputTokens as number | undefined) || 0,
+    cacheRead: (msg.cacheReadTokens as number | undefined) || 0,
+    cacheWrite: (msg.cacheWriteTokens as number | undefined) || 0,
+  })
+}
+
 function extractRateLimitFields(msg: DashboardMessage): RateLimitFields {
   const info = (msg.raw as Record<string, unknown>)?.rate_limit_info as Record<string, unknown> | undefined
   const sentinelId = (msg.sentinelId as string | undefined) || ''
@@ -1236,6 +1253,7 @@ export const handlers: Record<string, MessageHandler> = {
   cc_version_changed: handleCcVersionChanged,
   usage_update: handleUsageUpdate,
   sentinel_usage_report: handleSentinelUsageReport,
+  token_sample: handleTokenSample,
   claude_health_update: handleClaudeHealthUpdate,
   claude_efficiency_update: handleClaudeEfficiencyUpdate,
   rate_limit_status: handleRateLimitStatus,
