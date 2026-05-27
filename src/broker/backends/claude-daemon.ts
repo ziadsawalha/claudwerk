@@ -204,18 +204,67 @@ export function buildDaemonLaunchConfig(req: SpawnRequest, cfg: DaemonConfig): L
   return { ...base, ...compact([['model', req.model]]), ...injected } as LaunchConfig
 }
 
-/** One-line summary of the config flags a NEW/RESUME spawn injects. */
-function describeDaemonConfig(req: SpawnRequest, cfg: DaemonConfig): string {
+/** Quote a string for the log so values containing spaces stay one token. */
+function logStr(value: string | undefined | null): string {
+  if (value === undefined || value === null) return '-'
+  return JSON.stringify(value)
+}
+
+/** Comma-joined list of transportMeta keys, "-" when empty. The values are
+ *  redacted -- key presence is what the log needs (the typed fields below
+ *  surface the actual values). */
+function metaKeys(req: SpawnRequest): string {
+  const tm = req.transportMeta
+  if (!tm || typeof tm !== 'object') return '-'
+  const keys = Object.keys(tm)
+  return keys.length ? keys.join(',') : '-'
+}
+
+/** Format a `key=value` list into a single log token, joined by spaces. Used
+ *  by the daemon-spawn input dump so a future engineer can `grep` for any
+ *  field name and find its value next to it. */
+function fmtKV(pairs: Array<[string, string]>): string {
+  return pairs.map(([k, v]) => `${k}=${v}`).join(' ')
+}
+
+/** Short helper: render a string-or-undefined for the log. "-" when absent. */
+function or(value: string | undefined, fallback = '-'): string {
+  return value ?? fallback
+}
+
+/** Yes/no flag for "did this optional config arrive?". */
+function yn(value: unknown): string {
+  return value ? 'yes' : 'no'
+}
+
+/** Full input dump for a daemon-spawn dispatch (LOG EVERYTHING covenant).
+ *  Emits every field that could influence the spawn outcome -- so a future
+ *  engineer can answer "what did the caller actually send?" from the broker
+ *  log alone, without re-running the spawn or opening the source.
+ *
+ *  Origin: 2026-05-27. The prior `describeDaemonConfig` only logged
+ *  `+settings/+mcp/+sysprompt/+Nenv` and silently dropped `name`, `prompt`,
+ *  `model`, `profile`, `pool`, `transportMeta` -- making it impossible to
+ *  tell from `docker logs broker` whether a missing conversation name was
+ *  caller-side (frontend didn't pass it) or broker-side (something cleared
+ *  it). The "links:6852e0ce" incident exposed this. */
+function describeDaemonInputs(req: SpawnRequest, cfg: DaemonConfig): string {
   const envCount = req.env ? Object.keys(req.env).length : 0
-  const labels = Object.keys(
-    compact([
-      ['+settings', cfg.settingsPath],
-      ['+mcp', cfg.mcpConfigPath],
-      ['+sysprompt', cfg.appendSystemPrompt],
-      [`+${envCount}env`, envCount],
-    ]),
-  )
-  return labels.length > 0 ? ` ${labels.join(' ')}` : ''
+  return fmtKV([
+    ['profile', or(req.profile)],
+    ['pool', or(req.pool)],
+    ['name', logStr(req.name)],
+    ['promptLen', String(req.prompt?.length ?? 0)],
+    ['model', or(req.model)],
+    ['resumeFrom', or(cfg.resumeSessionId?.slice(0, 8))],
+    ['attachShort', or(cfg.attachShort)],
+    ['meta', metaKeys(req)],
+    ['hasSettings', yn(cfg.settingsPath)],
+    ['hasMcp', yn(cfg.mcpConfigPath)],
+    ['hasSysprompt', yn(cfg.appendSystemPrompt)],
+    ['envCount', String(envCount)],
+    ['description', yn(req.description)],
+  ])
 }
 
 /**
@@ -234,7 +283,7 @@ export async function dispatchClaudeDaemon(req: SpawnRequest, deps: SpawnDeps): 
   const id = resolveDaemonIdentity(req, deps, cfg, usedNames)
   const { conversationId, conversationName, project } = id
 
-  console.log(daemonDispatchLog(req, cfg, conversationId, jobId, id.reused))
+  console.log(daemonDispatchLog(req, cfg, conversationId, jobId, id.reused, conversationName))
   deps.conversationStore.createJob(jobId, conversationId)
   emitLaunchProgress(deps.conversationStore, jobId, 'job_created', 'done', { conversationId })
 
@@ -363,19 +412,23 @@ function resolveDaemonIdentity(
   }
 }
 
-/** One-line dispatch log (LOG EVERYTHING): mode, ids, sentinel, reuse + config.
- *  The resume-from / attach-short detail rides the sentinel dispatch log. */
+/** One-line dispatch log (LOG EVERYTHING covenant). Dumps every input field
+ *  that could influence the spawn outcome -- mode, ids, sentinel, reuse,
+ *  caller name, prompt length, model, profile, pool, transportMeta keys, and
+ *  the resolved config flags. The OK log (`daemonOkLog`) closes the loop by
+ *  echoing what `conv.title` / `conv.titleUserSet` actually ended up as. */
 function daemonDispatchLog(
   req: SpawnRequest,
   cfg: DaemonConfig,
   conversationId: string,
   jobId: string,
   reused: boolean,
+  conversationName: string,
 ): string {
-  const config = cfg.mode === 'attach' ? '' : describeDaemonConfig(req, cfg)
   return (
     `[daemon-spawn] dispatch mode=${cfg.mode} conv=${conversationId.slice(0, 8)} job=${jobId.slice(0, 8)} ` +
-    `sentinel=${req.sentinel ?? 'default'} reusedConv=${reused ? 'yes' : 'no'}${config}`
+    `sentinel=${req.sentinel ?? 'default'} reusedConv=${reused ? 'yes' : 'no'} ` +
+    `convName=${logStr(conversationName)} ${describeDaemonInputs(req, cfg)}`
   )
 }
 
@@ -416,25 +469,38 @@ function finalizeDaemonConversation(
   conv.launchConfig = buildDaemonLaunchConfig(req, cfg)
   conv.project = project
   conv.title = req.name || conversationName
+  // Pin user-supplied names against the initial-transcript reset path
+  // (`resetConversationMetadataAndStats` clears titles where `titleUserSet`
+  // is false). Daemon's transcript doesn't write a `customTitle` entry, so
+  // without this pin the spawn-supplied name gets wiped on the daemon-host's
+  // first transcript read. Mirrors the PTY/headless `userSet:!!env` semantics
+  // emitted by `claude-agent-host/index.ts`. Generated names stay unpinned
+  // so a later rename via transcript metadata wins.
+  conv.titleUserSet = !!req.name?.trim()
   if (req.description) conv.description = req.description
   // ATTACH reactivates a previously read-only / ended roster mirror row.
   if (conv.status === 'ended') conv.endedBy = undefined
   deps.conversationStore.persistConversationById(conversationId)
 
-  console.log(daemonOkLog(cfg, conversationId, statusBefore, result))
+  console.log(daemonOkLog(cfg, conversationId, statusBefore, result, conv, conversationName))
 }
 
-/** One-line success log (LOG EVERYTHING): mode, conv, the status the row had
- *  before tagging, and the tmux session the sentinel reported. */
+/** One-line success log (LOG EVERYTHING covenant): mode, conv, the status the
+ *  row had before tagging, the tmux session the sentinel reported, AND the
+ *  resolved title / titleUserSet so a future engineer can see what actually
+ *  landed on the conversation (closes the loop on the dispatch input dump). */
 function daemonOkLog(
   cfg: DaemonConfig,
   conversationId: string,
   statusBefore: string,
   result: SentinelSpawnResult,
+  conv: Conversation,
+  conversationName: string,
 ): string {
   return (
     `[daemon-spawn] OK mode=${cfg.mode} conv=${conversationId.slice(0, 8)} statusBefore=${statusBefore} ` +
-    `tmux=${result.tmuxSession ?? 'none'} launchConfig=persisted`
+    `tmux=${result.tmuxSession ?? 'none'} title=${logStr(conv.title)} ` +
+    `titleUserSet=${!!conv.titleUserSet} convName=${logStr(conversationName)}`
   )
 }
 

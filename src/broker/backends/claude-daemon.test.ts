@@ -227,6 +227,7 @@ interface FakeConv {
   agentHostMeta?: Record<string, unknown>
   launchConfig?: LaunchConfig
   title?: string
+  titleUserSet?: boolean
   description?: string
   endedBy?: unknown
 }
@@ -328,6 +329,31 @@ describe('dispatchClaudeDaemon -- NEW mode', () => {
     const r = await dispatchClaudeDaemon(req({ mode: 'new' }, { prompt: 'go' }), deps)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error).toContain('boom')
+  })
+
+  // The title-wipe race (2026-05-27): daemon-host's first transcript read
+  // calls `resetConversationMetadataAndStats(isInitial=true)`, which clears
+  // `conv.title` whenever `titleUserSet === false`. The daemon's transcript
+  // doesn't write a `customTitle` entry, so without pinning the title gets
+  // permanently wiped. We pin only when the caller supplied an explicit name.
+  async function dispatchAndGetConv(over: Partial<SpawnRequest>): Promise<FakeConv> {
+    const { deps, conversations } = makeFakeDeps()
+    const r = await dispatchClaudeDaemon(req({ mode: 'new' }, { prompt: 'go', ...over }), deps)
+    expect(r.ok).toBe(true)
+    if (!r.ok) throw new Error('unreachable')
+    return conversations.get(r.conversationId)!
+  }
+
+  it('pins titleUserSet=true when req.name is supplied (survives initial-transcript reset)', async () => {
+    const conv = await dispatchAndGetConv({ name: 'My Conv' })
+    expect(conv.title).toBe('My Conv')
+    expect(conv.titleUserSet).toBe(true)
+  })
+
+  it('leaves titleUserSet=false for generated names (transcript metadata may still override)', async () => {
+    const conv = await dispatchAndGetConv({})
+    expect(conv.title).toBeTruthy() // generated fallback
+    expect(conv.titleUserSet).toBe(false)
   })
 })
 

@@ -91,6 +91,37 @@ const DEFAULT_ROWS = 24
 
 const HOST_VERSION = `daemon-host/${BUILD_VERSION.gitHashShort}`
 
+/** Env vars the sentinel injects on the daemon-host process. Surfaced in the
+ *  boot-inputs log so a missing conversation name (or any other config drop)
+ *  is visible without re-running the spawn. */
+const TRACKED_ENV_KEYS = [
+  'CLAUDWERK_CONVERSATION_NAME',
+  'CLAUDWERK_CONVERSATION_DESCRIPTION',
+  'CLAUDWERK_DAEMON_MODE',
+  'CLAUDWERK_DAEMON_SHORT',
+  'CLAUDWERK_DAEMON_RESUME_SESSION',
+  'CLAUDE_CONFIG_DIR',
+  'RCLAUDE_HEADLESS',
+] as const
+
+/** JSON-quote when defined, "-" otherwise -- keeps log values single-token. */
+function envValueForLog(key: string): string {
+  const value = process.env[key]
+  return value === undefined ? '-' : JSON.stringify(value)
+}
+
+/** One-line structured dump of every spawn-injected env var this process saw,
+ *  emitted right after parseDaemonHostConfig. Pair with the broker's
+ *  `[daemon-spawn] dispatch` line to confirm what the sentinel actually
+ *  forwarded vs. what the broker requested. */
+function logBootInputs(cfg: DaemonHostConfig): void {
+  const envPairs = TRACKED_ENV_KEYS.map(k => `${k}=${envValueForLog(k)}`).join(' ')
+  log(
+    `boot-inputs conv=${cfg.conversationId.slice(0, 8)} short=${cfg.daemonShort} mode=${cfg.mode} ` +
+      `resumeFrom=${cfg.resumeSessionId ? cfg.resumeSessionId.slice(0, 8) : '-'} ${envPairs}`,
+  )
+}
+
 /** Build the boot message sent on the first broker connect (no session id yet). */
 function buildBoot(cfg: DaemonHostConfig): AgentHostBoot {
   return {
@@ -130,6 +161,12 @@ async function main(): Promise<void> {
     `starting conv=${cfg.conversationId.slice(0, 8)} short=${cfg.daemonShort} mode=${cfg.mode}${resumeNote} ` +
       `cwd=${cfg.cwd} broker=${cfg.brokerUrl}`,
   )
+  // LOG EVERYTHING covenant: dump the spawn-injected env this process saw so
+  // future-you can answer "did the sentinel pass me a conversation name?"
+  // from the daemon-host stderr alone, without re-running the spawn. Origin:
+  // 2026-05-27 -- the broker side had similarly bullshit logging that hid
+  // whether `req.name` was passed; close the loop here too.
+  logBootInputs(cfg)
 
   const controlSock = resolveControlSocket()
   if (!controlSock) {
