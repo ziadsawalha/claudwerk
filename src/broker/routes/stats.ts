@@ -14,6 +14,16 @@ import { listProjects } from '../project-store'
 import type { StoreDriver } from '../store/types'
 import type { RouteHelpers } from './shared'
 
+// Token-flow widget windows -> (lookback, bucket width). Each targets ~60-72
+// buckets so the inline sparkline reads well at every zoom level.
+const TOKEN_WINDOWS: Record<string, { windowMs: number; bucketMs: number }> = {
+  '5m': { windowMs: 5 * 60_000, bucketMs: 5_000 },
+  '30m': { windowMs: 30 * 60_000, bucketMs: 30_000 },
+  '2h': { windowMs: 2 * 60 * 60_000, bucketMs: 120_000 },
+  '5h': { windowMs: 5 * 60 * 60_000, bucketMs: 300_000 },
+  '1d': { windowMs: 24 * 60 * 60_000, bucketMs: 1_200_000 },
+}
+
 export function createStatsRouter(
   conversationStore: ConversationStore,
   store: StoreDriver,
@@ -135,6 +145,35 @@ export function createStatsRouter(
       sentinelId: q.sentinelId || undefined,
     })
     return c.json({ profiles: rows })
+  })
+
+  // ─── Token flow (live token-spend widget) ──────────────────────────
+  // Windowed, bucketed per-message token series. `groupBy=global` (default)
+  // returns one aggregate series; `groupBy=profile` returns one series per
+  // (sentinelId, profile). Used to seed the widget's rolling buffer on load and
+  // to render the 5h/1d views; short windows otherwise ride the live
+  // token_sample WS stream. Tokens only -- cost is a render-time multiply.
+  app.get('/api/stats/tokens', c => {
+    if (!httpIsAdmin(c.req.raw)) return c.json({ error: 'Forbidden: admin only' }, 403)
+    const q = c.req.query()
+    const windowKey = q.window || '5m'
+    const win = TOKEN_WINDOWS[windowKey]
+    if (!win) {
+      return c.json({ error: `Invalid window. Use ${Object.keys(TOKEN_WINDOWS).join(', ')}` }, 400)
+    }
+    const groupBy = q.groupBy === 'profile' ? 'profile' : 'global'
+    const bucketMs = q.bucket ? Math.max(1000, Number(q.bucket)) : win.bucketMs
+    const to = Date.now()
+    const from = to - win.windowMs
+    const buckets = store.tokens.queryBuckets({
+      from,
+      to,
+      bucketMs,
+      groupBy,
+      sentinelId: q.sentinelId || undefined,
+      profile: q.profile || undefined,
+    })
+    return c.json({ window: windowKey, from, to, bucketMs, groupBy, buckets })
   })
 
   // ─── Projects ──────────────────────────────────────────────────────
