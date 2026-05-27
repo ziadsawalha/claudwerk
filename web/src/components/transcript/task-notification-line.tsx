@@ -2,8 +2,15 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { formatDuration } from './group-view-types'
 import type { TaskNotification } from './grouping'
+import { TimeStamp } from './timestamp'
 
-export function TaskNotificationLine({ notification: n, time }: { notification: TaskNotification; time: string }) {
+export function TaskNotificationLine({
+  notification: n,
+  ts,
+}: {
+  notification: TaskNotification
+  ts?: string | number
+}) {
   const [expanded, setExpanded] = useState(false)
   const statusColor =
     n.status === 'completed' ? 'bg-emerald-400' : n.status === 'killed' ? 'bg-amber-400' : 'bg-red-400'
@@ -11,7 +18,7 @@ export function TaskNotificationLine({ notification: n, time }: { notification: 
   return (
     <div>
       <div className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground">
-        <span className="text-[10px]">{time}</span>
+        <TimeStamp ts={ts} className="text-[10px]" />
         <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', statusColor)} />
         <span className="truncate flex-1">{n.summary}</span>
         {n.usage && (

@@ -2,10 +2,11 @@ import { cn } from '@/lib/utils'
 import { Markdown } from '../markdown'
 import type { RenderItem } from './group-view-types'
 import { BUBBLE_COLORS } from './group-view-types'
+import { TimeStamp } from './timestamp'
 
 export function ChatBubble({
   items,
-  time,
+  ts,
   bubbleColor,
   sizeClass,
   queued,
@@ -13,7 +14,7 @@ export function ChatBubble({
   effortBadge,
 }: {
   items: RenderItem[]
-  time: string
+  ts?: string | number
   bubbleColor: string
   sizeClass: string
   queued?: boolean
@@ -53,7 +54,7 @@ export function ChatBubble({
           })}
         </div>
         <div className="flex items-center justify-end gap-1.5 mt-0.5 px-1">
-          <span className="text-muted-foreground/50 text-[9px]">{time}</span>
+          <TimeStamp ts={ts} className="text-muted-foreground/50 text-[9px]" />
           {channelServer === 'rclaude' && <span className="text-teal-400/40 text-[9px]">channel</span>}
           {effortBadge && <span className="text-orange-400/60 text-[9px]">{effortBadge.symbol}</span>}
         </div>

@@ -10,6 +10,7 @@ import { parseGroupEntries } from './parse-entries'
 import { SpawnNotification } from './spawn-notification'
 import { SystemLine, SystemLineInline } from './system-line'
 import { TaskNotificationLine } from './task-notification-line'
+import { TimeStamp } from './timestamp'
 
 export { CompactedDivider, CompactingBanner } from './compacted-divider'
 export { BUBBLE_COLOR_OPTIONS } from './group-view-types'
@@ -31,7 +32,7 @@ function GroupView({
   planContext?: { content: string; path?: string }
 }) {
   const { expandAll, userLabel, agentLabel, userColor, agentColor, userSize, agentSize } = settings
-  const time = group.timestamp ? new Date(group.timestamp).toLocaleTimeString('en-US', { hour12: false }) : ''
+  const ts = group.timestamp
 
   if (group.type === 'boot') {
     return <BootTimeline group={group} />
@@ -50,14 +51,14 @@ function GroupView({
       <div className="mb-2 space-y-1">
         {group.notifications.map((n, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: notifications are ordered display items, no stable IDs
-          <TaskNotificationLine key={i} notification={n} time={time} />
+          <TaskNotificationLine key={i} notification={n} ts={ts} />
         ))}
       </div>
     )
   }
 
   if (group.type === 'system' && group.systemSubtype) {
-    return <SystemLine group={group} time={time} />
+    return <SystemLine group={group} ts={ts} />
   }
 
   const isUser = group.type === 'user'
@@ -93,7 +94,7 @@ function GroupView({
     return (
       <ChatBubble
         items={items}
-        time={time}
+        ts={ts}
         bubbleColor={bubbleColor}
         sizeClass={sizeClass}
         queued={group.queued}
@@ -114,7 +115,7 @@ function GroupView({
         channelServer={channelServer}
         effortBadge={effortBadge}
         queued={group.queued}
-        time={time}
+        ts={ts}
       />
       <div className={cn('pl-4 space-y-2', group.queued && 'opacity-50')}>
         {items.map((item, i) => (
@@ -142,7 +143,7 @@ function GroupHeader({
   channelServer,
   effortBadge,
   queued,
-  time,
+  ts,
 }: {
   label: string
   customColor: string
@@ -152,7 +153,7 @@ function GroupHeader({
   channelServer?: string
   effortBadge: { symbol: string; label: string } | null
   queued?: boolean
-  time: string
+  ts?: string | number
 }) {
   return (
     <div className="flex items-center gap-2 mb-2">
@@ -181,7 +182,7 @@ function GroupHeader({
           queued
         </span>
       )}
-      <span className="text-muted-foreground text-[10px]">{time}</span>
+      <TimeStamp ts={ts} className="text-muted-foreground text-[10px]" />
       <span className={cn('flex-1 text-[10px] overflow-hidden', borderColor)}>{'─'.repeat(40)}</span>
     </div>
   )
@@ -216,10 +217,8 @@ function GroupItem({
       return <BashItem item={item} />
     case 'tool':
       return <ToolItem item={item} expandAll={expandAll} subagents={subagents} planContext={planContext} />
-    case 'system': {
-      const inlineTime = item.timestamp ? new Date(item.timestamp).toLocaleTimeString('en-US', { hour12: false }) : ''
-      return <SystemLineInline entry={item.entry} subtype={item.subtype} time={inlineTime} />
-    }
+    case 'system':
+      return <SystemLineInline entry={item.entry} subtype={item.subtype} ts={item.timestamp} />
     default:
       return null
   }

@@ -17,6 +17,7 @@ import { useConversationsStore } from '@/hooks/use-conversations'
 import { cn } from '@/lib/utils'
 import { JsonInspector } from '../json-inspector'
 import type { DisplayGroup } from './grouping'
+import { TimeStamp } from './timestamp'
 
 const OUTCOME_LABEL: Record<TranscriptSpawnNotificationEntry['outcome'], string> = {
   spawned: 'SPAWNED',
@@ -61,7 +62,6 @@ export function SpawnNotification({ group }: { group: DisplayGroup }) {
   const style = OUTCOME_STYLE[entry.outcome]
   const cwd = relCwd(entry.request.cwd)
   const prompt = typeof entry.request.prompt === 'string' ? entry.request.prompt : ''
-  const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false }) : ''
 
   return (
     <div className={cn('mb-2 px-3 py-2 rounded-md border font-mono text-[11px]', style.card)}>
@@ -72,7 +72,7 @@ export function SpawnNotification({ group }: { group: DisplayGroup }) {
         </span>
         <span className="text-foreground/70 text-[10px]">spawn</span>
         <span className="text-amber-300/90 truncate flex-1">{cwd}</span>
-        {ts && <span className="text-muted-foreground text-[10px] tabular-nums">{ts}</span>}
+        <TimeStamp ts={entry.timestamp} className="text-muted-foreground text-[10px]" />
         <JsonInspector data={entry.request} title={`spawn request ${entry.requestId.slice(0, 8)}`} />
       </div>
       {prompt && (

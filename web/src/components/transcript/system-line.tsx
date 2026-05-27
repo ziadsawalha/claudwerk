@@ -4,6 +4,7 @@ import { formatRateBucketName } from '@/lib/utils'
 import { JsonInspector } from '../json-inspector'
 import { formatDuration } from './group-view-types'
 import type { DisplayGroup } from './grouping'
+import { TimeStamp } from './timestamp'
 
 interface TextResult {
   kind: 'text'
@@ -25,7 +26,11 @@ interface JsxResult {
 // inherent to the data shape and splitting would just spread the
 // per-subtype formatting across multiple functions for no readability win.
 // fallow-ignore-next-line complexity
-function describeSystemEntry(sub: string, entry: Record<string, unknown>, time: string): TextResult | JsxResult | null {
+function describeSystemEntry(
+  sub: string,
+  entry: Record<string, unknown>,
+  ts?: string | number,
+): TextResult | JsxResult | null {
   const content = (entry.content as string) || ''
 
   switch (sub) {
@@ -160,7 +165,7 @@ function describeSystemEntry(sub: string, entry: Record<string, unknown>, time: 
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-[9px] font-bold font-mono uppercase tracking-widest text-zinc-400/70">recap</span>
                 <span className="flex-1 h-px bg-zinc-600/30" />
-                <span className="text-muted-foreground/40 text-[10px]">{time}</span>
+                <TimeStamp ts={ts} className="text-muted-foreground/40 text-[10px]" />
                 <JsonInspector title="away_summary" data={entry} raw={entry} />
               </div>
               <div className="text-[11px] text-zinc-300/80 leading-relaxed">
@@ -177,17 +182,17 @@ function describeSystemEntry(sub: string, entry: Record<string, unknown>, time: 
   }
 }
 
-export function SystemLine({ group, time }: { group: DisplayGroup; time: string }) {
+export function SystemLine({ group, ts }: { group: DisplayGroup; ts?: string | number }) {
   const entry = group.entries[0] as Record<string, unknown>
   const sub = group.systemSubtype || ''
-  const result = describeSystemEntry(sub, entry, time)
+  const result = describeSystemEntry(sub, entry, ts)
   if (!result) return null
   if (result.kind === 'jsx') return result.node
 
   return (
     <div className="mb-1 flex items-center justify-center gap-2 text-[10px]">
       <span className={result.color}>{result.text}</span>
-      <span className="text-muted-foreground/40">{time}</span>
+      <TimeStamp ts={ts} className="text-muted-foreground/40" />
       <JsonInspector title={sub || 'system'} data={entry} raw={entry} />
     </div>
   )
@@ -198,20 +203,20 @@ export function SystemLine({ group, time }: { group: DisplayGroup; time: string 
 export function SystemLineInline({
   entry,
   subtype,
-  time,
+  ts,
 }: {
   entry: Record<string, unknown>
   subtype: string
-  time: string
+  ts?: string | number
 }) {
-  const result = describeSystemEntry(subtype, entry, time)
+  const result = describeSystemEntry(subtype, entry, ts)
   if (!result) return null
   if (result.kind === 'jsx') return result.node
 
   return (
     <div className="flex items-center gap-2 text-[10px]">
       <span className={result.color}>{result.text}</span>
-      {time && <span className="text-muted-foreground/40">{time}</span>}
+      <TimeStamp ts={ts} className="text-muted-foreground/40" />
       <JsonInspector title={subtype || 'system'} data={entry} raw={entry} />
     </div>
   )
