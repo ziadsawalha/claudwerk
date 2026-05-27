@@ -3153,10 +3153,19 @@ function connect(
               // for a NEW dispatch; RESUME forks to a fresh daemon-assigned id we
               // cannot pre-register (the observer binds it later).
               if (daemonMode === 'new') {
+                // `allowClobber: true` -- a `mode=new` dispatch is authoritative.
+                // If the daemon silently reused a still-alive worker (or our
+                // minted sessionId collided with an existing mapping), the new
+                // claudewerk conversationId wins; the previous owner becomes a
+                // roster-orphan and is reconciled by the broker. See the
+                // 2026-05-27 worker-reuse incident -- without clobber the new
+                // conversation never got its `daemonShort` stamped because the
+                // roster mirror kept keying the worker under the stale old id.
                 const registered = registerDaemonSession(
                   dispatched.sessionId,
                   spawnMsg.conversationId,
                   resolvedSpawnProfile.configDir,
+                  { allowClobber: true },
                 )
                 launchLog(
                   spawnMsg.jobId,

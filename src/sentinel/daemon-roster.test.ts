@@ -111,6 +111,37 @@ describe('planSessionRegistration (claudewerk spawn -> daemon-map dedup)', () =>
     )
   })
 
+  // 2026-05-27 incident: a `mode=new` dispatch can land on a daemon that
+  // silently reuses an existing worker (same cwd + still-alive). The minted
+  // sessionId then collides with an old mapping (sessionId -> old conv),
+  // leaving the new conversationId stranded with no roster representation.
+  // `allowClobber: true` lets the new spawn re-key the worker onto itself.
+  it('returns `clobber` when allowClobber=true and the session maps to a DIFFERENT conversation', () => {
+    expect(
+      planSessionRegistration({ 'sess-1': 'conv_OTHER' }, 'sess-1', 'conv_A', undefined, WATCHED, {
+        allowClobber: true,
+      }),
+    ).toBe('clobber')
+  })
+
+  it('is idempotent even with allowClobber=true (same conversation, no clobber needed)', () => {
+    expect(
+      planSessionRegistration({ 'sess-1': 'conv_A' }, 'sess-1', 'conv_A', undefined, WATCHED, { allowClobber: true }),
+    ).toBe('idempotent')
+  })
+
+  it('allowClobber=true on an unseen session still resolves to `register`', () => {
+    expect(planSessionRegistration({}, 'sess-1', 'conv_A', undefined, WATCHED, { allowClobber: true })).toBe('register')
+  })
+
+  it('allowClobber does NOT override the foreign-configDir scoping', () => {
+    expect(
+      planSessionRegistration({ 'sess-1': 'conv_OTHER' }, 'sess-1', 'conv_A', '/home/u/.claude-work', WATCHED, {
+        allowClobber: true,
+      }),
+    ).toBe('skip-foreign')
+  })
+
   it('skips a worker on a foreign configDir (a daemon this roster does not watch)', () => {
     expect(planSessionRegistration({}, 'sess-1', 'conv_A', '/home/u/.claude-work', WATCHED)).toBe('skip-foreign')
   })

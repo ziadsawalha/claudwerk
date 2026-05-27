@@ -147,15 +147,29 @@ let currentDeps: RosterWatchDeps | null = null
  * cross-profile worker the roster never mirrors -- no ghost to prevent); or the
  * session is already mapped to a DIFFERENT conversation (never clobber).
  */
-export type SessionRegistrationVerdict = 'register' | 'idempotent' | 'skip-empty' | 'skip-foreign' | 'skip-conflict'
+export type SessionRegistrationVerdict =
+  | 'register'
+  | 'idempotent'
+  | 'skip-empty'
+  | 'skip-foreign'
+  | 'skip-conflict'
+  | 'clobber'
 
 /**
  * PURE decision for {@link registerDaemonSession}: given the current idMap and
  * configDir scoping, decide whether the session -> conversation mapping should
  * be written. `skip-foreign` = the worker's daemon is not the one this roster
- * watches (no ghost to prevent); `skip-conflict` = the session already maps to a
- * DIFFERENT conversation (never clobber); `idempotent` = already mapped to the
- * same conversation. Testable without the module state.
+ * watches (no ghost to prevent); `skip-conflict` = the session already maps to
+ * a DIFFERENT conversation and the caller asked us NOT to clobber;
+ * `clobber` = same as skip-conflict but the caller did ask us to clobber (the
+ * old mapping loses); `idempotent` = already mapped to the same conversation.
+ *
+ * `allowClobber` is the explicit opt-in for replacing a stale mapping. The
+ * spawn-dispatch path passes it on `mode=new` so a daemon worker-reuse case
+ * (daemon silently returns an existing worker for a new dispatch -- see the
+ * 2026-05-27 "6852e0ce vs conv_U1hmr7d6eRpv" incident) re-keys the worker
+ * onto the NEW conversation instead of staying mapped to a phantom old one.
+ * Testable without the module state.
  */
 export function planSessionRegistration(
   idMap: Record<string, string>,
@@ -163,18 +177,24 @@ export function planSessionRegistration(
   conversationId: string,
   workerConfigDir: string | undefined,
   watchedConfigDir: string,
+  opts: { allowClobber?: boolean } = {},
 ): SessionRegistrationVerdict {
   if (!sessionId || !conversationId) return 'skip-empty'
   if (workerConfigDir && resolve(workerConfigDir) !== resolve(watchedConfigDir)) return 'skip-foreign'
   const existing = idMap[sessionId]
   if (existing === conversationId) return 'idempotent'
-  if (existing) return 'skip-conflict'
+  if (existing) return opts.allowClobber ? 'clobber' : 'skip-conflict'
   return 'register'
 }
 
-export function registerDaemonSession(sessionId: string, conversationId: string, workerConfigDir?: string): boolean {
+export function registerDaemonSession(
+  sessionId: string,
+  conversationId: string,
+  workerConfigDir?: string,
+  opts: { allowClobber?: boolean } = {},
+): boolean {
   if (!running || !currentDeps) return false
-  const verdict = planSessionRegistration(idMap, sessionId, conversationId, workerConfigDir, WATCHED_CONFIG_DIR)
+  const verdict = planSessionRegistration(idMap, sessionId, conversationId, workerConfigDir, WATCHED_CONFIG_DIR, opts)
   if (verdict === 'idempotent') return true
   if (verdict === 'skip-conflict') {
     currentDeps.diag('daemon', 'register: session already mapped, not clobbering', {
@@ -183,6 +203,25 @@ export function registerDaemonSession(sessionId: string, conversationId: string,
       incoming: conversationId,
     })
     return false
+  }
+  if (verdict === 'clobber') {
+    // LOG EVERYTHING: a stale mapping is being disowned. The previous owner
+    // conversation becomes a roster-orphan and will be reconciled by the
+    // broker's `reconcileVanishedDaemonConversations` once the roster forward
+    // re-keys this worker under the new conversationId.
+    const previous = idMap[sessionId]
+    currentDeps.log(
+      `[daemon-map] CLOBBER session=${sessionId.slice(0, 12)} prev=${previous} new=${conversationId} ` +
+        `-- worker-reuse on mode=new; prev conversation disowned`,
+    )
+    currentDeps.diag('daemon', 'register: clobbering stale session mapping (worker-reuse on mode=new)', {
+      sessionId: sessionId.slice(0, 12),
+      previous,
+      incoming: conversationId,
+    })
+    idMap[sessionId] = conversationId
+    saveIdMap(idMap, currentDeps)
+    return true
   }
   if (verdict !== 'register') return false
   idMap[sessionId] = conversationId
