@@ -9,6 +9,14 @@ import { BashOutput } from './tool-renderers'
 
 export { ChannelItem } from './channel-renderers'
 
+// Module-level so the function reference is stable across renders -- otherwise
+// MemoizedToolLine's default shallow compare misses on every parent re-render
+// (e.g. a streaming tail-append re-rendering the last group), and every tool
+// block in that group does the dispatchToolCase work over again.
+const renderAgentInline = (agentId: string, toolId?: string) => (
+  <AgentTranscriptInline agentId={agentId} toolId={toolId} />
+)
+
 export function ThinkingItem({ item }: { item: Extract<RenderItem, { kind: 'thinking' }> }) {
   const isEncrypted = !item.text && typeof item.encryptedBytes === 'number'
   const estBytes = isEncrypted ? Math.round((item.encryptedBytes as number) * 0.75) : 0
@@ -159,7 +167,7 @@ export function ToolItem({
       isError={item.isError}
       expandAll={expandAll}
       subagents={subagents}
-      renderAgentInline={(agentId, toolId) => <AgentTranscriptInline agentId={agentId} toolId={toolId} />}
+      renderAgentInline={renderAgentInline}
       {...(item.tool.name === 'ExitPlanMode' && planContext
         ? { planContent: planContext.content, planPath: planContext.path }
         : {})}
