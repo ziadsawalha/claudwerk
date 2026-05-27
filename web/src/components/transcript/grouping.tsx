@@ -12,6 +12,44 @@ import { isUser } from './grouping/parsers'
 import { applyPlanModeTags, processEntry } from './grouping/process-entry'
 import type { DisplayGroup, GroupingState, TaskNotification } from './grouping/types'
 
+// Tail-stable group identity. Same convention as TranscriptView's
+// stableGroupKey: keyed on the group's LAST entry (seq -> uuid -> timestamp)
+// so a HEAD prepend that grows a boundary group at its head doesn't change
+// the key. Used by the identity-preserving regroup below.
+function groupIdentityKey(group: DisplayGroup): string {
+  const tail = group.entries[group.entries.length - 1] as { seq?: number; uuid?: string } | undefined
+  const id = tail?.seq ?? tail?.uuid ?? group.timestamp
+  return `${group.type}-${id}`
+}
+
+function entriesPointEqual(a: TranscriptEntry[], b: TranscriptEntry[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+// Two groups carry the SAME rendered content iff their identifying fields and
+// their entries arrays point-equal. Notifications are compared by reference
+// (not deep) -- they're rebuilt fresh on every reset, so the rare
+// notifications-bearing system group accepts a re-render; the 99% case
+// (assistant/user/system without notifications) hits the fast path.
+function groupShallowEqual(a: DisplayGroup, b: DisplayGroup): boolean {
+  return (
+    a.type === b.type &&
+    a.timestamp === b.timestamp &&
+    a.queued === b.queued &&
+    a.planMode === b.planMode &&
+    a.skillName === b.skillName &&
+    a.systemSubtype === b.systemSubtype &&
+    a.localCommandOutput === b.localCommandOutput &&
+    a.notifications === b.notifications &&
+    entriesPointEqual(a.entries, b.entries)
+  )
+}
+
 // Re-export so existing call sites (`import { DisplayGroup } from '../grouping'`) keep working.
 export type { DisplayGroup, GroupingState, TaskNotification }
 
@@ -147,6 +185,12 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
     const isReset =
       signalChanged || entries.length < cache.len || (entries !== cache.lastEntries && entries.length <= cache.len)
     cache.lastEntries = entries
+    // Snapshot the previous groups BEFORE the wipe -- the reset path rebuilds
+    // every group object from scratch, which by itself busts MemoizedGroupView's
+    // memo on every visible row (50+ Markdown/Shiki/DOM redos per scroll-up).
+    // We use this snapshot below to identity-preserve groups whose entries are
+    // unchanged after the regroup, so React's memo can keep them mounted.
+    const prevGroups = isReset ? cache.groups : null
     if (isReset) {
       cache.len = 0
       cache.resultMap = new Map()
@@ -217,6 +261,32 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
       }
     }
 
+    // Identity-preserving regroup: on a reset (HEAD prepend, window reveal,
+    // refetch) compare each freshly-built group against the prior cache by
+    // tail-stable key + content equality. When the content didn't change, swap
+    // the new group object out for the prior reference. MemoizedGroupView wraps
+    // GroupView in memo() with default shallow comparison -- preserving the
+    // reference makes it skip render entirely. Without this, every scroll-up
+    // prepend rebuilds every visible group's Markdown / Shiki / DOM tree
+    // (~50 rows x heavy content = the "renders EVERYTHING" feel). The orphan-
+    // queued clear above runs FIRST so a previously-orphaned-then-cleared prev
+    // group matches the freshly-cleared new group on `queued`. Runs only on
+    // isReset paths -- the incremental tail-append path naturally preserves
+    // identity for all groups except the last one (which gets a fresh clone
+    // above so React isn't disturbed mid-render).
+    let preservedGroupRefs = 0
+    if (isReset && prevGroups && prevGroups.length > 0) {
+      const prevByKey = new Map<string, DisplayGroup>()
+      for (const g of prevGroups) prevByKey.set(groupIdentityKey(g), g)
+      for (let i = 0; i < newGroups.length; i++) {
+        const prev = prevByKey.get(groupIdentityKey(newGroups[i]))
+        if (prev && groupShallowEqual(prev, newGroups[i])) {
+          newGroups[i] = prev
+          preservedGroupRefs++
+        }
+      }
+    }
+
     cache.groups = newGroups
     cache.lastGroup = lastGroup
     const elapsed = performance.now() - t0
@@ -224,7 +294,7 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
       'grouping',
       'incrementalGroup',
       elapsed,
-      `${newEntries.length} entries -> ${newGroups.length} groups${isReset ? ' (RESET cold re-group)' : ''}`,
+      `${newEntries.length} entries -> ${newGroups.length} groups${isReset ? ` (RESET cold re-group, ${preservedGroupRefs} refs preserved)` : ''}`,
     )
     if (elapsed > 5 || newEntries.length > 10) {
       console.log(`[grouping] ${newEntries.length} new entries -> ${newGroups.length} groups (${elapsed.toFixed(1)}ms)`)
