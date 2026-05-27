@@ -224,6 +224,29 @@ const updateMetadata: MessageHandler = (ctx, data) => {
   ctx.log.debug(`Metadata updated: ${conversationId.slice(0, 8)} keys=[${Object.keys(metadata).join(',')}]`)
 }
 
+// ─── Working directory (backend-agnostic cwd_changed) ─────────────────
+//
+// The agent host translates ITS backend's native cwd signal into this one
+// message. The broker reads only `cwd` -- it never parses a backend payload.
+// `conv.project` (identity URI) is untouched; only the live `currentPath` moves.
+const cwdChanged: MessageHandler = (ctx, data) => {
+  const conversationId = (data.conversationId as string) || ctx.ws.data.conversationId
+  const cwd = data.cwd
+  if (!conversationId || typeof cwd !== 'string' || !cwd) return
+
+  const conv = ctx.conversations.getConversation(conversationId)
+  if (!conv) {
+    ctx.log.debug(`cwd_changed: ${conversationId.slice(0, 8)} not found`)
+    return
+  }
+  if (conv.currentPath === cwd) return // dedup -- no broadcast for a no-op
+
+  const prev = conv.currentPath ?? '(launch)'
+  conv.currentPath = cwd
+  ctx.log.debug(`cwd_changed: ${conversationId.slice(0, 8)} ${prev} -> ${cwd}`)
+  ctx.conversations.broadcastConversationUpdate(conversationId)
+}
+
 // ─── Notify (push notification from agent host) ───────────────────────
 
 const notify: MessageHandler = (ctx, data) => {
@@ -399,6 +422,7 @@ export function registerConversationLifecycleHandlers(): void {
       hook,
       conversation_reset: conversationReset,
       update_conversation_metadata: updateMetadata,
+      cwd_changed: cwdChanged,
       conversation_status: conversationStatus,
       host_transport_reconnect: hostTransportReconnect,
       notify,

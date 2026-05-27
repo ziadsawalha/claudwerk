@@ -5,7 +5,6 @@ import { getProjectSettings } from '../project-settings'
 import { MAX_EVENTS, PASSIVE_HOOKS, TRANSCRIPT_KICK_DEBOUNCE_MS, TRANSCRIPT_KICK_EVENT_THRESHOLD } from './constants'
 import type { ConversationStoreContext } from './event-context'
 import { handleCompactEvent } from './event-handlers/compact'
-import { handleCwdChanged } from './event-handlers/cwd'
 import { handleNotification } from './event-handlers/notification'
 import {
   clearPendingAttention,
@@ -32,14 +31,6 @@ import { handleTaskCompleted, handleTeammateIdle } from './event-handlers/team'
  */
 export function addEvent(ctx: ConversationStoreContext, conversationId: string, event: HookEvent): void {
   const conv = ctx.conversations.get(conversationId)
-  // TEMP diagnostic (remove after fix): why does CwdChanged reach the broker but
-  // never set currentPath? Capture routing (cid + resolved) AND CC's real payload
-  // shape in one place. Greppable: `grep cwd-debug`.
-  if (event.hookEvent === 'CwdChanged') {
-    console.log(
-      `[cwd-debug] cid=${conversationId?.slice(0, 8)} resolved=${!!conv} keys=[${Object.keys(event.data as Record<string, unknown>).join(',')}] data=${JSON.stringify(event.data).slice(0, 600)}`,
-    )
-  }
   if (!conv) return
 
   conv.events.push(event)
@@ -171,15 +162,6 @@ function dispatchCompact(
   handleCompactEvent(ctx, conversationId, conv, event as HookEventOf<'PreCompact' | 'PostCompact' | 'SessionStart'>)
 }
 
-function dispatchCwdChanged(
-  _ctx: ConversationStoreContext,
-  _conversationId: string,
-  conv: Conversation,
-  event: HookEvent,
-): void {
-  handleCwdChanged(conv, event as HookEventOf<'CwdChanged'>)
-}
-
 function dispatchPreToolUse(
   ctx: ConversationStoreContext,
   conversationId: string,
@@ -282,7 +264,6 @@ function dispatchNotification(
 
 const eventHandlers: Partial<Record<HookEventType, EventHandler>> = {
   SessionStart: dispatchSessionStart,
-  CwdChanged: dispatchCwdChanged,
   PreCompact: dispatchCompact,
   PostCompact: dispatchCompact,
   PreToolUse: dispatchPreToolUse,

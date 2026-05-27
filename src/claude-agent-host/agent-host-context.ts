@@ -66,11 +66,11 @@ export interface AgentHostContext {
   syntheticUserUuids: Map<string, string>
   lastTasksJson: string
 
-  /** Last cwd we synthesized a CwdChanged event for, off an EnterWorktree /
-   *  ExitWorktree tool result. Dedup guard so a replayed or repeated result
-   *  doesn't re-emit. Undefined until the first worktree move. See
-   *  worktree-detect.ts. */
-  lastWorktreeCwd?: string
+  /** Last cwd we emitted a `cwd_changed` message for (from any source: CC's
+   *  CwdChanged hook or an EnterWorktree/ExitWorktree tool result). Dedup guard
+   *  so repeats/replays don't re-emit. Undefined until the first move. See
+   *  emitCwdChanged in worktree-detect.ts. */
+  lastEmittedCwd?: string
 
   /** Last project-task manifest broadcast to the broker, keyed by `${status}/${slug}`.
    *  Used to compute incremental diffs (added/removed/modified) on every change

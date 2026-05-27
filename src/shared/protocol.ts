@@ -648,6 +648,7 @@ export type AgentHostMessage =
   | AgentHostRateLimitStatus
   | ConversationInfoUpdate
   | ConversationNameUpdate
+  | CwdChangedMessage
   | SpawnFailed
   | MonitorUpdate
   | ScheduledTaskFire
@@ -666,6 +667,23 @@ export interface ConversationNameUpdate {
   conversationId: string
   name: string
   description?: string
+}
+
+/**
+ * Backend-agnostic "the agent is now working in directory X" signal.
+ *
+ * Each agent host translates ITS backend's native cwd notion into this one
+ * message (CC's `CwdChanged` hook, EnterWorktree/ExitWorktree tool results,
+ * a daemon/ACP cwd report, ...). The broker reads only `cwd` and never parses
+ * a backend-specific payload -- same boundary as tool-vocab does for tools.
+ * Sets `Conversation.currentPath`; `Conversation.project` (the identity URI)
+ * is never touched.
+ */
+export interface CwdChangedMessage {
+  type: 'cwd_changed'
+  conversationId: string
+  /** Absolute working directory the agent moved into. */
+  cwd: string
 }
 
 // Session info from stream-json init (skills, tools, agents, etc.)
@@ -3104,6 +3122,9 @@ export interface SentinelStatus {
 export interface ConversationSummary {
   id: string
   project: string
+  /** Live working directory the agent is in now (worktree, sub-project, cd).
+   *  `project` stays pinned to the launch URI; this shifts via `cwd_changed`. */
+  currentPath?: string
   model?: string
   capabilities?: AgentHostCapability[]
   version?: string

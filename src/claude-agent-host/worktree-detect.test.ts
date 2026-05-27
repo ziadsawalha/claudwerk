@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import type { HookEvent, TranscriptEntry } from '../shared/protocol'
+import type { CwdChangedMessage, TranscriptEntry } from '../shared/protocol'
 import type { AgentHostContext } from './agent-host-context'
-import { detectWorktreeCwd } from './worktree-detect'
+import { detectWorktreeCwd, emitCwdChanged } from './worktree-detect'
 
 const REPO = '/Users/jonas/projects/portal2'
 const WT = `${REPO}/.claude/worktrees/markdown-everywhere`
 
-function buildCtx(): { ctx: AgentHostContext; sent: HookEvent[] } {
-  const sent: HookEvent[] = []
+function buildCtx(): { ctx: AgentHostContext; sent: CwdChangedMessage[] } {
+  const sent: CwdChangedMessage[] = []
   const ctx = {
     conversationId: 'conv_test12345',
     cwd: REPO,
     claudeSessionId: 'sess_abc',
-    lastWorktreeCwd: undefined,
-    wsClient: { sendHookEvent: (e: HookEvent) => sent.push(e) },
+    lastEmittedCwd: undefined,
+    wsClient: { send: (m: CwdChangedMessage) => sent.push(m) },
     debug: () => {},
   } as unknown as AgentHostContext
   return { ctx, sent }
@@ -37,35 +37,51 @@ function toolResultEntry(name: string, toolUseResult: unknown, isError = false):
   } as unknown as TranscriptEntry
 }
 
+describe('emitCwdChanged', () => {
+  test('sends a backend-agnostic cwd_changed message', () => {
+    const { ctx, sent } = buildCtx()
+    emitCwdChanged(ctx, WT)
+    expect(sent).toEqual([{ type: 'cwd_changed', conversationId: 'conv_test12345', cwd: WT }])
+    expect(ctx.lastEmittedCwd).toBe(WT)
+  })
+
+  test('dedups against the last emitted cwd', () => {
+    const { ctx, sent } = buildCtx()
+    emitCwdChanged(ctx, WT)
+    emitCwdChanged(ctx, WT)
+    expect(sent).toHaveLength(1)
+  })
+
+  test('ignores empty cwd', () => {
+    const { ctx, sent } = buildCtx()
+    emitCwdChanged(ctx, undefined)
+    emitCwdChanged(ctx, '')
+    expect(sent).toHaveLength(0)
+  })
+})
+
 describe('detectWorktreeCwd', () => {
-  test('EnterWorktree -> CwdChanged with the resolved worktreePath', () => {
+  test('EnterWorktree -> cwd_changed with the resolved worktreePath', () => {
     const { ctx, sent } = buildCtx()
     const out = detectWorktreeCwd(ctx, [
       toolResultEntry('EnterWorktree', { worktreePath: WT, message: 'Created worktree at ...' }),
     ])
     expect(out).toBe(WT)
-    expect(sent).toHaveLength(1)
-    expect(sent[0]).toMatchObject({
-      type: 'hook',
-      conversationId: 'conv_test12345',
-      hookEvent: 'CwdChanged',
-      data: { cwd: WT, session_id: 'sess_abc' },
-    })
-    expect(ctx.lastWorktreeCwd).toBe(WT)
+    expect(sent).toEqual([{ type: 'cwd_changed', conversationId: 'conv_test12345', cwd: WT }])
+    expect(ctx.lastEmittedCwd).toBe(WT)
   })
 
-  test('ExitWorktree -> CwdChanged back to the boot cwd (repo root)', () => {
+  test('ExitWorktree -> cwd_changed back to the boot cwd (repo root)', () => {
     const { ctx, sent } = buildCtx()
-    ctx.lastWorktreeCwd = WT // we were in a worktree
+    ctx.lastEmittedCwd = WT // we were in a worktree
     const out = detectWorktreeCwd(ctx, [toolResultEntry('ExitWorktree', { message: 'Exited worktree.' })])
     expect(out).toBe(REPO)
-    expect(sent[0].data).toMatchObject({ cwd: REPO })
+    expect(sent[0]).toMatchObject({ type: 'cwd_changed', cwd: REPO })
   })
 
   test('dedup: same worktree path twice emits once', () => {
     const { ctx, sent } = buildCtx()
-    const entries = [toolResultEntry('EnterWorktree', { worktreePath: WT })]
-    detectWorktreeCwd(ctx, entries)
+    detectWorktreeCwd(ctx, [toolResultEntry('EnterWorktree', { worktreePath: WT })])
     const second = detectWorktreeCwd(ctx, [toolResultEntry('EnterWorktree', { worktreePath: WT })])
     expect(second).toBeUndefined()
     expect(sent).toHaveLength(1)
@@ -102,6 +118,6 @@ describe('detectWorktreeCwd', () => {
     ])
     expect(out).toBe(REPO)
     expect(sent).toHaveLength(1)
-    expect(sent[0].data).toMatchObject({ cwd: REPO })
+    expect(sent[0]).toMatchObject({ type: 'cwd_changed', cwd: REPO })
   })
 })

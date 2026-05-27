@@ -16,6 +16,7 @@ import {
   startTranscriptWatcher as startTranscriptWatcherFn,
   stopSubagentWatcher,
 } from './transcript-manager'
+import { emitCwdChanged } from './worktree-detect'
 
 const debug = (msg: string) => _debug(msg)
 
@@ -154,6 +155,16 @@ export function processHookEvent(ctx: AgentHostContext, event: HookEvent) {
   // TaskCreated: trigger immediate task file read (faster than waiting for chokidar/5s poll)
   if (event.hookEvent === 'TaskCreated') {
     ctx.readTasks()
+  }
+
+  // CwdChanged: translate CC's hook into the backend-agnostic `cwd_changed`
+  // message. CC carries the new dir as `new_cwd` (falls back to `cwd`). The raw
+  // hook still forwards below for the timeline; the broker derives currentPath
+  // ONLY from the canonical message, never from this CC-shaped payload.
+  if (event.hookEvent === 'CwdChanged' && event.data) {
+    const d = event.data as Record<string, unknown>
+    const cwd = typeof d.new_cwd === 'string' ? d.new_cwd : typeof d.cwd === 'string' ? d.cwd : undefined
+    emitCwdChanged(ctx, cwd)
   }
 
   // Forward to broker, or queue until session ID + WS are ready

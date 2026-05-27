@@ -567,6 +567,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     return {
       id: conv.id,
       project: conv.project,
+      currentPath: conv.currentPath,
       model: deriveModelName(conv.model, conv.configuredModel),
       capabilities: conv.capabilities,
       version: conv.version,
