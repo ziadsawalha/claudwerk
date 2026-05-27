@@ -32,6 +32,14 @@ import { handleTaskCompleted, handleTeammateIdle } from './event-handlers/team'
  */
 export function addEvent(ctx: ConversationStoreContext, conversationId: string, event: HookEvent): void {
   const conv = ctx.conversations.get(conversationId)
+  // TEMP diagnostic (remove after fix): why does CwdChanged reach the broker but
+  // never set currentPath? Capture routing (cid + resolved) AND CC's real payload
+  // shape in one place. Greppable: `grep cwd-debug`.
+  if (event.hookEvent === 'CwdChanged') {
+    console.log(
+      `[cwd-debug] cid=${conversationId?.slice(0, 8)} resolved=${!!conv} keys=[${Object.keys(event.data as Record<string, unknown>).join(',')}] data=${JSON.stringify(event.data).slice(0, 600)}`,
+    )
+  }
   if (!conv) return
 
   conv.events.push(event)
