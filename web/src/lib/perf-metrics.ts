@@ -3,7 +3,7 @@
  * Opt-in via dashboard prefs (showPerfMonitor). When disabled, record() is a no-op.
  */
 
-export type PerfCategory = 'render' | 'grouping' | 'ws' | 'scroll' | 'other'
+export type PerfCategory = 'render' | 'grouping' | 'ws' | 'scroll' | 'transcript' | 'other'
 
 export interface PerfEntry {
   t: number // timestamp ms

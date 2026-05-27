@@ -24,6 +24,8 @@ import type {
 } from '@shared/protocol'
 import { handleLaunchProfilesUpdatedMessage } from '@/components/launch-profiles/use-launch-profiles'
 import { daemonControlToast } from '@/lib/daemon-control'
+import { record } from '@/lib/perf-metrics'
+import { cachePushEntries } from '@/lib/transcript-page-cache'
 import type {
   ClaudeEfficiencyUpdate,
   ClaudeHealthUpdate,
@@ -303,6 +305,14 @@ function handleEvent(msg: DashboardMessage) {
 
 // ─── transcripts + streaming ───────────────────────────────────────────────
 
+/** Live-state cap. Tail-grow paths (incremental WS broadcast, delta refetch)
+ *  prune the HEAD of the in-memory transcript when it exceeds this. Evicted
+ *  entries flow into the transcript page cache so a scroll-up doesn't round
+ *  -trip the broker for entries the client just saw. PASSIVE: only triggered
+ *  by a live append, never by a prepend or by returning to the bottom. See
+ *  .claude/docs/plan-progressive-transcript-impl.md for the design. */
+const TRANSCRIPT_LIVE_CAP = 100
+
 function handleTranscriptEntries(msg: DashboardMessage) {
   if (!msg.conversationId || !msg.entries) return
   const sid = msg.conversationId
@@ -346,6 +356,28 @@ function handleTranscriptEntries(msg: DashboardMessage) {
         return {}
       }
       result = [...existing, ...fresh]
+      // Passive prune: tail grew, head may now exceed the live cap. Evicted
+      // entries are pushed into the page cache so a scroll-up after the
+      // prune can replay them locally without a broker round-trip. Skipped
+      // on the initial-replace path -- that's a server-determined snapshot,
+      // not a live tail-grow.
+      if (result.length > TRANSCRIPT_LIVE_CAP) {
+        const t0 = performance.now()
+        const dropCount = result.length - TRANSCRIPT_LIVE_CAP
+        const evicted = result.slice(0, dropCount)
+        result = result.slice(dropCount)
+        cachePushEntries(sid, evicted)
+        const elapsed = performance.now() - t0
+        record(
+          'transcript',
+          'prune',
+          elapsed,
+          `${sid.slice(0, 8)} -${dropCount} (seq ${evicted[0]?.seq}..${evicted[evicted.length - 1]?.seq}) -> cache; live=${result.length}`,
+        )
+        console.debug(
+          `[transcript-prune] ${sid.slice(0, 8)} dropped ${dropCount} entries (seq ${evicted[0]?.seq}..${evicted[evicted.length - 1]?.seq}) to cache; live=${result.length} (cap ${TRANSCRIPT_LIVE_CAP}, ${elapsed.toFixed(1)}ms)`,
+        )
+      }
     }
     if (initial || newEntries.length > 2) {
       console.log(

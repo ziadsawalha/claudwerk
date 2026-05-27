@@ -13,6 +13,7 @@ const batch: (fn: () => void) => void = batchUpdates ?? (fn => fn())
 
 import { isPerfEnabled, record as perfRecord } from '@/lib/perf-metrics'
 import { buildWsUrl } from '@/lib/share-mode'
+import { cachePushEntries } from '@/lib/transcript-page-cache'
 import {
   fetchTranscript,
   handleBgTaskOutputMessage,
@@ -163,8 +164,32 @@ function refetchStaleTranscripts(staleTranscripts?: Record<string, number>): voi
         console.log(
           `[sync] REFETCH transcript ${sid.slice(0, 8)}: +${fresh.length} delta entries (lastSeq ${localMax} -> ${result.lastSeq})`,
         )
+        // Passive prune (live cap 100): mirror the WS broadcast path. The delta
+        // is a real tail-grow, so the head may now exceed the cap. Evicted
+        // entries flow into the page cache. Keep this in lockstep with
+        // handleTranscriptEntries' prune logic; the LIVE_CAP constant lives
+        // there to keep both call-sites aligned by import.
+        let merged = [...existing, ...fresh]
+        const LIVE_CAP = 100
+        if (merged.length > LIVE_CAP) {
+          const t0 = performance.now()
+          const dropCount = merged.length - LIVE_CAP
+          const evicted = merged.slice(0, dropCount)
+          merged = merged.slice(dropCount)
+          cachePushEntries(sid, evicted)
+          const elapsed = performance.now() - t0
+          perfRecord(
+            'transcript',
+            'prune',
+            elapsed,
+            `${sid.slice(0, 8)} -${dropCount} (delta refetch, seq ${evicted[0]?.seq}..${evicted[evicted.length - 1]?.seq}); live=${merged.length}`,
+          )
+          console.debug(
+            `[transcript-prune] ${sid.slice(0, 8)} dropped ${dropCount} entries via delta refetch (seq ${evicted[0]?.seq}..${evicted[evicted.length - 1]?.seq}); live=${merged.length} (cap ${LIVE_CAP}, ${elapsed.toFixed(1)}ms)`,
+          )
+        }
         return {
-          transcripts: { ...state.transcripts, [sid]: [...existing, ...fresh] },
+          transcripts: { ...state.transcripts, [sid]: merged },
           lastAppliedTranscriptSeq: { ...state.lastAppliedTranscriptSeq, [sid]: result.lastSeq },
           newDataSeq: state.newDataSeq + 1,
         }

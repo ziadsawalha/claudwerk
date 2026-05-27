@@ -367,12 +367,13 @@ function SwTab() {
   )
 }
 
-const PERF_CATEGORIES: PerfCategory[] = ['render', 'grouping', 'ws', 'scroll', 'other']
+const PERF_CATEGORIES: PerfCategory[] = ['render', 'grouping', 'ws', 'scroll', 'transcript', 'other']
 const CAT_COLORS: Record<PerfCategory, string> = {
   render: 'text-primary',
   grouping: 'text-event-prompt',
   ws: 'text-info',
   scroll: 'text-success',
+  transcript: 'text-warning',
   other: 'text-muted-foreground',
 }
 

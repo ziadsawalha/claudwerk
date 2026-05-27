@@ -19,6 +19,7 @@ import { clearExpandedState } from '@/lib/expanded-state'
 import { setPerfEnabled } from '@/lib/perf-metrics'
 import { DEFAULT_PERMISSIONS, type ResolvedPermissions } from '@/lib/permissions'
 import { appendShareParam } from '@/lib/share-mode'
+import { cacheLookupBefore, cachePushEntries } from '@/lib/transcript-page-cache'
 import {
   type ClaudeEfficiencyUpdate,
   type ClaudeHealthUpdate,
@@ -1241,10 +1242,12 @@ export interface TranscriptFetchResult {
 }
 
 /** Initial cold-open fetch size. Small on purpose: the transcript renders only
- *  the last ~50, and infinite scrollback pages older history via fetchTranscriptBefore.
- *  Shrinking this from 500 cut the dominant cold-open fetch latency (250-410ms for
- *  big conversations -> ~50ms). */
-const INITIAL_TRANSCRIPT_LIMIT = 100
+ *  the last ~50, infinite scrollback pages older history via fetchTranscriptBefore,
+ *  and the in-memory transcript is capped at TRANSCRIPT_LIVE_CAP=100 entries
+ *  (passive prune in handleTranscriptEntries). Shrinking from 500 -> 100 -> 50
+ *  cut the dominant cold-open fetch latency from 250-410ms (big conversations)
+ *  to a near-noise floor; scroll-back replays the rest from page cache + broker. */
+const INITIAL_TRANSCRIPT_LIMIT = 50
 
 /** Fetch transcript entries for a conversation.
  *  - No `sinceSeq`: returns the last INITIAL_TRANSCRIPT_LIMIT entries (full mode).
@@ -1276,20 +1279,60 @@ export interface TranscriptBeforeResult {
 }
 
 /** Infinite scrollback: fetch the page of history immediately OLDER than
- *  `beforeSeq` (the client's current oldest-held seq). Server returns them
- *  oldest-first so the caller can prepend directly. */
+ *  `beforeSeq` (the client's current oldest-held seq). Returns oldest-first
+ *  so the caller can prepend directly.
+ *
+ *  CACHE-FIRST. The page cache is fed from two sources -- evictions out of
+ *  the live transcript cap AND fetched pages -- so a scroll-up over a range
+ *  the user just saw (or already scrolled through once) is replayed locally
+ *  with no broker round-trip. On miss, fetches from the broker `?before=`
+ *  endpoint and writes the response back through the cache for the next
+ *  scroll-up. The "hasMore" guarantee from the broker is preserved on a
+ *  hit by trusting the cache shape: if the cached slice goes back further
+ *  than the limit we ARE requesting, we know there's more either in cache
+ *  or on the broker -- only when the cache is exhausted AND we miss do we
+ *  signal "no more". */
 export async function fetchTranscriptBefore(
   conversationId: string,
   beforeSeq: number,
   limit = 100,
 ): Promise<TranscriptBeforeResult | null> {
+  // Cache check first.
+  const cached = cacheLookupBefore(conversationId, beforeSeq, limit)
+  if (cached && cached.entries.length >= limit) {
+    // Full-page cache hit -- no need to touch the network.
+    return { entries: cached.entries, oldestSeq: cached.oldestSeq, hasMore: true }
+  }
+  if (cached && cached.entries.length > 0 && cached.hasMoreInCache) {
+    // Partial hit AND more in cache further back -- still serve from cache;
+    // the remaining shortfall will be filled on the next scroll-up tick.
+    return { entries: cached.entries, oldestSeq: cached.oldestSeq, hasMore: true }
+  }
+  // Miss (or partial hit at the cache floor) -> broker.
+  const t0 = performance.now()
   try {
     const res = await fetch(
       appendShareParam(`${API_BASE}/conversations/${conversationId}/transcript?before=${beforeSeq}&limit=${limit}`),
     )
-    if (!res.ok) return null
-    return (await res.json()) as TranscriptBeforeResult
+    if (!res.ok) {
+      console.debug(
+        `[transcript-cache] fetch ${conversationId.slice(0, 8)} before=${beforeSeq} FAILED status=${res.status} (${(performance.now() - t0).toFixed(0)}ms)`,
+      )
+      return null
+    }
+    const body = (await res.json()) as TranscriptBeforeResult
+    const elapsed = performance.now() - t0
+    console.debug(
+      `[transcript-cache] fetch ${conversationId.slice(0, 8)} before=${beforeSeq} -> ${body.entries.length} entries (hasMore=${body.hasMore}, ${elapsed.toFixed(0)}ms)`,
+    )
+    // Write-through: feed the fetched page into the cache so the next
+    // scroll-up over this range is local.
+    if (body.entries.length > 0) cachePushEntries(conversationId, body.entries)
+    return body
   } catch {
+    console.debug(
+      `[transcript-cache] fetch ${conversationId.slice(0, 8)} before=${beforeSeq} EXCEPTION (${(performance.now() - t0).toFixed(0)}ms)`,
+    )
     return null
   }
 }
