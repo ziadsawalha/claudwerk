@@ -300,11 +300,13 @@ export function TokenFlowBar() {
             setOpen(o => !o)
           }}
         >
-          {hasData ? (
-            <StackedBars buckets={miniBuckets} width={72} height={16} />
-          ) : (
-            <span className="text-[10px] text-muted-foreground/40">tok</span>
-          )}
+          <span className="inline-flex items-center border border-border/25 rounded-[3px] px-1 py-0.5">
+            {hasData ? (
+              <StackedBars buckets={miniBuckets} width={108} height={16} />
+            ) : (
+              <span className="text-[10px] text-muted-foreground/40">tok</span>
+            )}
+          </span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
