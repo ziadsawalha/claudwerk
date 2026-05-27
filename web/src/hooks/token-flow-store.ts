@@ -22,6 +22,13 @@ export interface TokenSample {
   output: number
   cacheRead: number
   cacheWrite: number
+  // True for seed-derived samples synthesized from coarse server buckets (one row per
+  // server bucket, carrying that bucket's full aggregate at its bucketStart). Excluded
+  // from short-window bucketize by default -- their token totals represent minutes of
+  // activity at a single ts, so they pile into one 5s/30s bucket and crush the live
+  // per-message bars during visual normalization. Re-include only for windows whose
+  // bucketMs matches the seed granularity (>=2min).
+  synthetic?: boolean
 }
 
 export interface FlowBucket {
@@ -111,25 +118,38 @@ export function activeProfiles(): Array<{ sentinelId: string; profile: string }>
   return [...seen.values()]
 }
 
+export interface BucketizeOpts {
+  /** Filter to a single (sentinelId, profile) series. */
+  match?: { sentinelId: string; profile: string }
+  /**
+   * Include synthetic seed-derived samples (default false). Pass true only for
+   * views whose bucketMs aligns with the seed granularity (the 2h window's 2min
+   * buckets). Short windows (5m at 5s, 30m at 30s) MUST leave this false so a
+   * 2-minute aggregate at a single ts doesn't dominate the live per-message bars.
+   */
+  includeSynthetic?: boolean
+}
+
 /**
  * Bucketize samples into a DENSE series across [from, to) -- one column per
  * bucket including empty (zero) buckets, so the sparkline has a continuous time
- * axis (idle gaps read as flat, Little-Snitch style). `match` optionally filters
- * to one (sentinelId, profile) series.
+ * axis (idle gaps read as flat, Little-Snitch style).
  */
 export function bucketize(
   samples: readonly TokenSample[],
   from: number,
   to: number,
   bucketMs: number,
-  match?: { sentinelId: string; profile: string },
+  opts: BucketizeOpts = {},
 ): FlowBucket[] {
+  const { match, includeSynthetic = false } = opts
   const count = Math.max(1, Math.ceil((to - from) / bucketMs))
   const out: FlowBucket[] = new Array(count)
   for (let i = 0; i < count; i++) {
     out[i] = { bucketStart: from + i * bucketMs, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   }
   for (const s of samples) {
+    if (!includeSynthetic && s.synthetic) continue
     if (s.ts < from || s.ts >= to) continue
     if (match && (s.sentinelId !== match.sentinelId || s.profile !== match.profile)) continue
     const idx = Math.floor((s.ts - from) / bucketMs)
@@ -141,6 +161,13 @@ export function bucketize(
     b.cacheWrite += s.cacheWrite
   }
   return out
+}
+
+/** Anchor a window's right edge to a multiple of bucketMs so samples stay in the same bucket
+ *  until that bucket scrolls off, instead of drifting one slot per second. Returns [from, to). */
+export function windowEdges(now: number, windowMs: number, bucketMs: number): { from: number; to: number } {
+  const to = Math.ceil(now / bucketMs) * bucketMs
+  return { from: to - windowMs, to }
 }
 
 /** Fetch a windowed bucket series from the server (long windows + seeding). */
@@ -171,6 +198,7 @@ export async function seedRing(): Promise<void> {
         output: b.outputTokens,
         cacheRead: b.cacheReadTokens,
         cacheWrite: b.cacheWriteTokens,
+        synthetic: true,
       })
     }
     dirty = true

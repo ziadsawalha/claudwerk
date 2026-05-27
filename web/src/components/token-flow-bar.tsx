@@ -21,6 +21,7 @@ import {
   getVersion,
   seedRing,
   subscribe,
+  windowEdges,
 } from '@/hooks/token-flow-store'
 import { haptic } from '@/lib/utils'
 
@@ -33,6 +34,10 @@ const WINDOWS = [
 ] as const
 type WindowKey = (typeof WINDOWS)[number]['key']
 const RING_WINDOWS = new Set<WindowKey>(['5m', '30m', '2h'])
+// Synthetic seed samples are 2-min server-bucket aggregates. They only fit views
+// whose bucketMs is >= the seed granularity -- 2h (2-min buckets) qualifies; 5m
+// and 30m do not.
+const SYNTHETIC_OK = new Set<WindowKey>(['2h'])
 
 const COLOR_OUTPUT = 'var(--accent)'
 const COLOR_INPUT = 'var(--info)'
@@ -52,10 +57,22 @@ function useTokenTick(): number {
   return useSyncExternalStore(subscribe, getVersion, getVersion)
 }
 
-function maxActive(buckets: FlowBucket[]): number {
-  let max = 1
-  for (const b of buckets) max = Math.max(max, b.input + b.output)
-  return max
+/**
+ * Y-axis scale that ignores outliers: p90 of non-zero bucket totals times a small
+ * stretch. Single huge spikes (e.g. a giant tool result) clip at the top rather
+ * than crushing every other bar to a pixel. Falls back to 1 when the window is
+ * empty so the chart doesn't divide-by-zero.
+ */
+function scaleFor(buckets: FlowBucket[]): number {
+  const totals: number[] = []
+  for (const b of buckets) {
+    const t = b.input + b.output
+    if (t > 0) totals.push(t)
+  }
+  if (totals.length === 0) return 1
+  totals.sort((a, b) => a - b)
+  const idx = Math.min(totals.length - 1, Math.floor(totals.length * 0.9))
+  return Math.max(1, totals[idx] * 1.5)
 }
 
 interface StackedBarsProps {
@@ -72,7 +89,7 @@ function StackedBars({ buckets, width, height, gap = 0.5, onHover, hoverIdx }: S
   const n = Math.max(1, buckets.length)
   const slot = width / n
   const barW = Math.max(1, slot - gap)
-  const max = maxActive(buckets)
+  const scale = scaleFor(buckets)
   return (
     <svg
       width={width}
@@ -84,14 +101,19 @@ function StackedBars({ buckets, width, height, gap = 0.5, onHover, hoverIdx }: S
       onMouseLeave={onHover ? () => onHover(null) : undefined}
     >
       {buckets.map((b, i) => {
-        const inH = (b.input / max) * height
-        const outH = (b.output / max) * height
+        // Clip bars taller than the p90-derived scale: a huge outlier hits the
+        // top instead of crushing every other bar to a single pixel.
+        const totalH = Math.min(height, ((b.input + b.output) / scale) * height)
+        const totalRaw = b.input + b.output
+        const inH = totalRaw > 0 ? totalH * (b.input / totalRaw) : 0
+        const outH = totalH - inH
         const x = i * slot
         const dim = hoverIdx != null && hoverIdx !== i ? 0.4 : 1
-        const total = b.input + b.output
         return (
           <g key={b.bucketStart} opacity={dim}>
-            {total > 0 && <rect x={x} y={height - inH} width={barW} height={Math.max(0.5, inH)} fill={COLOR_INPUT} />}
+            {totalRaw > 0 && (
+              <rect x={x} y={height - inH} width={barW} height={Math.max(0.5, inH)} fill={COLOR_INPUT} />
+            )}
             {b.output > 0 && (
               <rect x={x} y={height - inH - outH} width={barW} height={Math.max(0.5, outH)} fill={COLOR_OUTPUT} />
             )}
@@ -146,8 +168,8 @@ function useWindowBuckets(windowKey: WindowKey): FlowBucket[] {
   }, [windowKey, isRing])
 
   if (isRing) {
-    const now = Date.now()
-    return bucketize(getSamples(), now - cfg.ms, now, cfg.bucketMs)
+    const { from, to } = windowEdges(Date.now(), cfg.ms, cfg.bucketMs)
+    return bucketize(getSamples(), from, to, cfg.bucketMs, { includeSynthetic: SYNTHETIC_OK.has(windowKey) })
   }
   return fetched
 }
@@ -178,11 +200,12 @@ interface ProfileRow {
 }
 
 /** Per-profile totals over a ring window (short windows only). */
-function profileRowsFromRing(windowMs: number): ProfileRow[] {
-  const now = Date.now()
-  const from = now - windowMs
+function profileRowsFromRing(windowKey: WindowKey): ProfileRow[] {
+  const cfg = windowCfg(windowKey)
+  const { from, to } = windowEdges(Date.now(), cfg.ms, cfg.bucketMs)
+  const includeSynthetic = SYNTHETIC_OK.has(windowKey)
   const rows = activeProfiles().map(p => {
-    const series = bucketize(getSamples(), from, now, windowMs, p)
+    const series = bucketize(getSamples(), from, to, cfg.ms, { match: p, includeSynthetic })
     const t = sumTotals(series)
     return { sentinelId: p.sentinelId, profile: p.profile, input: t.input, output: t.output }
   })
@@ -207,7 +230,7 @@ function TokenFlowPanel() {
   useTokenTick() // keep profile rows fresh on ring windows
   const totals = useMemo(() => sumTotals(buckets), [buckets])
   const hovered = hoverIdx != null ? buckets[hoverIdx] : null
-  const profileRows = perProfile && RING_WINDOWS.has(windowKey) ? profileRowsFromRing(windowCfg(windowKey).ms) : []
+  const profileRows = perProfile && RING_WINDOWS.has(windowKey) ? profileRowsFromRing(windowKey) : []
 
   return (
     <div className="space-y-2 font-mono">
@@ -274,8 +297,8 @@ export function TokenFlowBar() {
     void seedRing()
   }, [])
 
-  const now = Date.now()
-  const miniBuckets = bucketize(getSamples(), now - 5 * 60_000, now, 5_000)
+  const { from, to } = windowEdges(Date.now(), 5 * 60_000, 5_000)
+  const miniBuckets = bucketize(getSamples(), from, to, 5_000)
   const hasData = miniBuckets.some(b => b.input + b.output > 0)
 
   function handleMouseEnter() {

@@ -52,8 +52,29 @@ describe('bucketize', () => {
       0,
       5_000,
       5_000,
-      { sentinelId: 'snt_a', profile: 'work' },
+      { match: { sentinelId: 'snt_a', profile: 'work' } },
     )
     expect(buckets[0].output).toBe(10)
+  })
+
+  it('excludes synthetic samples by default', () => {
+    const buckets = bucketize(
+      [sample({ ts: 1_000, output: 50, synthetic: true }), sample({ ts: 2_000, output: 7 })],
+      0,
+      5_000,
+      5_000,
+    )
+    expect(buckets[0].output).toBe(7)
+  })
+
+  it('includes synthetic samples when opts.includeSynthetic = true', () => {
+    const buckets = bucketize(
+      [sample({ ts: 1_000, output: 50, synthetic: true }), sample({ ts: 2_000, output: 7 })],
+      0,
+      5_000,
+      5_000,
+      { includeSynthetic: true },
+    )
+    expect(buckets[0].output).toBe(57)
   })
 })
