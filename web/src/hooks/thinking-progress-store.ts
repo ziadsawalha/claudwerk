@@ -10,6 +10,8 @@
  * or an assistant turn lands, the entry can be cleared explicitly.
  */
 
+import { createExternalStoreSignal } from './external-store-utils'
+
 const SAMPLE_RING_SIZE = 16
 /** Idle period after which a conversation's pill is considered stale and cleared. */
 const STALE_TIMEOUT_MS = 4000
@@ -35,14 +37,8 @@ export interface ThinkingProgressEntry {
 }
 
 const state = new Map<string, ThinkingProgressEntry>()
-let version = 0
+const signal = createExternalStoreSignal()
 let dirty = false
-const listeners = new Set<() => void>()
-
-function notify(): void {
-  version++
-  for (const fn of listeners) fn()
-}
 
 function pruneStale(now: number): boolean {
   let changed = false
@@ -59,7 +55,7 @@ setInterval(() => {
   const stalePruned = pruneStale(Date.now())
   if (!dirty && !stalePruned) return
   dirty = false
-  notify()
+  signal.bump()
 }, NOTIFY_TICK_MS)
 
 export function recordThinkingProgress(conversationId: string, sample: ThinkingSample): void {
@@ -76,24 +72,16 @@ export function recordThinkingProgress(conversationId: string, sample: ThinkingS
   dirty = true
 }
 
-/** Clear the live state for a conversation. Called when a new assistant
- *  transcript entry lands -- the model has finished thinking. */
+/** Clear the live state for a conversation. Called when a new transcript
+ *  entry lands -- the model has finished thinking. */
 export function clearThinkingProgress(conversationId: string): void {
   if (!state.has(conversationId)) return
   state.delete(conversationId)
   dirty = true
 }
 
-export function subscribe(fn: () => void): () => void {
-  listeners.add(fn)
-  return () => {
-    listeners.delete(fn)
-  }
-}
-
-export function getVersion(): number {
-  return version
-}
+export const subscribe = signal.subscribe
+export const getVersion = signal.getVersion
 
 export function getThinkingProgress(conversationId: string): ThinkingProgressEntry | undefined {
   return state.get(conversationId)

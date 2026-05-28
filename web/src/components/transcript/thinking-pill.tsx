@@ -9,7 +9,6 @@
  */
 
 import { memo, useSyncExternalStore } from 'react'
-import { useConversationsStore } from '@/hooks/use-conversations'
 import {
   getThinkingProgress,
   getVersion,
@@ -17,6 +16,7 @@ import {
   type ThinkingProgressEntry,
   type ThinkingSample,
 } from '@/hooks/thinking-progress-store'
+import { useConversationsStore } from '@/hooks/use-conversations'
 
 const BARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 

@@ -14,6 +14,10 @@
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, registerHandlers } from '../message-router'
 
+// Pure guard-and-forward: 7 cyclomatic comes from defensive type checks
+// and optional-field handling, not control flow. Inlining is the clearest
+// shape -- factoring out helpers would obscure a 16-line forwarder.
+// fallow-ignore-next-line complexity
 const thinkingProgress: MessageHandler = (ctx, data) => {
   const conversationId = (data.conversationId as string) || ctx.ws.data.conversationId
   const tokens = data.tokens

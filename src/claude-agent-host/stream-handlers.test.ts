@@ -3,7 +3,10 @@ import type { TranscriptEntry } from '../shared/protocol'
 import { type HandlerContext, handleMessage } from './stream-handlers'
 import { createReplayBuffer } from './stream-replay'
 
-function createTestContext(): { hctx: HandlerContext; entries: TranscriptEntry[] } {
+function createTestContext(extraCallbacks: Partial<HandlerContext['callbacks']> = {}): {
+  hctx: HandlerContext
+  entries: TranscriptEntry[]
+} {
   const entries: TranscriptEntry[] = []
   const hctx: HandlerContext = {
     monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
@@ -13,6 +16,7 @@ function createTestContext(): { hctx: HandlerContext; entries: TranscriptEntry[]
       onTranscriptEntries(e) {
         entries.push(...e)
       },
+      ...extraCallbacks,
     },
   }
   hctx.replay.done = true
@@ -180,23 +184,14 @@ describe('stream-handlers UUID synthesis', () => {
 })
 
 describe('stream-handlers thinking_tokens', () => {
-  test('system/thinking_tokens fires onThinkingProgress and does NOT persist a transcript entry', () => {
-    const entries: TranscriptEntry[] = []
+  function createThinkingProgressCtx() {
     const progress: Array<{ tokens: number; delta?: number }> = []
-    const hctx: HandlerContext = {
-      monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
-      replay: createReplayBuffer(),
-      pendingControlRequests: new Map(),
-      callbacks: {
-        onTranscriptEntries(e) {
-          entries.push(...e)
-        },
-        onThinkingProgress(s) {
-          progress.push(s)
-        },
-      },
-    }
-    hctx.replay.done = true
+    const ctx = createTestContext({ onThinkingProgress: s => progress.push(s) })
+    return { ...ctx, progress }
+  }
+
+  test('system/thinking_tokens fires onThinkingProgress and does NOT persist a transcript entry', () => {
+    const { hctx, entries, progress } = createThinkingProgressCtx()
 
     handleMessage(hctx, {
       type: 'system',
@@ -210,19 +205,7 @@ describe('stream-handlers thinking_tokens', () => {
   })
 
   test('first thinking_tokens ping (no delta field) yields undefined delta', () => {
-    const progress: Array<{ tokens: number; delta?: number }> = []
-    const hctx: HandlerContext = {
-      monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
-      replay: createReplayBuffer(),
-      pendingControlRequests: new Map(),
-      callbacks: {
-        onTranscriptEntries() {},
-        onThinkingProgress(s) {
-          progress.push(s)
-        },
-      },
-    }
-    hctx.replay.done = true
+    const { hctx, progress } = createThinkingProgressCtx()
 
     handleMessage(hctx, { type: 'system', subtype: 'thinking_tokens', estimated_tokens: 50 })
 

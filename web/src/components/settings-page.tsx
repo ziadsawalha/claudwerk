@@ -492,9 +492,7 @@ const SETTINGS: SettingItem[] = [
     render: ctx => (
       <select
         value={ctx.prefs.thinkingIndicator ?? 'detailed'}
-        onChange={e =>
-          ctx.updatePrefs({ thinkingIndicator: e.target.value as 'detailed' | 'compact' | 'off' })
-        }
+        onChange={e => ctx.updatePrefs({ thinkingIndicator: e.target.value as 'detailed' | 'compact' | 'off' })}
         className="bg-muted border border-border rounded px-2 py-1 text-xs"
       >
         <option value="detailed">Detailed (sparkline + rate + count)</option>
