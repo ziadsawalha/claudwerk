@@ -21,6 +21,13 @@ export interface DisplayGroup {
     | 'boot'
     | 'launch'
     | 'spawn_notification'
+  /** Stable React/virtualizer key, assigned by useIncrementalGroups and carried
+   *  across regroups (tail-append, head-prune, refetch) so a group's DOM subtree
+   *  is reused instead of remounted. A remount would give every DiffView/EditDiff
+   *  a fresh mount -- useState reset + Shiki re-tokenize -- which `memo` can't
+   *  prevent. Absent on batch-built groups (groupEntries), which key on array
+   *  index; stableGroupKey falls back to the tail seq there. */
+  id?: string
   timestamp: string
   entries: TranscriptEntry[]
   notifications?: TaskNotification[]

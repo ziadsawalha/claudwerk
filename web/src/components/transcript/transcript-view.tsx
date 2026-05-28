@@ -142,13 +142,16 @@ function defaultWindowStart(len: number): number {
   return len > WINDOW_THRESHOLD ? len - WINDOW_SIZE : 0
 }
 
-/** Stable virtualizer key for a group. Keyed on the group's TAIL entry (last
- *  entry's seq/uuid) so it is invariant under a HEAD prepend -- "Load earlier"
- *  grows the boundary group at its head, and an index- or first-entry-keyed key
- *  would change, busting the measured-height cache and causing a scroll jump.
- *  (Streaming grows the LAST group at its tail, changing that one group's key --
- *  a re-measure there is correct and absorbed by the pin-to-bottom effect.) */
+/** Stable virtualizer key for a group. Prefers the group's reconciled `id`
+ *  (assigned by useIncrementalGroups), which is carried across regroups so it is
+ *  invariant under BOTH a tail-append (streaming grows the LAST group at its
+ *  tail) AND a head-prune/prepend ("Load earlier" grows the boundary group at
+ *  its head). The earlier tail-seq key was invariant under prepend only -- it
+ *  changed on every streaming tick, remounting the active group's whole subtree
+ *  (fresh DiffView/EditDiff mounts, Shiki re-tokenize) every transcript row.
+ *  Falls back to the tail seq for batch-built groups that carry no id. */
 function stableGroupKey(group: DisplayGroup): string {
+  if (group.id) return group.id
   const tail = group.entries[group.entries.length - 1] as { seq?: number; uuid?: string } | undefined
   const id = tail?.seq ?? tail?.uuid ?? group.timestamp
   return `${group.type}-${id}`
