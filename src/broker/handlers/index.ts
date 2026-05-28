@@ -22,6 +22,7 @@ import { registerSentinelHandlers } from './sentinel'
 import { registerSpawnHandlers } from './spawn'
 import { registerSpawnApprovalHandlers } from './spawn-approval'
 import { registerTerminalHandlers } from './terminal'
+import { registerThinkingProgressHandlers } from './thinking-progress'
 import { registerTranscriptHandlers } from './transcript'
 import { registerVoiceHandlers } from './voice'
 
@@ -45,6 +46,7 @@ export function registerAllHandlers(): void {
   registerSpawnApprovalHandlers()
   registerSpawnHandlers()
   registerTerminalHandlers()
+  registerThinkingProgressHandlers()
   registerTranscriptHandlers()
   registerVoiceHandlers()
 }
