@@ -149,7 +149,7 @@ const ProjectConversationGroup = memo(
               >
                 {displayName}
               </span>
-              {ps?.pinned && <Pin className="h-2.5 w-2.5 text-muted-foreground/30 shrink-0" />}
+              {ps?.pinned && <Pin className="size-2.5 text-muted-foreground/30 shrink-0" />}
               <span className="text-[10px] text-muted-foreground font-mono">{conversations.length} conversations</span>
               {hasPendingLink && (
                 <span
@@ -238,7 +238,7 @@ const ProjectConversationGroup = memo(
             {worktrees.length > 0 && (normal.length > 0 || adhoc.length > 0) && (
               <div className="flex items-center gap-2 px-3 py-1">
                 <span className="flex-1 h-px bg-border" />
-                <GitBranch className="w-2.5 h-2.5 text-muted-foreground/40" />
+                <GitBranch className="size-2.5 text-muted-foreground/40" />
                 <span className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">worktrees</span>
                 <span className="flex-1 h-px bg-border" />
               </div>
@@ -312,7 +312,7 @@ export function PinnedProjectNode({ project }: { project: string }) {
             >
               {displayName}
             </span>
-            <Pin className="h-2.5 w-2.5 text-muted-foreground/30 shrink-0" />
+            <Pin className="size-2.5 text-muted-foreground/30 shrink-0" />
           </div>
         </div>
         {showSettings && <ProjectSettingsEditor project={project} onClose={() => setShowSettings(false)} />}
@@ -349,7 +349,7 @@ export const ProjectNode = memo(
       return (
         <div className="relative">
           <ConversationCardById conversationId={conversationIds[0]} />
-          {isPinned && <Pin className="absolute top-2 right-8 h-2.5 w-2.5 text-muted-foreground/25" />}
+          {isPinned && <Pin className="absolute top-2 right-8 size-2.5 text-muted-foreground/25" />}
         </div>
       )
     }

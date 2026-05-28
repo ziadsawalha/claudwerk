@@ -73,7 +73,7 @@ export function SentinelProfileBadge({ resolvedProfile, hostSentinelAlias, launc
       style={colorStyle}
       title={title}
     >
-      {isShuffleIntent && <Shuffle className="w-2.5 h-2.5" />}
+      {isShuffleIntent && <Shuffle className="size-2.5" />}
       {profileMeta?.showLabel === false ? null : profileDisplayName(profileMeta, profileName)}
     </span>
   )

@@ -105,7 +105,7 @@ function GroupingMenuItems({ project }: { project: string }) {
         </ContextMenu.Sub>
       )}
       <ContextMenu.Item className={menuItemClass} onSelect={createGroupAndMove}>
-        New group...
+        New group…
       </ContextMenu.Item>
     </>
   )
@@ -137,7 +137,7 @@ export function ConversationContextMenu({
               useConversationsStore.getState().setRenamingConversationId(conversation.id)
             }}
           >
-            Rename...
+            Rename…
           </ContextMenu.Item>
           <ContextMenu.Item
             className={menuItemClass}
@@ -146,7 +146,7 @@ export function ConversationContextMenu({
               useConversationsStore.getState().setEditingDescriptionConversationId(conversation.id)
             }}
           >
-            Edit description...
+            Edit description…
           </ContextMenu.Item>
           {/* Conversation-level "old recap" (per-conversation away_summary)
               kept for now; the new project-level period recap submenu lives
@@ -186,7 +186,7 @@ export function ConversationContextMenu({
                 onOpenSettings()
               }}
             >
-              Configuration...
+              Configuration…
             </ContextMenu.Item>
           )}
           <ContextMenu.Item
@@ -196,7 +196,7 @@ export function ConversationContextMenu({
               openSpawnDialog({ path: projectPath(conversation.project), projectUri: conversation.project })
             }}
           >
-            Launch new...
+            Launch new…
           </ContextMenu.Item>
           <ContextMenu.Item
             className={cn(menuItemClass, 'text-info')}
@@ -206,7 +206,7 @@ export function ConversationContextMenu({
               window.dispatchEvent(new Event('open-batch-selector'))
             }}
           >
-            Assign tasks...
+            Assign tasks…
           </ContextMenu.Item>
           <ContextMenu.Item
             className={menuItemClass}
@@ -215,7 +215,7 @@ export function ConversationContextMenu({
               openManageProjectLinks(conversation.project)
             }}
           >
-            Manage links...
+            Manage links…
           </ContextMenu.Item>
           <ContextMenu.Item
             className={menuItemClass}
@@ -259,7 +259,7 @@ export function ConversationContextMenu({
                   openReviveDialog({ conversationId: conversation.id })
                 }}
               >
-                Revive...
+                Revive…
               </ContextMenu.Item>
               <ContextMenu.Item
                 className={cn(menuItemClass, 'text-destructive')}
@@ -289,7 +289,7 @@ function ProjectMenuItems({ project, onOpenSettings }: { project: string; onOpen
           openSpawnDialog({ path: projectPath(project), projectUri: project })
         }}
       >
-        Launch new...
+        Launch new…
       </ContextMenu.Item>
       <RecapSubmenu projectUri={project} />
       <ContextMenu.Item
@@ -299,7 +299,7 @@ function ProjectMenuItems({ project, onOpenSettings }: { project: string; onOpen
           onOpenSettings()
         }}
       >
-        Project settings...
+        Project settings…
       </ContextMenu.Item>
       <ContextMenu.Item
         className={menuItemClass}
@@ -308,7 +308,7 @@ function ProjectMenuItems({ project, onOpenSettings }: { project: string; onOpen
           openManageProjectLinks(project)
         }}
       >
-        Manage links...
+        Manage links…
       </ContextMenu.Item>
       <ContextMenu.Item
         className={menuItemClass}

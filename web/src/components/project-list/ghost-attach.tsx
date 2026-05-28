@@ -31,7 +31,7 @@ export function GhostBadge({ compact = false }: { compact?: boolean }) {
 export function GhostStatusDot() {
   return (
     <span
-      className="w-3 h-3 shrink-0 flex items-center justify-center text-violet-300/80 text-[11px] leading-none"
+      className="size-3 shrink-0 flex items-center justify-center text-violet-300/80 text-[11px] leading-none"
       title="Ghost -- discovered daemon worker, not hosted by claudewerk"
     >
       {'◌'}

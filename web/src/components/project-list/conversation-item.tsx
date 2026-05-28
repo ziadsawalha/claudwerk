@@ -71,9 +71,9 @@ function StatusIndicator({ status, adHoc }: { status: Conversation['status']; ad
   }
   if (status === 'active') {
     return (
-      <span className="w-3 h-3 shrink-0 flex items-center justify-center" title="working">
+      <span className="size-3 shrink-0 flex items-center justify-center" title="working">
         <span
-          className="w-2.5 h-2.5 rounded-full animate-spin"
+          className="size-2.5 rounded-full animate-spin"
           style={{ border: '2px solid var(--active)', borderTopColor: 'transparent' }}
         />
       </span>
@@ -82,7 +82,7 @@ function StatusIndicator({ status, adHoc }: { status: Conversation['status']; ad
   if (status === 'starting') {
     return (
       <span
-        className="w-2 h-2 rounded-full shrink-0 animate-pulse"
+        className="size-2 rounded-full shrink-0 animate-pulse"
         style={{ backgroundColor: 'var(--idle)' }}
         title="starting"
       />
@@ -90,15 +90,15 @@ function StatusIndicator({ status, adHoc }: { status: Conversation['status']; ad
   }
   if (status === 'booting') {
     return (
-      <span className="w-3 h-3 shrink-0 flex items-center justify-center" title="booting">
+      <span className="size-3 shrink-0 flex items-center justify-center" title="booting">
         <span
-          className="w-2.5 h-2.5 rounded-full animate-spin"
+          className="size-2.5 rounded-full animate-spin"
           style={{ border: '2px solid var(--info)', borderTopColor: 'transparent' }}
         />
       </span>
     )
   }
-  return <span className="w-2 h-2 rounded-full shrink-0 bg-idle" title={status} />
+  return <span className="size-2 rounded-full shrink-0 bg-idle" title={status} />
 }
 
 // ─── Spawn lineage (Phase 4) ───────────────────────────────────────
