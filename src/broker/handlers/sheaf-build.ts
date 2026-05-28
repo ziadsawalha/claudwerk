@@ -242,6 +242,30 @@ function resolveCurrentPath(rec: ConversationRecord, live: Conversation | undefi
   return typeof fromMeta === 'string' ? fromMeta : undefined
 }
 
+// Per-conversation recap (away-summary) + description live in the opaque meta
+// bag; summary is a top-level column. None are ccSessionId, so reading them
+// here is boundary-safe.
+// fallow-ignore-next-line complexity
+function resolveRecapFields(rec: ConversationRecord): {
+  recap: SheafNode['recap']
+  recapFresh: boolean
+  description: string | null
+  summary: string | null
+} {
+  const meta = rec.meta ?? {}
+  const raw = meta.recap as { content?: unknown; title?: unknown; timestamp?: unknown } | undefined
+  const recap =
+    raw && typeof raw.content === 'string' && typeof raw.timestamp === 'number'
+      ? { content: raw.content, title: typeof raw.title === 'string' ? raw.title : undefined, timestamp: raw.timestamp }
+      : null
+  return {
+    recap,
+    recapFresh: meta.recapFresh === true,
+    description: typeof meta.description === 'string' ? meta.description : null,
+    summary: typeof rec.summary === 'string' ? rec.summary : null,
+  }
+}
+
 // fallow-ignore-next-line complexity
 function buildLeafNode(
   rec: ConversationRecord,
@@ -259,6 +283,7 @@ function buildLeafNode(
   const model = pickTopModel(rollup, rec.model)
   const worktreeName = detectWorktreeName(resolveCurrentPath(rec, live))
   const { outcomeLine, terminationReason } = outcomeFor(rec, status, termination, now)
+  const { recap, recapFresh, description, summary } = resolveRecapFields(rec)
 
   return {
     id: rec.id,
@@ -275,6 +300,10 @@ function buildLeafNode(
     commits: 0, // phase 3
     outcomeLine,
     terminationReason,
+    recap,
+    recapFresh,
+    description,
+    summary,
     children: [],
     treeTotals: {
       tokens: { ...tokens },

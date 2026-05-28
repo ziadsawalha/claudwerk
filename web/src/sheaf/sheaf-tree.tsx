@@ -51,6 +51,43 @@ function selectConv(id: string) {
   window.dispatchEvent(new HashChangeEvent('hashchange'))
 }
 
+// Per-conversation recap/description/summary, mirroring the layout of
+// web/src/components/project-list/conversation-item-full.tsx: description,
+// recap title, then summary OR the away-summary recap (fresh = boxed, stale = dim).
+// fallow-ignore-next-line complexity
+function RecapBlock({ node }: { node: SheafNode }) {
+  const { description, recap, recapFresh, summary } = node
+  if (!description && !recap && !summary) return null
+  return (
+    <>
+      {description && (
+        <div className="mt-0.5 text-[10px] text-muted-foreground/60 truncate italic" title={description}>
+          {description}
+        </div>
+      )}
+      {recap?.title && <div className="mt-0.5 text-[10px] text-zinc-400/80 truncate">{recap.title}</div>}
+      {summary ? (
+        <div className="mt-1 text-[10px] text-muted-foreground truncate" title={summary}>
+          {summary}
+        </div>
+      ) : (
+        recap && (
+          <div
+            className={`mt-1.5 text-[10px] whitespace-pre-wrap overflow-hidden ${
+              recapFresh
+                ? 'text-zinc-300/80 border-l-2 border-zinc-500/50 pl-2 py-0.5 bg-zinc-800/20 rounded-r'
+                : 'text-muted-foreground/50 italic pl-1'
+            }`}
+            title={recap.content}
+          >
+            {recap.content}
+          </div>
+        )
+      )}
+    </>
+  )
+}
+
 export function SheafNodeRow({ node, depth, now, showRecaps = true, flat = false }: SheafNodeRowProps) {
   const glyph = STATUS_GLYPH[node.status]
   const startStr = formatClockTime(node.startedAt)
@@ -116,12 +153,8 @@ export function SheafNodeRow({ node, depth, now, showRecaps = true, flat = false
         </div>
       </div>
 
-      {/* Row 3: outcome line / recap */}
-      {showRecaps && (
-        <div className="mt-0.5 text-xs text-muted-foreground italic truncate" title={node.outcomeLine}>
-          ▸ {node.outcomeLine}
-        </div>
-      )}
+      {/* Row 3: description / recap title / summary / away-summary recap */}
+      {showRecaps && <RecapBlock node={node} />}
 
       {/* Tree-rollup row (only when this node has descendants) */}
       {showTree && (

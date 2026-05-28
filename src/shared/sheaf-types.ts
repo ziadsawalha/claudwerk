@@ -45,6 +45,14 @@ export interface SheafNode {
   outcomeLine: string
   /** Termination reason if ended/killed/crashed. */
   terminationReason: string | null
+  /** Per-conversation away-summary recap (CC recaps), saved on the conversation. */
+  recap: { content: string; title?: string; timestamp: number } | null
+  /** True when no meaningful activity happened after the recap was written. */
+  recapFresh: boolean
+  /** User/agent-set description of the conversation. */
+  description: string | null
+  /** Short conversation summary (distinct from the away-summary recap). */
+  summary: string | null
   /** Direct children (already rolled into the same window). Sorted by startedAt. */
   children: SheafNode[]
   /** Sum across self + descendants. */
