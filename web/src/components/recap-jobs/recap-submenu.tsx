@@ -15,13 +15,9 @@
 import type { RecapPeriodLabel } from '@shared/protocol'
 import { ContextMenu } from 'radix-ui'
 import { haptic } from '@/lib/utils'
-import { openRecapCustomRangeDialog } from './recap-custom-range-dialog'
+import { openRecapCustomRangeDialog } from './recap-custom-range-trigger'
+import { openRecapHistory } from './recap-history-trigger'
 import { type CreateRecapOptions, createRecap } from './recap-wire'
-
-// `createRecap` is re-exported (in addition to its canonical home in
-// ./recap-wire) so existing call sites and the recap-submenu.test.ts file
-// keep importing from this module.
-export { createRecap }
 
 const menuItemClass =
   'flex items-center px-3 py-1.5 text-[11px] font-mono cursor-pointer outline-none data-[highlighted]:bg-accent/20 data-[highlighted]:text-accent'
@@ -34,11 +30,6 @@ const PRESET_LABELS: { label: RecapPeriodLabel; display: string }[] = [
   { label: 'this_week', display: 'This week' },
   { label: 'this_month', display: 'This month' },
 ]
-
-/** "View past recaps..." -- opens the recap-history modal (Phase 10). */
-export function openRecapHistory(projectUri?: string) {
-  window.dispatchEvent(new CustomEvent('rclaude-recap-history-open', { detail: { projectUri } }))
-}
 
 export interface RecapSubmenuProps {
   /** Project URI for per-project recaps, or '*' for cross-project. */

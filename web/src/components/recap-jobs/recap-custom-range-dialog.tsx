@@ -9,21 +9,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Kbd } from '@/components/ui/kbd'
 import { useKeyLayer } from '@/lib/key-layers'
 import { haptic } from '@/lib/utils'
+import { _recapCustomRangeBus, type RecapCustomRangeOptions } from './recap-custom-range-trigger'
 import { createRecap } from './recap-wire'
-
-interface DialogOptions {
-  projectUri: string
-}
 
 interface DialogState {
   open: boolean
-  options: DialogOptions | null
-}
-
-let _openDialog: ((options: DialogOptions) => void) | null = null
-
-export function openRecapCustomRangeDialog(options: DialogOptions): void {
-  _openDialog?.(options)
+  options: RecapCustomRangeOptions | null
 }
 
 function isoLocalDay(d: Date): string {
@@ -52,7 +43,7 @@ export function RecapCustomRangeDialog() {
 
   useEffect(() => {
     let focusTimeout: ReturnType<typeof setTimeout> | null = null
-    _openDialog = options => {
+    _recapCustomRangeBus.open = options => {
       setState({ open: true, options })
       setError(null)
       const t = new Date()
@@ -63,7 +54,7 @@ export function RecapCustomRangeDialog() {
       focusTimeout = setTimeout(() => startRef.current?.focus(), 50)
     }
     return () => {
-      _openDialog = null
+      _recapCustomRangeBus.open = null
       if (focusTimeout) clearTimeout(focusTimeout)
     }
   }, [])

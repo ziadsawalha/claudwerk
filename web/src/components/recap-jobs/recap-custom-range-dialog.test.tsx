@@ -38,10 +38,11 @@ describe('RecapCustomRangeDialog setTimeout cleanup', () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
     const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
     const mod = await import('./recap-custom-range-dialog')
+    const trigger = await import('./recap-custom-range-trigger')
     const { unmount } = render(<mod.RecapCustomRangeDialog />)
     // Open the dialog -- callback schedules the 50ms focus setTimeout.
     act(() => {
-      mod.openRecapCustomRangeDialog({ projectUri: 'claude://default/p' })
+      trigger.openRecapCustomRangeDialog({ projectUri: 'claude://default/p' })
     })
     const focusCall = setTimeoutSpy.mock.calls.findIndex(c => c[1] === 50)
     expect(focusCall).toBeGreaterThanOrEqual(0)
@@ -55,15 +56,16 @@ describe('RecapCustomRangeDialog setTimeout cleanup', () => {
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
     const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout')
     const mod = await import('./recap-custom-range-dialog')
+    const trigger = await import('./recap-custom-range-trigger')
     render(<mod.RecapCustomRangeDialog />)
     act(() => {
-      mod.openRecapCustomRangeDialog({ projectUri: 'claude://default/p' })
+      trigger.openRecapCustomRangeDialog({ projectUri: 'claude://default/p' })
     })
     const firstCall = setTimeoutSpy.mock.calls.findIndex(c => c[1] === 50)
     const firstTimerId = setTimeoutSpy.mock.results[firstCall].value
     // Re-open before the first timer fires.
     act(() => {
-      mod.openRecapCustomRangeDialog({ projectUri: 'claude://default/p' })
+      trigger.openRecapCustomRangeDialog({ projectUri: 'claude://default/p' })
     })
     expect(clearTimeoutSpy).toHaveBeenCalledWith(firstTimerId)
   })

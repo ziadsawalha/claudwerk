@@ -16,13 +16,14 @@ vi.mock('@/hooks/use-conversations', () => ({
   },
 }))
 
-// Mock the dialog so importing the submenu module doesn't try to drag in
+// Mock the trigger so importing the submenu module doesn't try to drag in
 // react-dom internals during the test.
-vi.mock('./recap-custom-range-dialog', () => ({
+vi.mock('./recap-custom-range-trigger', () => ({
   openRecapCustomRangeDialog: vi.fn(),
 }))
 
-import { createRecap, openRecapHistory } from './recap-submenu'
+import { openRecapHistory } from './recap-history-trigger'
+import { createRecap } from './recap-wire'
 
 beforeEach(() => {
   sentMessages.length = 0
