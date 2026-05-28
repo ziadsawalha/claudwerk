@@ -80,9 +80,9 @@ export function clearThinkingProgress(conversationId: string): void {
   dirty = true
 }
 
-// fallow-ignore-next-line duplicate-export
 // Standard useSyncExternalStore surface (subscribe + getVersion) -- intentionally
 // re-named per store; not a name collision.
+// fallow-ignore-next-line duplicate-export
 export const subscribe = signal.subscribe
 // fallow-ignore-next-line duplicate-export
 export const getVersion = signal.getVersion
