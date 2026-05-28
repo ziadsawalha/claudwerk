@@ -53,7 +53,7 @@ export function ProjectLinksSection() {
     fetchLinks()
   }
 
-  if (loading) return <div className="text-xs text-muted-foreground font-mono">Loading...</div>
+  if (loading) return <div className="text-xs text-muted-foreground font-mono">Loading…</div>
 
   if (links.length === 0) {
     return (

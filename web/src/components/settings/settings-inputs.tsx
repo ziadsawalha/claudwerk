@@ -65,7 +65,7 @@ export function ColorInput({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <div className="w-6 h-6 border border-border shrink-0" style={{ backgroundColor: preview }} />
+        <div className="size-6 border border-border shrink-0" style={{ backgroundColor: preview }} />
         <span className="text-[10px] font-mono text-muted-foreground flex-1 truncate">{value || defaultColor}</span>
         {value && (
           <button
@@ -117,7 +117,7 @@ export function SizePicker({ value, onChange }: { value: string; onChange: (v: s
 export function ServerIcon() {
   return (
     <span title="Server setting (shared)">
-      <Cloud className="w-3 h-3 text-blue-400/70 shrink-0" />
+      <Cloud className="size-3 text-blue-400/70 shrink-0" />
     </span>
   )
 }

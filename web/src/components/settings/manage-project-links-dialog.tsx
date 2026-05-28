@@ -220,7 +220,7 @@ export function ManageProjectLinksDialog() {
           {loading && projects.length === 0 ? (
             <>
               <DialogTitle className="text-sm font-bold font-mono">MANAGE PROJECT LINKS</DialogTitle>
-              <div className="text-xs text-muted-foreground font-mono py-4">Loading...</div>
+              <div className="text-xs text-muted-foreground font-mono py-4">Loading…</div>
             </>
           ) : projects.length < 2 ? (
             <>

@@ -58,7 +58,7 @@ export function NotificationsSection() {
                   : 'bg-transparent text-foreground border-border hover:border-primary'
           }`}
         >
-          {pushState === 'subscribed' ? <Bell className="w-3 h-3" /> : <BellOff className="w-3 h-3" />}
+          {pushState === 'subscribed' ? <Bell className="size-3" /> : <BellOff className="size-3" />}
           {pushState === 'loading' && '...'}
           {pushState === 'unsupported' && 'Not supported'}
           {pushState === 'subscribing' && 'Enabling...'}

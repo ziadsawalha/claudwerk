@@ -81,9 +81,9 @@ function AllowAllBanner({
       )}
     >
       {allowAll ? (
-        <ShieldCheck className="w-4 h-4 text-green-400 shrink-0" />
+        <ShieldCheck className="size-4 text-green-400 shrink-0" />
       ) : (
-        <ShieldOff className="w-4 h-4 text-muted-foreground/50 shrink-0 group-hover:text-amber-400" />
+        <ShieldOff className="size-4 text-muted-foreground/50 shrink-0 group-hover:text-amber-400" />
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -154,7 +154,7 @@ function ToolSection({
       {/* Built-in rules */}
       {BUILTINS.map(pattern => (
         <div key={pattern} className="flex items-center gap-1 px-1.5 py-0.5">
-          <Shield className="w-3 h-3 text-muted-foreground/20 shrink-0" />
+          <Shield className="size-3 text-muted-foreground/20 shrink-0" />
           <span className="text-[10px] font-mono text-muted-foreground/40 flex-1">{pattern}</span>
           <span className="text-[8px] text-muted-foreground/30 border border-border/50 px-1 uppercase">built-in</span>
         </div>
@@ -163,14 +163,14 @@ function ToolSection({
       {/* Custom rules */}
       {rules[tool].map(pattern => (
         <div key={pattern} className="flex items-center gap-1 px-1.5 py-0.5 group">
-          <Zap className="w-3 h-3 text-accent/40 shrink-0" />
+          <Zap className="size-3 text-accent/40 shrink-0" />
           <span className="text-[10px] font-mono text-foreground flex-1">{pattern}</span>
           <button
             type="button"
             onClick={() => onRemove(tool, pattern)}
             className="text-muted-foreground/30 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
           >
-            <X className="w-3 h-3" />
+            <X className="size-3" />
           </button>
         </div>
       ))}
@@ -197,7 +197,7 @@ function ToolSection({
           disabled={!inputValue.trim()}
           className="px-1.5 py-0.5 text-[10px] font-bold border border-border text-muted-foreground hover:text-accent hover:border-accent disabled:opacity-20 transition-colors"
         >
-          <Plus className="w-3 h-3" />
+          <Plus className="size-3" />
         </button>
       </div>
 
@@ -358,7 +358,7 @@ export function PermissionRulesEditor({ project }: PermissionRulesEditorProps) {
   }
 
   if (loading) {
-    return <div className="text-[10px] text-muted-foreground py-4 text-center">Loading permission rules...</div>
+    return <div className="text-[10px] text-muted-foreground py-4 text-center">Loading permission rules…</div>
   }
 
   if (error && !dirty) {
@@ -401,7 +401,7 @@ export function PermissionRulesEditor({ project }: PermissionRulesEditorProps) {
                     : 'border-border text-muted-foreground hover:text-accent hover:border-accent',
                 )}
               >
-                {preset.accent === 'green' && <Shield className="w-3 h-3 inline mr-1 -mt-0.5" />}
+                {preset.accent === 'green' && <Shield className="size-3 inline mr-1 -mt-0.5" />}
                 {preset.label}
               </button>
             ))}

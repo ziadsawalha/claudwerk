@@ -279,7 +279,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showVoiceInput}
         onChange={e => ctx.updatePrefs({ showVoiceInput: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -294,7 +294,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showVoiceFab}
         onChange={e => ctx.updatePrefs({ showVoiceFab: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -319,7 +319,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.keepMicOpen}
         onChange={e => ctx.updatePrefs({ keepMicOpen: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -387,7 +387,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={(ctx.server.voiceRefinement as boolean) ?? true}
         onChange={e => ctx.setServer('voiceRefinement', e.target.checked)}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -434,7 +434,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showEndedConversations}
         onChange={e => ctx.updatePrefs({ showEndedConversations: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -449,7 +449,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showInactiveByDefault}
         onChange={e => ctx.updatePrefs({ showInactiveByDefault: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -464,7 +464,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.compactMode}
         onChange={e => ctx.updatePrefs({ compactMode: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -479,7 +479,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showThinking}
         onChange={e => ctx.updatePrefs({ showThinking: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -566,7 +566,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.chatBubbles}
         onChange={e => ctx.updatePrefs({ chatBubbles: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -591,7 +591,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showContextInList}
         onChange={e => ctx.updatePrefs({ showContextInList: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -606,7 +606,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showRecapDescInList}
         onChange={e => ctx.updatePrefs({ showRecapDescInList: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -621,7 +621,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showCostInList}
         onChange={e => ctx.updatePrefs({ showCostInList: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -636,7 +636,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showWsStats}
         onChange={e => ctx.updatePrefs({ showWsStats: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -667,7 +667,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showDiag}
         onChange={e => ctx.updatePrefs({ showDiag: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -682,7 +682,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showPerfMonitor}
         onChange={e => ctx.updatePrefs({ showPerfMonitor: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -789,7 +789,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.showStreaming !== false}
         onChange={e => ctx.updatePrefs({ showStreaming: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -804,7 +804,7 @@ const SETTINGS: SettingItem[] = [
         type="checkbox"
         checked={ctx.prefs.sanitizePaths !== false}
         onChange={e => ctx.updatePrefs({ sanitizePaths: e.target.checked })}
-        className="accent-primary w-4 h-4"
+        className="accent-primary size-4"
       />
     ),
   },
@@ -919,7 +919,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 : 'border-border text-muted-foreground/40 cursor-not-allowed'
             }`}
           >
-            <Save className="w-3 h-3" />
+            <Save className="size-3" />
             {saving ? 'Saving...' : 'Save'}
           </button>
         </div>

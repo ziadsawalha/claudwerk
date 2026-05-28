@@ -255,7 +255,7 @@ export function ManageChatConnectionsDialog() {
           {view === 'list' && (
             <>
               {loading && connections.length === 0 ? (
-                <div className="text-xs text-muted-foreground font-mono py-4">Loading...</div>
+                <div className="text-xs text-muted-foreground font-mono py-4">Loading…</div>
               ) : connections.length === 0 ? (
                 <div className="text-xs text-muted-foreground font-mono py-4">
                   No connections registered. Add one to get started.
