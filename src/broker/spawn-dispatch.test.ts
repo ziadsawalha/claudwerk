@@ -44,17 +44,14 @@ describe('computeTargetSameProjectAsCaller', () => {
   })
 
   it('does NOT match a subdirectory of the caller project', () => {
-    expect(
-      computeTargetSameProjectAsCaller(req({ cwd: '/Users/jonas/projects/remote-claude/src' }), caller),
-    ).toBe(false)
+    expect(computeTargetSameProjectAsCaller(req({ cwd: '/Users/jonas/projects/remote-claude/src' }), caller)).toBe(
+      false,
+    )
   })
 
   it('matches an identical claude:// URI', () => {
     expect(
-      computeTargetSameProjectAsCaller(
-        req({ cwd: 'claude://default/Users/jonas/projects/remote-claude' }),
-        caller,
-      ),
+      computeTargetSameProjectAsCaller(req({ cwd: 'claude://default/Users/jonas/projects/remote-claude' }), caller),
     ).toBe(true)
   })
 
@@ -68,9 +65,7 @@ describe('computeTargetSameProjectAsCaller', () => {
   })
 
   it('resolves a relative ./worktree path against the caller project root', () => {
-    expect(
-      computeTargetSameProjectAsCaller(req({ cwd: './.claude/worktrees/foo' }), caller),
-    ).toBe(true)
+    expect(computeTargetSameProjectAsCaller(req({ cwd: './.claude/worktrees/foo' }), caller)).toBe(true)
   })
 
   it('resolves "." to the caller project root (same-project)', () => {
@@ -83,25 +78,19 @@ describe('computeTargetSameProjectAsCaller', () => {
 
   it('returns false when req.sentinel overrides to a different host', () => {
     expect(
-      computeTargetSameProjectAsCaller(
-        req({ cwd: '/Users/jonas/projects/remote-claude', sentinel: 'beast' }),
-        caller,
-      ),
+      computeTargetSameProjectAsCaller(req({ cwd: '/Users/jonas/projects/remote-claude', sentinel: 'beast' }), caller),
     ).toBe(false)
   })
 
   it('returns false on cross-sentinel URI mismatch', () => {
     expect(
-      computeTargetSameProjectAsCaller(
-        req({ cwd: 'claude://beast/Users/jonas/projects/remote-claude' }),
-        caller,
-      ),
+      computeTargetSameProjectAsCaller(req({ cwd: 'claude://beast/Users/jonas/projects/remote-claude' }), caller),
     ).toBe(false)
   })
 
   it('returns false when callerProject is unparseable garbage', () => {
-    expect(
-      computeTargetSameProjectAsCaller(req({ cwd: '/Users/jonas/projects/remote-claude' }), 'not-a-uri'),
-    ).toBe(false)
+    expect(computeTargetSameProjectAsCaller(req({ cwd: '/Users/jonas/projects/remote-claude' }), 'not-a-uri')).toBe(
+      false,
+    )
   })
 })

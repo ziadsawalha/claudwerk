@@ -50,8 +50,73 @@ function groupShallowEqual(a: DisplayGroup, b: DisplayGroup): boolean {
   )
 }
 
+/** Stable per-entry key for group-id reconciliation. seq is monotonic and
+ *  unique; uuid is the fallback for synthetic/pre-seq entries. */
+function entryKey(entry: unknown): string | null {
+  const e = entry as { seq?: number; uuid?: string } | undefined
+  if (!e) return null
+  if (typeof e.seq === 'number') return `s${e.seq}`
+  if (typeof e.uuid === 'string') return `u${e.uuid}`
+  return null
+}
+
+// Assign each group a STABLE `id` used as its React/virtualizer key, carried
+// across regroups so the virtualizer reuses a group's DOM subtree instead of
+// remounting it. A remount resets every DiffView/EditDiff (useState wiped,
+// Shiki re-tokenized) and `memo`/patchesEqual cannot prevent it -- this is the
+// real cause of "Edit diffs re-render on every transcript row": the active
+// (last) group grows at its tail every tick, and a tail-derived key changed on
+// every append, remounting that whole subtree.
+//
+// Reconciliation: a group inherits the id of whichever PRIOR group shared its
+// first OR last entry. First survives a tail-append (streaming grows the active
+// group's tail; its head is unchanged); last survives a head-prune/prepend (the
+// boundary group's tail is unchanged while older entries join its head). Groups
+// whose object ref was preserved (incremental fast-path, or the
+// identity-preserving regroup) already carry an id and keep it. A genuinely new
+// group derives a deterministic id from its first entry.
+//
+// Mutates only freshly-built group objects: ref-preserved groups already have
+// an id and hit the early `continue`, so we never write to an object React may
+// be mid-render on.
+function assignGroupIds(newGroups: DisplayGroup[], prevGroups: DisplayGroup[] | null): void {
+  const entryToPrevId = new Map<string, string>()
+  if (prevGroups) {
+    for (const g of prevGroups) {
+      if (!g.id) continue
+      for (const e of g.entries) {
+        const k = entryKey(e)
+        // First writer wins -- an entry belongs to exactly one prior group.
+        if (k !== null && !entryToPrevId.has(k)) entryToPrevId.set(k, g.id)
+      }
+    }
+  }
+  const used = new Set<string>()
+  let synthetic = 0
+  for (const g of newGroups) {
+    if (g.id && !used.has(g.id)) {
+      used.add(g.id)
+      continue
+    }
+    const firstK = entryKey(g.entries[0])
+    const lastK = entryKey(g.entries[g.entries.length - 1])
+    let id =
+      (firstK !== null ? entryToPrevId.get(firstK) : undefined) ??
+      (lastK !== null ? entryToPrevId.get(lastK) : undefined)
+    // No carry (new group) OR the carried id was already claimed by an earlier
+    // group this pass (a prior group split in two) -> derive a deterministic id.
+    if (id === undefined || used.has(id)) {
+      id = firstK !== null ? `${g.type}-${firstK}` : `${g.type}-t${g.timestamp}-${synthetic++}`
+      while (used.has(id)) id = `${id}-${synthetic++}`
+    }
+    g.id = id
+    used.add(id)
+  }
+}
+
 // Re-export so existing call sites (`import { DisplayGroup } from '../grouping'`) keep working.
 export type { DisplayGroup, TaskNotification }
+export { assignGroupIds }
 
 // Build map of tool_use_id -> result
 export function buildResultMap(entries: TranscriptEntry[]) {
@@ -185,6 +250,10 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
     const isReset =
       signalChanged || entries.length < cache.len || (entries !== cache.lastEntries && entries.length <= cache.len)
     cache.lastEntries = entries
+    // Snapshot prior groups (pre-wipe) for group-id reconciliation -- needed on
+    // BOTH the incremental and reset paths so ids carry across a tail-append and
+    // a head-prune alike (see assignGroupIds).
+    const prevForIds = cache.groups
     // Snapshot the previous groups BEFORE the wipe -- the reset path rebuilds
     // every group object from scratch, which by itself busts MemoizedGroupView's
     // memo on every visible row (50+ Markdown/Shiki/DOM redos per scroll-up).
@@ -286,6 +355,12 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
         }
       }
     }
+
+    // Carry stable group ids across this regroup. Ref-preserved groups keep
+    // their id; the cloned active group keeps its id (so its virtualizer key
+    // holds and its subtree is NOT remounted on a tail-append); new groups
+    // reconcile from prior groups by shared first/last entry, or derive one.
+    assignGroupIds(newGroups, prevForIds)
 
     cache.groups = newGroups
     cache.lastGroup = lastGroup

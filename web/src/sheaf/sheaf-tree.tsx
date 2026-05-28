@@ -11,6 +11,10 @@ interface SheafNodeRowProps {
   node: SheafNode
   depth: number
   now: number
+  /** Show the outcome/recap line (Row 3). Default true. */
+  showRecaps?: boolean
+  /** Flat-list mode: no indent, no tree-rollup row. */
+  flat?: boolean
 }
 
 function selectConv(id: string) {
@@ -22,12 +26,49 @@ function selectConv(id: string) {
   window.dispatchEvent(new HashChangeEvent('hashchange'))
 }
 
-function SheafNodeRow({ node, depth, now }: SheafNodeRowProps) {
+// Per-conversation recap/description/summary, mirroring the layout of
+// web/src/components/project-list/conversation-item-full.tsx: description,
+// recap title, then summary OR the away-summary recap (fresh = boxed, stale = dim).
+// fallow-ignore-next-line complexity
+function RecapBlock({ node }: { node: SheafNode }) {
+  const { description, recap, recapFresh, summary } = node
+  if (!description && !recap && !summary) return null
+  return (
+    <>
+      {description && (
+        <div className="mt-0.5 text-[10px] text-muted-foreground/60 truncate italic" title={description}>
+          {description}
+        </div>
+      )}
+      {recap?.title && <div className="mt-0.5 text-[10px] text-zinc-400/80 truncate">{recap.title}</div>}
+      {summary ? (
+        <div className="mt-1 text-[10px] text-muted-foreground truncate" title={summary}>
+          {summary}
+        </div>
+      ) : (
+        recap && (
+          <div
+            className={`mt-1.5 text-[10px] whitespace-pre-wrap overflow-hidden ${
+              recapFresh
+                ? 'text-zinc-300/80 border-l-2 border-zinc-500/50 pl-2 py-0.5 bg-zinc-800/20 rounded-r'
+                : 'text-muted-foreground/50 italic pl-1'
+            }`}
+            title={recap.content}
+          >
+            {recap.content}
+          </div>
+        )
+      )}
+    </>
+  )
+}
+
+export function SheafNodeRow({ node, depth, now, showRecaps = true, flat = false }: SheafNodeRowProps) {
   const glyph = STATUS_GLYPH[node.status]
   const startStr = formatClockTime(node.startedAt)
   const endStr = node.endedAt ? formatClockTime(node.endedAt) : null
   const duration = formatDuration(node.durationMs)
-  const showTree = node.treeTotals.convCount > 1
+  const showTree = !flat && node.treeTotals.convCount > 1
   const totalTokens = node.tokens.input + node.tokens.output + node.tokens.cache
 
   return (
@@ -87,10 +128,8 @@ function SheafNodeRow({ node, depth, now }: SheafNodeRowProps) {
         </div>
       </div>
 
-      {/* Row 3: outcome line */}
-      <div className="mt-0.5 text-xs text-muted-foreground italic truncate" title={node.outcomeLine}>
-        ▸ {node.outcomeLine}
-      </div>
+      {/* Row 3: description / recap title / summary / away-summary recap */}
+      {showRecaps && <RecapBlock node={node} />}
 
       {/* Tree-rollup row (only when this node has descendants) */}
       {showTree && (
@@ -111,15 +150,16 @@ function SheafNodeRow({ node, depth, now }: SheafNodeRowProps) {
 interface SheafTreeProps {
   root: SheafNode
   now: number
+  showRecaps?: boolean
 }
 
-function visit(node: SheafNode, depth: number, now: number, rows: React.ReactNode[]): void {
-  rows.push(<SheafNodeRow key={node.id} node={node} depth={depth} now={now} />)
-  for (const child of node.children) visit(child, depth + 1, now, rows)
+function visit(node: SheafNode, depth: number, now: number, showRecaps: boolean, rows: React.ReactNode[]): void {
+  rows.push(<SheafNodeRow key={node.id} node={node} depth={depth} now={now} showRecaps={showRecaps} />)
+  for (const child of node.children) visit(child, depth + 1, now, showRecaps, rows)
 }
 
-export function SheafTree({ root, now }: SheafTreeProps) {
+export function SheafTree({ root, now, showRecaps = true }: SheafTreeProps) {
   const rows: React.ReactNode[] = []
-  visit(root, 0, now, rows)
+  visit(root, 0, now, showRecaps, rows)
   return <div className="border border-border/50 rounded">{rows}</div>
 }
