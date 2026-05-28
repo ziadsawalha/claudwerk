@@ -2434,6 +2434,19 @@ export interface SpawnFailed {
    *  are surfaced as likely-cause hints (e.g. "transcript file missing at the
    *  expected slug -- cwd may have changed since the original spawn"). */
   preflightHints?: string[]
+  /** Last N lines of the agent host's stderr ring buffer (~30 lines). For
+   *  headless spawns, also includes the tail of CC's own
+   *  `.rclaude/settings/headless-{conversationId}.ndjsonl` log -- this is
+   *  where hook failures land (e.g. `Error creating worktree: WorktreeCreate
+   *  hook failed: fatal: a branch named '...' already exists`). Without this
+   *  the user gets a generic "exit 1 in 1s" and has to dig through the
+   *  ndjsonl file by hand. */
+  stderrTail?: string[]
+  /** Best-effort classification parsed from `stderrTail`. Examples:
+   *  "WorktreeCreate" / "SessionStart" / "PreToolUse" -- the CC hook stage
+   *  that crashed; "claude-launch" -- CC itself died before any hook ran;
+   *  undefined -- no recognizable signal in the tail. */
+  hookStage?: string
 }
 
 // Usage API data (agent polls api.anthropic.com/api/oauth/usage)

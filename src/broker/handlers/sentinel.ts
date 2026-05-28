@@ -196,6 +196,12 @@ const spawnFailed: MessageHandler = (ctx, data) => {
   // one line instead of forcing the user to dig through launch_log.
   const rawHints = Array.isArray(data.preflightHints) ? (data.preflightHints as unknown[]) : []
   const preflightHints = rawHints.filter((h): h is string => typeof h === 'string')
+  // stderr tail + hook stage from the sentinel's enrichment pass. When
+  // present, hookStage gets a `[stage] ` prefix on the log line so a future
+  // grep `Spawn FAILED.*WorktreeCreate` lands on the right incident instantly.
+  const rawTail = Array.isArray(data.stderrTail) ? (data.stderrTail as unknown[]) : []
+  const stderrTail = rawTail.filter((h): h is string => typeof h === 'string')
+  const hookStage = typeof data.hookStage === 'string' ? data.hookStage : undefined
   const baseError =
     (data.error as string) ||
     (earlyFailure
@@ -204,7 +210,7 @@ const spawnFailed: MessageHandler = (ctx, data) => {
   const errorMsg =
     preflightHints.length > 0 ? `${baseError}\nPre-flight had flagged: ${preflightHints.join(' | ')}` : baseError
   ctx.log.info(
-    `Spawn FAILED: conv=${conversationId?.slice(0, 8)} exit=${exitCode} elapsed=${elapsedMs}ms${earlyFailure ? ' (early failure - likely hook/config issue)' : ''}${preflightHints.length > 0 ? ` preflight=${preflightHints.length}` : ''}`,
+    `Spawn FAILED: conv=${conversationId?.slice(0, 8)}${hookStage ? ` [${hookStage}]` : ''} exit=${exitCode} elapsed=${elapsedMs}ms${earlyFailure ? ' (early failure - likely hook/config issue)' : ''}${preflightHints.length > 0 ? ` preflight=${preflightHints.length}` : ''}${stderrTail.length > 0 ? ` stderrTail=${stderrTail.length}` : ''}`,
   )
 
   // Route through the job system so the launch monitor gets an immediate job_failed
@@ -235,6 +241,8 @@ const spawnFailed: MessageHandler = (ctx, data) => {
     error: errorMsg,
     pid: data.pid,
     ...(preflightHints.length > 0 ? { preflightHints } : {}),
+    ...(stderrTail.length > 0 ? { stderrTail } : {}),
+    ...(hookStage ? { hookStage } : {}),
   }
   // Also broadcast for any non-job listeners (conversation detail, diag, etc.)
   if (projectPath) {

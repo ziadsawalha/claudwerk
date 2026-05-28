@@ -80,6 +80,7 @@ import {
   resolveProfile,
   type SentinelConfig,
 } from './sentinel-config'
+import { headlessNdjsonPath, parseHookStage, RingBuffer, tailHeadlessNdjson } from './spawn-error'
 import { buildSentinelUsageReport, pollProfileUsage, snapshotToLegacyUsageUpdate } from './usage-poller'
 
 /** Pre-flight warnings stashed per-conversation. Surfaced when CC dies early
@@ -247,6 +248,9 @@ interface TrackedChild {
   pid: number
   cwd: string
   startedAt: string
+  /** Last ~30 lines of the host's stderr; used to enrich SpawnFailed.error
+   *  when the child exits abnormally. See src/sentinel/spawn-error.ts. */
+  stderrRing: RingBuffer<string>
 }
 
 /** Live headless children spawned by this sentinel instance */
@@ -706,7 +710,14 @@ function spawnHeadlessDirect(
   log(`Headless spawn: PID ${pid} conv=${conversationId.slice(0, 8)} cwd=${cwd}`)
 
   // Track the child
-  const child: TrackedChild = { proc, conversationId, pid, cwd, startedAt: new Date().toISOString() }
+  const child: TrackedChild = {
+    proc,
+    conversationId,
+    pid,
+    cwd,
+    startedAt: new Date().toISOString(),
+    stderrRing: new RingBuffer<string>(30),
+  }
   trackedChildren.set(conversationId, child)
   writePidRegistry()
 
@@ -716,6 +727,9 @@ function spawnHeadlessDirect(
   // Monitor for exit
   proc.exited.then(exitCode => {
     const elapsedMs = Date.now() - startTime
+    // Snapshot the stderr ring BEFORE delete -- collectSpawnErrorContext
+    // needs it to enrich SpawnFailed.error.
+    const stderrSnapshot = trackedChildren.get(conversationId)?.stderrRing.snapshot() ?? []
     trackedChildren.delete(conversationId)
     unbindConversationFromProfile(conversationId)
     writePidRegistry()
@@ -743,6 +757,7 @@ function spawnHeadlessDirect(
 
       // Report to broker
       if (activeWs?.readyState === WebSocket.OPEN) {
+        const ctx = collectSpawnErrorContext(stderrSnapshot, cwd, conversationId, /*includeHeadlessLog*/ true)
         let errorDetail: string
         if (isResume && earlyFailure) {
           errorDetail = `Resume failed: process exited in ${elapsedMs}ms (exit ${exitCode}) - session may no longer exist or be corrupted`
@@ -751,6 +766,7 @@ function spawnHeadlessDirect(
         } else {
           errorDetail = `Process exited with code ${exitCode} after ${Math.round(elapsedMs / 1000)}s`
         }
+        if (ctx.hint) errorDetail += `\n${ctx.hint}`
         const msg: SpawnFailed = {
           type: 'spawn_failed',
           conversationId,
@@ -760,6 +776,8 @@ function spawnHeadlessDirect(
           elapsedMs,
           error: errorDetail,
           ...(preflightHints ? { preflightHints } : {}),
+          ...(ctx.stderrTail ? { stderrTail: ctx.stderrTail } : {}),
+          ...(ctx.hookStage ? { hookStage: ctx.hookStage } : {}),
         }
         try {
           activeWs.send(JSON.stringify(msg))
@@ -833,6 +851,7 @@ function spawnOpenCodeHostDirect(opts: {
     pid,
     cwd: opts.cwd,
     startedAt: new Date().toISOString(),
+    stderrRing: new RingBuffer<string>(30),
   }
   trackedChildren.set(opts.conversationId, child)
   writePidRegistry()
@@ -840,6 +859,8 @@ function spawnOpenCodeHostDirect(opts: {
 
   proc.exited.then(exitCode => {
     const elapsedMs = Date.now() - startTime
+    // Snapshot stderr ring BEFORE delete (used to enrich SpawnFailed below).
+    const stderrSnapshot = trackedChildren.get(opts.conversationId)?.stderrRing.snapshot() ?? []
     trackedChildren.delete(opts.conversationId)
     unbindConversationFromProfile(opts.conversationId)
     writePidRegistry()
@@ -851,9 +872,16 @@ function spawnOpenCodeHostDirect(opts: {
         `opencode-host FAILED: PID ${pid} exit=${exitCode} elapsed=${elapsedMs}ms conv=${opts.conversationId.slice(0, 8)}${earlyFailure ? ' (EARLY)' : ''}`,
       )
       if (activeWs?.readyState === WebSocket.OPEN) {
-        const detail = earlyFailure
+        const errCtx = collectSpawnErrorContext(
+          stderrSnapshot,
+          opts.cwd,
+          opts.conversationId,
+          /*includeHeadlessLog*/ false,
+        )
+        let detail = earlyFailure
           ? `opencode-host exited in ${elapsedMs}ms (exit ${exitCode}) - check OPENCODE_MODEL and provider API keys`
           : `opencode-host exited with code ${exitCode} after ${Math.round(elapsedMs / 1000)}s`
+        if (errCtx.hint) detail += `\n${errCtx.hint}`
         const msg: SpawnFailed = {
           type: 'spawn_failed',
           conversationId: opts.conversationId,
@@ -862,6 +890,8 @@ function spawnOpenCodeHostDirect(opts: {
           exitCode,
           elapsedMs,
           error: detail,
+          ...(errCtx.stderrTail ? { stderrTail: errCtx.stderrTail } : {}),
+          ...(errCtx.hookStage ? { hookStage: errCtx.hookStage } : {}),
         }
         try {
           activeWs.send(JSON.stringify(msg))
@@ -972,6 +1002,7 @@ function spawnAcpHostDirect(opts: {
     pid,
     cwd: opts.cwd,
     startedAt: new Date().toISOString(),
+    stderrRing: new RingBuffer<string>(30),
   }
   trackedChildren.set(opts.conversationId, child)
   writePidRegistry()
@@ -979,6 +1010,8 @@ function spawnAcpHostDirect(opts: {
 
   proc.exited.then(exitCode => {
     const elapsedMs = Date.now() - startTime
+    // Snapshot stderr ring BEFORE delete (used to enrich SpawnFailed below).
+    const stderrSnapshot = trackedChildren.get(opts.conversationId)?.stderrRing.snapshot() ?? []
     trackedChildren.delete(opts.conversationId)
     unbindConversationFromProfile(opts.conversationId)
     writePidRegistry()
@@ -991,9 +1024,16 @@ function spawnAcpHostDirect(opts: {
         `acp-host FAILED: PID ${pid} exit=${exitCode} elapsed=${elapsedMs}ms conv=${opts.conversationId.slice(0, 8)}${earlyFailure ? ' (EARLY)' : ''}`,
       )
       if (activeWs?.readyState === WebSocket.OPEN) {
-        const detail = earlyFailure
+        const errCtx = collectSpawnErrorContext(
+          stderrSnapshot,
+          opts.cwd,
+          opts.conversationId,
+          /*includeHeadlessLog*/ false,
+        )
+        let detail = earlyFailure
           ? `acp-host (${recipe.name}) exited in ${elapsedMs}ms (exit ${exitCode}) -- check that ${recipe.cmd[0]} is installed and provider API keys are set`
           : `acp-host (${recipe.name}) exited with code ${exitCode} after ${Math.round(elapsedMs / 1000)}s`
+        if (errCtx.hint) detail += `\n${errCtx.hint}`
         const msg: SpawnFailed = {
           type: 'spawn_failed',
           conversationId: opts.conversationId,
@@ -1002,6 +1042,8 @@ function spawnAcpHostDirect(opts: {
           exitCode,
           elapsedMs,
           error: detail,
+          ...(errCtx.stderrTail ? { stderrTail: errCtx.stderrTail } : {}),
+          ...(errCtx.hookStage ? { hookStage: errCtx.hookStage } : {}),
         }
         try {
           activeWs.send(JSON.stringify(msg))
@@ -1196,6 +1238,7 @@ function spawnDaemonHostDirect(opts: {
     pid,
     cwd: opts.cwd,
     startedAt: new Date().toISOString(),
+    stderrRing: new RingBuffer<string>(30),
   }
   trackedChildren.set(opts.conversationId, child)
   writePidRegistry()
@@ -1203,6 +1246,8 @@ function spawnDaemonHostDirect(opts: {
 
   proc.exited.then(exitCode => {
     const elapsedMs = Date.now() - startTime
+    // Snapshot stderr ring BEFORE delete (used to enrich SpawnFailed below).
+    const stderrSnapshot = trackedChildren.get(opts.conversationId)?.stderrRing.snapshot() ?? []
     trackedChildren.delete(opts.conversationId)
     unbindConversationFromProfile(opts.conversationId)
     writePidRegistry()
@@ -1217,9 +1262,16 @@ function spawnDaemonHostDirect(opts: {
         `daemon-host FAILED: PID ${pid} exit=${exitCode} elapsed=${elapsedMs}ms conv=${opts.conversationId.slice(0, 8)}${earlyFailure ? ' (EARLY)' : ''}`,
       )
       if (activeWs?.readyState === WebSocket.OPEN) {
-        const detail = earlyFailure
+        const errCtx = collectSpawnErrorContext(
+          stderrSnapshot,
+          opts.cwd,
+          opts.conversationId,
+          /*includeHeadlessLog*/ false,
+        )
+        let detail = earlyFailure
           ? `daemon-host exited in ${elapsedMs}ms (exit ${exitCode}) -- check the Claude Code daemon is running`
           : `daemon-host exited with code ${exitCode} after ${Math.round(elapsedMs / 1000)}s`
+        if (errCtx.hint) detail += `\n${errCtx.hint}`
         const msg: SpawnFailed = {
           type: 'spawn_failed',
           conversationId: opts.conversationId,
@@ -1228,6 +1280,8 @@ function spawnDaemonHostDirect(opts: {
           exitCode,
           elapsedMs,
           error: detail,
+          ...(errCtx.stderrTail ? { stderrTail: errCtx.stderrTail } : {}),
+          ...(errCtx.hookStage ? { hookStage: errCtx.hookStage } : {}),
         }
         try {
           activeWs.send(JSON.stringify(msg))
@@ -1240,13 +1294,20 @@ function spawnDaemonHostDirect(opts: {
   return { success: true, pid }
 }
 
-/** Read stderr from a child process and forward lines as diag entries */
+/** Read stderr from a child process, forward lines as diag entries, AND push
+ *  them into the TrackedChild's ring buffer so an early-failure spawn_failed
+ *  message can carry the actual cause instead of a generic exit-code string. */
 async function captureChildStderr(proc: Subprocess, conversationId: string) {
   const stderr = proc.stderr
   if (!stderr) return
   const reader = (stderr as ReadableStream<Uint8Array>).getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  const pushLine = (line: string) => {
+    diag('child-stderr', line, { wrapper: conversationId.slice(0, 8) })
+    const child = trackedChildren.get(conversationId)
+    child?.stderrRing.push(line)
+  }
   try {
     while (true) {
       const { value, done } = await reader.read()
@@ -1255,18 +1316,50 @@ async function captureChildStderr(proc: Subprocess, conversationId: string) {
       const lines = buffer.split('\n')
       buffer = lines.pop() || ''
       for (const line of lines) {
-        if (line.trim()) {
-          diag('child-stderr', line.trim(), { wrapper: conversationId.slice(0, 8) })
-        }
+        const trimmed = line.trim()
+        if (trimmed) pushLine(trimmed)
       }
     }
     // Flush remaining
-    if (buffer.trim()) {
-      diag('child-stderr', buffer.trim(), { wrapper: conversationId.slice(0, 8) })
-    }
+    const trimmed = buffer.trim()
+    if (trimmed) pushLine(trimmed)
   } catch {
     // Stream closed, normal on exit
   }
+}
+
+/**
+ * Build the `stderrTail` + `hookStage` pair for a SpawnFailed message.
+ *
+ * Combines (a) the host's stderr ring buffer captured via captureChildStderr
+ * and (b) for headless spawns, the tail of CC's own
+ * `.rclaude/settings/headless-{conversationId}.ndjsonl` log -- where hook
+ * failures actually land. Deduplicates obvious overlap so the dashboard
+ * doesn't show two copies of the same `ERR ...` line.
+ *
+ * Returns `{ stderrTail, hookStage, hint }`. `hint` is a single-line summary
+ * suitable for appending to the human-readable `error` string (e.g.
+ * `WorktreeCreate hook failed: fatal: a branch named '...' already exists`).
+ */
+function collectSpawnErrorContext(
+  ringLines: string[],
+  cwd: string,
+  conversationId: string,
+  includeHeadlessLog: boolean,
+): { stderrTail?: string[]; hookStage?: string; hint?: string } {
+  const ndjsonLines = includeHeadlessLog ? tailHeadlessNdjson(headlessNdjsonPath(cwd, conversationId), 20) : []
+
+  // Dedup: drop any ring lines that already appear verbatim in the ndjson tail.
+  const ndjsonSet = new Set(ndjsonLines)
+  const merged = [...ringLines.filter(l => !ndjsonSet.has(l)), ...ndjsonLines]
+  if (merged.length === 0) return {}
+
+  const hookStage = parseHookStage(merged)
+  const errLine = merged.findLast(l => /\b(ERR|ERROR|fatal:|hook failed)\b/i.test(l))
+  const hint = errLine ? errLine.slice(0, 300) : undefined
+  // Cap the wire payload so a pathological log can't bloat every spawn_failed.
+  const stderrTail = merged.slice(-20)
+  return { stderrTail, hookStage, hint }
 }
 
 // Find revive-session.sh in common locations.
