@@ -789,7 +789,7 @@ export function SpawnDialog() {
         <div className="p-5 flex flex-col gap-4 min-h-0 max-h-[calc(85vh-2rem)]">
           <div className="flex items-center justify-between shrink-0">
             <DialogTitle className="text-sm font-bold font-mono flex items-center gap-2">
-              {phase === 'launching' && <Zap className="w-4 h-4 text-primary" />}
+              {phase === 'launching' && <Zap className="size-4 text-primary" />}
               {phase === 'config'
                 ? 'SPAWN SESSION'
                 : progress.isConnected
@@ -824,7 +824,7 @@ export function SpawnDialog() {
                   'transition-colors text-left',
                 )}
               >
-                <GitBranch className="w-3 h-3 shrink-0" />
+                <GitBranch className="size-3 shrink-0" />
                 <span className="flex-1 min-w-0 truncate">
                   Detected worktree <span className="font-bold">{worktreeCtx.worktreeName}</span> -- click to launch
                   there instead
@@ -834,7 +834,7 @@ export function SpawnDialog() {
             )}
             {worktreeCtx && useWorktreePath && (
               <div className="flex items-center gap-2 px-1 text-[10px] font-mono text-comment">
-                <GitBranch className="w-3 h-3 text-primary" />
+                <GitBranch className="size-3 text-primary" />
                 <span className="flex-1 min-w-0 truncate">
                   Launching in worktree <span className="text-foreground">{worktreeCtx.worktreeName}</span>
                 </span>
@@ -1087,7 +1087,7 @@ export function SpawnDialog() {
                           </option>
                         ))}
                       </optgroup>
-                      <option value={OPENCODE_CUSTOM_SENTINEL}>Custom...</option>
+                      <option value={OPENCODE_CUSTOM_SENTINEL}>Custom…</option>
                     </select>
                     {openCodeModelCustom ? (
                       <input
@@ -1150,7 +1150,7 @@ export function SpawnDialog() {
                       onChange={e => setChatConnectionId(e.target.value)}
                       className="w-full bg-surface-inset border border-border rounded px-2 py-1.5 text-[11px] font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
                     >
-                      <option value="">Select connection...</option>
+                      <option value="">Select connection…</option>
                       {chatConnections
                         .filter(a => a.enabled)
                         .map(a => (
@@ -1360,7 +1360,7 @@ function ResumeSessionField({
             </div>
           )}
 
-          {loading && <div className="text-[9px] font-mono text-comment">Loading sessions...</div>}
+          {loading && <div className="text-[9px] font-mono text-comment">Loading sessions…</div>}
           {error && <div className="text-[9px] font-mono text-red-400">{error}</div>}
 
           {sessions.length > 0 && (
@@ -1427,7 +1427,7 @@ function HermesGatewayPicker({
           onClick={() => window.dispatchEvent(new Event('open-gateway-manager'))}
           className="underline hover:text-amber-300"
         >
-          Manage Hermes connections...
+          Manage Hermes connections…
         </button>
       </div>
     )
@@ -1443,7 +1443,7 @@ function HermesGatewayPicker({
         onChange={e => onChange(e.target.value)}
         className="w-full bg-surface-inset border border-border rounded px-2 py-1.5 text-[11px] font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
       >
-        <option value="">Select gateway...</option>
+        <option value="">Select gateway…</option>
         {connected.map(g => (
           <option key={g.gatewayId} value={g.gatewayId}>
             {g.alias}

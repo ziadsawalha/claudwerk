@@ -38,7 +38,7 @@ export function DaemonRosterBrowser({ selectedShort, onSelect }: DaemonRosterBro
   const attachable = jobs.filter(j => !TERMINAL_DAEMON_STATES.has(j.state))
 
   if (!hasRoster) {
-    return <div className="text-[10px] font-mono text-comment px-1 py-3">Loading daemon roster...</div>
+    return <div className="text-[10px] font-mono text-comment px-1 py-3">Loading daemon roster…</div>
   }
 
   if (!daemonPresent) {

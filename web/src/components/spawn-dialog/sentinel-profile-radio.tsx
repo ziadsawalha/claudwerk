@@ -226,7 +226,7 @@ function PoolPill({ name, active, disabled, onClick }: PoolPillProps) {
         disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
-      <Hash className="w-3 h-3" />
+      <Hash className="size-3" />
       <span>{name}</span>
     </button>
   )
