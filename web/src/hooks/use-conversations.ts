@@ -135,6 +135,13 @@ interface ConversationsState {
    *    - Rekey on server -> conversationId changes -> old lastAppliedSeq[oldId]
    *      goes stale harmlessly (new conversationId entry in this map starts fresh). */
   lastAppliedTranscriptSeq: Record<string, number>
+  /** Per-conversation "user is reading history" flag. Set true when the user
+   *  scrolls away from the live tail (follow=false); cleared on return-to-bottom.
+   *  Gates the passive head-prune in handleTranscriptEntries / delta-refetch so
+   *  a live tail-append cannot lop off entries the user is currently viewing
+   *  after an infinite-scrollback prepend. On clear, setScrollbackActive collapses
+   *  any over-cap excess into the page cache so steady-state memory is restored. */
+  scrollbackActive: Record<string, boolean>
   streamingText: Record<string, string> // conversationId -> accumulating text from headless stream deltas
   streamingThinking: Record<string, string> // conversationId -> accumulating thinking from stream deltas
   conversationInfo: Record<
@@ -318,6 +325,11 @@ interface ConversationsState {
    *  seq against the current head; never touches lastAppliedTranscriptSeq (that
    *  tracks the live tail / forward sync). */
   prependTranscript: (conversationId: string, olderEntries: TranscriptEntry[]) => void
+  /** Toggle scrollback-active for a conversation. When set true, the live
+   *  head-prune is suppressed for that conversation. When set false (return to
+   *  bottom), excess head entries beyond the live cap are collapsed into the
+   *  page cache so memory returns to steady state. */
+  setScrollbackActive: (conversationId: string, active: boolean) => void
   setTasks: (conversationId: string, tasks: TaskInfo[]) => void
   setProjectSettings: (settings: ProjectSettingsMap) => void
   setProjectOrder: (order: ProjectOrder) => void
@@ -679,6 +691,7 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   events: {},
   transcripts: {},
   lastAppliedTranscriptSeq: {},
+  scrollbackActive: {},
   streamingText: {},
   streamingThinking: {},
   conversationInfo: {},
@@ -1169,6 +1182,37 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
       // history, it must not move the forward-sync tail cursor.
       return {
         transcripts: { ...state.transcripts, [conversationId]: [...fresh, ...existing] },
+        newDataSeq: state.newDataSeq + 1,
+      }
+    }),
+  setScrollbackActive: (conversationId, active) =>
+    set(state => {
+      const prev = state.scrollbackActive[conversationId] ?? false
+      if (prev === active) return state
+      // Mirror the cap in use-websocket-handlers.ts TRANSCRIPT_LIVE_CAP. Kept in
+      // sync by colocated comments at both prune sites and here.
+      const LIVE_CAP = 100
+      if (active) {
+        return { scrollbackActive: { ...state.scrollbackActive, [conversationId]: true } }
+      }
+      // Returning to live tail: collapse any over-cap excess accumulated during
+      // scrollback (live appends were appended without pruning; fetched older
+      // pages were prepended). Push the evicted head to the page cache so a
+      // subsequent scroll-up replays locally.
+      const existing = state.transcripts[conversationId] || []
+      if (existing.length <= LIVE_CAP) {
+        return { scrollbackActive: { ...state.scrollbackActive, [conversationId]: false } }
+      }
+      const dropCount = existing.length - LIVE_CAP
+      const evicted = existing.slice(0, dropCount)
+      const kept = existing.slice(dropCount)
+      cachePushEntries(conversationId, evicted)
+      console.debug(
+        `[transcript-prune] ${conversationId.slice(0, 8)} deferred-collapse on return-to-bottom: dropped ${dropCount} (seq ${evicted[0]?.seq}..${evicted[evicted.length - 1]?.seq}) to cache; live=${kept.length} (cap ${LIVE_CAP})`,
+      )
+      return {
+        scrollbackActive: { ...state.scrollbackActive, [conversationId]: false },
+        transcripts: { ...state.transcripts, [conversationId]: kept },
         newDataSeq: state.newDataSeq + 1,
       }
     }),

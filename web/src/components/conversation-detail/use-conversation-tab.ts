@@ -40,6 +40,16 @@ export function useConversationTab(selectedConversationId: string | null, conver
     if (selectedConversationId) setConversationTab(selectedConversationId, activeTab)
   }, [selectedConversationId, activeTab])
 
+  // Mirror the user's "reading-history" intent into the store so the transcript
+  // prune sites (use-websocket-handlers.ts, use-websocket.ts) can refuse to
+  // lop off the head while the user is scrolled away from the live tail.
+  // follow=true  -> bottom-pinned     -> scrollback inactive (collapse over-cap)
+  // follow=false -> scrolled away     -> scrollback active   (prune suppressed)
+  useEffect(() => {
+    if (!selectedConversationId) return
+    useConversationsStore.getState().setScrollbackActive(selectedConversationId, !follow)
+  }, [selectedConversationId, follow])
+
   return {
     activeTab,
     setActiveTab,
