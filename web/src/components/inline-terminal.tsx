@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import { WifiOff } from 'lucide-react'
 import { type TerminalMessage, useConversationsStore } from '@/hooks/use-conversations'
-import { getFont, getTheme, loadTerminalSettings } from './terminal-settings'
+import { getFont, getTheme, loadTerminalSettings } from './terminal-settings-storage'
 import { TerminalToolbar } from './terminal-toolbar'
 
 interface InlineTerminalProps {

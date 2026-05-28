@@ -14,8 +14,8 @@ import {
   loadTerminalSettings,
   saveTerminalSettings,
   type TerminalSettings,
-  TerminalSettingsPanel,
-} from './terminal-settings'
+} from './terminal-settings-storage'
+import { TerminalSettingsPanel } from './terminal-settings'
 import { TerminalToolbar } from './terminal-toolbar'
 
 interface WebTerminalProps {
