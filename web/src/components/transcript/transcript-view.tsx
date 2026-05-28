@@ -896,10 +896,11 @@ export const TranscriptView = memo(function TranscriptView({
       <MaybeProfiler enabled={perfEnabled} id="TranscriptStreaming">
         {/* Headless streaming text - isolated component so token updates don't re-render the virtualizer */}
         <StreamingBlock conversationId={selectedConversationId} />
+        {/* Live thinking-token pill: ephemeral, renders only while pings arrive.
+            Sits ABOVE the verb spinner so the thinking phase reads top-to-bottom. */}
+        <ThinkingPill conversationId={selectedConversationId} />
         {/* Fun verb spinner while conversation is working */}
         <ThinkingSpinner conversationId={selectedConversationId} />
-        {/* Live thinking-token pill: ephemeral, renders only while pings arrive */}
-        <ThinkingPill conversationId={selectedConversationId} />
         {/* Pending permission + link requests: rendered inline at the bottom as
             blocking UI gates. Both follow the same pattern -- structured wire
             message -> store -> inline banner -> user response over WS. */}

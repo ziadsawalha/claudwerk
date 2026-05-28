@@ -61,7 +61,7 @@ export const ThinkingPill = memo(function ThinkingPill({ conversationId }: Think
     return (
       <div className="mt-1 flex items-center gap-1.5 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
         <span className="inline-block w-1.5 h-1.5 bg-accent rounded-full animate-pulse" />
-        <span className="text-accent/70">thinking</span>
+        <span className="text-purple-400/70">thinking</span>
         <span className="text-muted-foreground/50 tabular-nums">{formatCount(last.tokens)}</span>
       </div>
     )
@@ -70,8 +70,8 @@ export const ThinkingPill = memo(function ThinkingPill({ conversationId }: Think
   const rate = tokensPerSec(entry)
   return (
     <div className="mt-1 flex items-center gap-2 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
-      <span className="text-accent/70">thinking</span>
-      <span className="text-accent/70 tabular-nums leading-none">{sparkline(entry.samples)}</span>
+      <span className="text-purple-400/70">thinking</span>
+      <span className="text-purple-400/70 tabular-nums leading-none">{sparkline(entry.samples)}</span>
       {rate > 0 && <span className="text-muted-foreground/50 tabular-nums">{rate}/s</span>}
       <span className="text-muted-foreground/70 tabular-nums">{formatCount(last.tokens)}</span>
     </div>
