@@ -136,9 +136,9 @@ export function SubagentView({ conversationId }: { conversationId: string }) {
                 <span className="text-muted-foreground">{prefix}</span>
                 {hasEvents ? (
                   isExpanded ? (
-                    <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <ChevronDown className="size-3 text-muted-foreground shrink-0" />
                   ) : (
-                    <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <ChevronRight className="size-3 text-muted-foreground shrink-0" />
                   )
                 ) : (
                   <span className="w-3 shrink-0" />
@@ -168,7 +168,7 @@ export function SubagentView({ conversationId }: { conversationId: string }) {
                 className="shrink-0 p-1 text-pink-400/50 hover:text-pink-400 transition-colors"
                 title="View transcript"
               >
-                <ExternalLink className="w-3 h-3" />
+                <ExternalLink className="size-3" />
               </button>
             </div>
 

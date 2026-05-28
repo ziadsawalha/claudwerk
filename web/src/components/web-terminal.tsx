@@ -328,7 +328,7 @@ export function WebTerminal({ conversationId, onClose, popout }: WebTerminalProp
         style={{ background: currentTheme.black, borderColor: currentTheme.brightBlack }}
       >
         <span className="px-3 py-1.5 text-[10px] font-mono flex-1" style={{ color: currentTheme.brightBlack }}>
-          {showDisconnected && <WifiOff className="w-3 h-3 inline mr-1.5" />}
+          {showDisconnected && <WifiOff className="size-3 inline mr-1.5" />}
           {ownerConversation
             ? lastPathSegments(projectPath(ownerConversation.project), 2)
             : `TERMINAL - ${conversationId.slice(0, 8)}`}
@@ -344,7 +344,7 @@ export function WebTerminal({ conversationId, onClose, popout }: WebTerminalProp
             style={{ color: showSettings ? currentTheme.blue : currentTheme.brightBlack }}
             title="Settings (Ctrl+,)"
           >
-            <Settings className="w-3.5 h-3.5" />
+            <Settings className="size-3.5" />
           </button>
           <button
             type="button"
@@ -353,7 +353,7 @@ export function WebTerminal({ conversationId, onClose, popout }: WebTerminalProp
             style={{ color: currentTheme.brightBlack }}
             title="Close terminal (Ctrl+Shift+Q)"
           >
-            <X className="w-4 h-4" />
+            <X className="size-4" />
           </button>
         </div>
       </div>
@@ -364,7 +364,7 @@ export function WebTerminal({ conversationId, onClose, popout }: WebTerminalProp
           className="shrink-0 flex items-center gap-2 px-3 py-2 border-b"
           style={{ background: `${currentTheme.red}15`, borderColor: `${currentTheme.red}40` }}
         >
-          <WifiOff className="w-3.5 h-3.5" style={{ color: currentTheme.red }} />
+          <WifiOff className="size-3.5" style={{ color: currentTheme.red }} />
           <span className="text-xs font-mono" style={{ color: currentTheme.red }}>
             {terminalError || 'Disconnected - waiting for reconnect...'}
           </span>

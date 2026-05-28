@@ -101,7 +101,7 @@ function ConnectionRow({ conn, now, onKill }: { conn: ConnectionInfo; now: numbe
         <button
           type="button"
           onClick={onKill}
-          className="text-red-400/70 hover:text-red-300 text-[11px] leading-none w-4 h-4 flex items-center justify-center"
+          className="text-red-400/70 hover:text-red-300 text-[11px] leading-none size-4 flex items-center justify-center"
           aria-label="Close connection"
           title="Close connection"
         >

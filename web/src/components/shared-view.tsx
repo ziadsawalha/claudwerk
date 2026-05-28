@@ -77,7 +77,7 @@ export function SharedView({ projectPath }: { projectPath: string }) {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs font-mono">loading...</div>
+      <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs font-mono">loading…</div>
     )
   }
 
@@ -125,7 +125,7 @@ export function SharedView({ projectPath }: { projectPath: string }) {
               <img
                 src={f.url}
                 alt={f.filename}
-                className="w-16 h-16 object-cover rounded border border-border/30 shrink-0"
+                className="size-16 object-cover rounded border border-border/30 shrink-0"
               />
             </a>
           ) : (

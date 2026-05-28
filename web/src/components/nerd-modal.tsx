@@ -177,7 +177,7 @@ function CacheTab() {
                   key={id}
                   className={cn('flex items-center gap-2 py-1 px-2 rounded text-[11px]', isSelected && 'bg-accent/10')}
                 >
-                  {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
+                  {isSelected && <span className="size-1.5 rounded-full bg-accent shrink-0" />}
                   <span className={cn('truncate flex-1', isSelected ? 'text-accent' : 'text-foreground')}>{name}</span>
                   <span className="text-comment tabular-nums shrink-0">{entryCount} entries</span>
                 </div>

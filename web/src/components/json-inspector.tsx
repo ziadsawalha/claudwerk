@@ -55,7 +55,7 @@ export function JsonInspector({ title, data, result, extra, raw }: JsonInspector
         show(title, data, result, extra, raw)
       }}
     >
-      <Info className="w-3 h-3" />
+      <Info className="size-3" />
     </button>
   )
 }
@@ -93,7 +93,7 @@ function CopyBar({
         onClick={handleCopy}
         className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted rounded transition-colors"
       >
-        <Copy className="w-3 h-3" />
+        <Copy className="size-3" />
         {copied ? 'COPIED' : 'COPY'}
       </button>
     </div>

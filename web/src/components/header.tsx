@@ -243,7 +243,7 @@ export function Header() {
           className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title="Settings"
         >
-          <Settings className="w-3.5 h-3.5" />
+          <Settings className="size-3.5" />
         </button>
 
         <NotificationBell />

@@ -144,7 +144,7 @@ export function InlineTerminal({ conversationId }: InlineTerminalProps) {
           className="shrink-0 flex items-center gap-2 px-3 py-2 border-b"
           style={{ background: `${themeColors.red}15`, borderColor: `${themeColors.red}40` }}
         >
-          <WifiOff className="w-3.5 h-3.5" style={{ color: themeColors.red }} />
+          <WifiOff className="size-3.5" style={{ color: themeColors.red }} />
           <span className="text-xs font-mono" style={{ color: themeColors.red }}>
             {terminalError || 'Disconnected - waiting for reconnect...'}
           </span>

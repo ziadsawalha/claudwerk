@@ -99,13 +99,13 @@ export function QuickTaskModal() {
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-lg max-h-[50vh] flex flex-col p-0 top-[15vh] translate-y-0">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-            <FileText className="w-4 h-4 text-accent" />
+            <FileText className="size-4 text-accent" />
             <DialogTitle className="text-xs">Quick Task</DialogTitle>
             <span className="text-[10px] text-muted-foreground ml-1">project task</span>
           </div>
           {!hasWrapper && (
             <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border-b border-amber-500/30 text-amber-400">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <AlertTriangle className="size-3.5 shrink-0" />
               <span className="text-[10px] font-mono">No agent host connected -- task cannot be delivered</span>
             </div>
           )}

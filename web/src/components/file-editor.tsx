@@ -71,7 +71,7 @@ function FileList({
                 : 'text-foreground/80 hover:bg-muted/50 hover:text-foreground',
             )}
           >
-            <FileText className="w-3 h-3 shrink-0" />
+            <FileText className="size-3 shrink-0" />
             <span className="truncate">{f.path}</span>
             {f.path === activeFile && dirty && <span className="ml-auto text-amber-400 font-bold text-[10px]">*</span>}
           </button>
@@ -277,7 +277,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
         {/* Conflict banner */}
         {conflict && (
           <div className="shrink-0 px-3 py-2 bg-amber-500/20 border-b border-amber-500/50 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <AlertTriangle className="size-4 text-amber-400 shrink-0" />
             <span className="text-xs text-amber-200">
               File changed on disk while you had unsaved edits. Review the updated content.
             </span>
@@ -299,18 +299,18 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
               onClick={() => closeFile()}
               className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
             >
-              <ChevronLeft className="w-3 h-3" />
+              <ChevronLeft className="size-3" />
             </button>
             <span className="text-foreground">{activeFile}</span>
             {dirty && (
               <span className="text-amber-400 flex items-center gap-1">
-                <Save className="w-3 h-3" />
+                <Save className="size-3" />
                 unsaved
               </span>
             )}
             {saving && (
               <span className="text-accent flex items-center gap-1">
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className="size-3 animate-spin" />
                 saving
               </span>
             )}
@@ -326,7 +326,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
                   )}
                   title="Edit"
                 >
-                  <Pencil className="w-2.5 h-2.5" />
+                  <Pencil className="size-2.5" />
                 </button>
                 <button
                   type="button"
@@ -337,7 +337,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
                   )}
                   title="Preview"
                 >
-                  <Eye className="w-2.5 h-2.5" />
+                  <Eye className="size-2.5" />
                 </button>
               </div>
               {previewMode && (
@@ -347,7 +347,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
                   className="text-muted-foreground hover:text-foreground transition-colors"
                   title={fullscreen ? 'Exit fullscreen' : 'Fullscreen preview'}
                 >
-                  {fullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                  {fullscreen ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
                 </button>
               )}
               <button
@@ -355,7 +355,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
                 onClick={handleShowHistory}
                 className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
               >
-                <Clock className="w-3 h-3" />
+                <Clock className="size-3" />
                 History
               </button>
               <button
@@ -386,7 +386,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
                   onClick={() => setFullscreen(false)}
                   className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 text-xs"
                 >
-                  <Minimize2 className="w-3 h-3" /> ESC
+                  <Minimize2 className="size-3" /> ESC
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full">

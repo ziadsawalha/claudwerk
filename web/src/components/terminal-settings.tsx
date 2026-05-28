@@ -328,7 +328,7 @@ export function TerminalSettingsPanel({ settings, onChange, onClose }: TerminalS
       <div className="flex items-center justify-between px-3 py-2 border-b border-primary/20">
         <span className="text-[10px] uppercase tracking-wider text-comment">Terminal Settings</span>
         <button type="button" onClick={onClose} className="text-comment hover:text-foreground">
-          <X className="w-3.5 h-3.5" />
+          <X className="size-3.5" />
         </button>
       </div>
 
@@ -349,7 +349,7 @@ export function TerminalSettingsPanel({ settings, onChange, onClose }: TerminalS
               )}
             >
               <div className="flex items-center gap-1.5 mb-1">
-                <div className="w-3 h-3 rounded-sm border border-white/10" style={{ background: theme.background }}>
+                <div className="size-3 rounded-sm border border-white/10" style={{ background: theme.background }}>
                   <div className="w-full h-full flex items-center justify-center">
                     <div className="w-1.5 h-0.5 rounded-full" style={{ background: theme.green }} />
                   </div>

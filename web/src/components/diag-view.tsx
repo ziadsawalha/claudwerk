@@ -123,7 +123,7 @@ export function DiagView({ conversationId }: DiagViewProps) {
   }
 
   if (!data) {
-    return <div className="p-4 text-muted-foreground font-mono text-xs">Loading...</div>
+    return <div className="p-4 text-muted-foreground font-mono text-xs">Loading…</div>
   }
 
   return (

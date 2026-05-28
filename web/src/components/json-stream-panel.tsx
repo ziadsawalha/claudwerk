@@ -120,7 +120,7 @@ function CopyButton({ text }: { text: string }) {
       )}
       title="Copy JSON"
     >
-      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
     </button>
   )
 }
@@ -291,7 +291,7 @@ export function JsonStreamPanel({ conversationId }: JsonStreamPanelProps) {
             )}
             title="Hide stream_event and rate_limit_event noise"
           >
-            <EyeOff className="w-3 h-3" />
+            <EyeOff className="size-3" />
             noise
           </button>
           <button
@@ -304,7 +304,7 @@ export function JsonStreamPanel({ conversationId }: JsonStreamPanelProps) {
             )}
             title="Filter by message type"
           >
-            <Filter className="w-3.5 h-3.5" />
+            <Filter className="size-3.5" />
           </button>
           <button
             type="button"
@@ -348,8 +348,8 @@ export function JsonStreamPanel({ conversationId }: JsonStreamPanelProps) {
       {/* Disconnected banner */}
       {!isConnected && (
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-red-500/30 bg-red-500/10">
-          <WifiOff className="w-3.5 h-3.5 text-red-400" />
-          <span className="text-xs font-mono text-red-400">Disconnected - waiting for reconnect...</span>
+          <WifiOff className="size-3.5 text-red-400" />
+          <span className="text-xs font-mono text-red-400">Disconnected - waiting for reconnect…</span>
         </div>
       )}
 

@@ -153,7 +153,7 @@ function EmptyState({ query, loading }: { query: string; loading: boolean }) {
     return (
       <div className="flex items-center justify-center py-12 text-comment">
         <div className="flex items-center gap-2 text-xs">
-          <span className="animate-pulse">searching...</span>
+          <span className="animate-pulse">searching…</span>
         </div>
       </div>
     )

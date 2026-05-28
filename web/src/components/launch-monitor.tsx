@@ -28,10 +28,8 @@ export function LaunchStepList({ steps }: { steps: LaunchStep[] }) {
         // biome-ignore lint/suspicious/noArrayIndexKey: steps have no stable ID
         <div key={i} className="flex items-start gap-2 font-mono">
           <span className="mt-0.5 w-3 flex-shrink-0 text-center">
-            {step.status === 'pending' && <span className="w-2 h-2 rounded-full bg-primary/20 inline-block" />}
-            {step.status === 'active' && (
-              <span className="w-2 h-2 rounded-full bg-primary inline-block animate-pulse" />
-            )}
+            {step.status === 'pending' && <span className="size-2 rounded-full bg-primary/20 inline-block" />}
+            {step.status === 'active' && <span className="size-2 rounded-full bg-primary inline-block animate-pulse" />}
             {step.status === 'done' && <span className="text-[10px] text-emerald-400">&#x2713;</span>}
             {step.status === 'error' && <span className="text-[10px] text-red-400">&#x2717;</span>}
             {step.status === 'warn' && <span className="text-[10px] text-amber-400">&#x26A0;</span>}
@@ -88,7 +86,7 @@ export function LaunchErrorBanner({
         onClick={onCopy}
         className="flex-shrink-0 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono text-red-400 border border-red-500/30 hover:bg-red-500/10 transition-colors"
       >
-        <Copy className="w-3 h-3" />
+        <Copy className="size-3" />
         {copied ? 'Copied' : copyLabel}
       </button>
     </div>

@@ -122,7 +122,7 @@ export function DebugConsole({ onClose }: { onClose: () => void }) {
             {copied ? (
               <span className="text-[10px] font-mono text-green-400">copied</span>
             ) : (
-              <Copy className="w-3.5 h-3.5" />
+              <Copy className="size-3.5" />
             )}
           </button>
           <button
@@ -131,7 +131,7 @@ export function DebugConsole({ onClose }: { onClose: () => void }) {
             className="text-muted-foreground hover:text-foreground transition-colors p-1"
             title="Clear logs"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="size-3.5" />
           </button>
           <button
             type="button"
@@ -139,7 +139,7 @@ export function DebugConsole({ onClose }: { onClose: () => void }) {
             className="text-muted-foreground hover:text-foreground transition-colors p-1"
             title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
-            {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
           <button
             type="button"
@@ -147,7 +147,7 @@ export function DebugConsole({ onClose }: { onClose: () => void }) {
             className="text-muted-foreground hover:text-foreground transition-colors p-1"
             title="Close"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="size-3.5" />
           </button>
         </div>
       </div>

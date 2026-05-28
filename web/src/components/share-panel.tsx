@@ -129,7 +129,7 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
           }}
           className="w-full px-3 py-1.5 flex items-center gap-2 text-[10px] font-mono text-muted-foreground hover:text-teal-400 hover:bg-teal-500/5 transition-colors"
         >
-          <Link2 className="w-3 h-3" />
+          <Link2 className="size-3" />
           <span className="uppercase tracking-wider">Share this conversation</span>
         </button>
       </div>
@@ -147,11 +147,11 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
         }}
         className="w-full px-3 py-1.5 flex items-center gap-2 text-[10px] font-mono hover:bg-teal-500/10 transition-colors"
       >
-        <Link2 className="w-3 h-3 text-teal-400" />
+        <Link2 className="size-3 text-teal-400" />
         <span className="text-teal-400 font-bold uppercase tracking-wider">Shared ({shares.length})</span>
         {totalViewers > 0 && (
           <span className="flex items-center gap-1 text-teal-400/70">
-            <Eye className="w-3 h-3" />
+            <Eye className="size-3" />
             {totalViewers} viewing
           </span>
         )}
@@ -183,7 +183,7 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
                     )}
                     {share.viewerCount > 0 && (
                       <span className="flex items-center gap-0.5 text-teal-400/70">
-                        <Eye className="w-2.5 h-2.5" /> {share.viewerCount}
+                        <Eye className="size-2.5" /> {share.viewerCount}
                       </span>
                     )}
                   </div>
@@ -197,7 +197,7 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
                   {copyFeedback === share.token ? (
                     <span className="text-green-400 text-[9px]">Copied!</span>
                   ) : (
-                    <Copy className="w-3 h-3" />
+                    <Copy className="size-3" />
                   )}
                 </button>
                 <button
@@ -206,7 +206,7 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
                   className="text-muted-foreground hover:text-destructive p-1"
                   title="Stop sharing"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="size-3" />
                 </button>
               </div>
             )
@@ -290,7 +290,7 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
                 disabled={creating}
                 className="text-[10px] h-6 px-2 border-teal-500/30 text-teal-400 hover:bg-teal-500/10"
               >
-                <Link2 className="w-3 h-3 mr-1" />
+                <Link2 className="size-3 mr-1" />
                 {creating ? '...' : 'Create share link'}
               </Button>
             </div>
@@ -326,7 +326,7 @@ export function ShareIndicator({
       className="px-1 py-0.5 text-[8px] font-bold bg-teal-500/20 text-teal-400 rounded"
       title={`${count} active share${count > 1 ? 's' : ''}`}
     >
-      <Link2 className="w-2 h-2 inline" />
+      <Link2 className="size-2 inline" />
     </span>
   )
 }

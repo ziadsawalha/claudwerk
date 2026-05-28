@@ -78,7 +78,7 @@ export function RenameModal() {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md flex flex-col p-0 top-[20vh] translate-y-0">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-          <Pencil className="w-4 h-4 text-accent" />
+          <Pencil className="size-4 text-accent" />
           <DialogTitle className="text-xs">Rename conversation</DialogTitle>
           <span className="text-[10px] text-muted-foreground ml-1 truncate max-w-[200px]">
             {conversation?.title || conversation?.agentName || selectedConversationId.slice(0, 12)}

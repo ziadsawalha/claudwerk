@@ -393,7 +393,7 @@ function SentinelList() {
   }
 
   if (loading && sentinels.length === 0) {
-    return <div className="text-xs text-muted-foreground text-center py-4">Loading sentinels...</div>
+    return <div className="text-xs text-muted-foreground text-center py-4">Loading sentinels…</div>
   }
 
   return (

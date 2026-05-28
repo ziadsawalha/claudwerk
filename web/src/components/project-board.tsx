@@ -325,7 +325,7 @@ export function TaskEditor({
           </select>
           <span className="text-[9px] text-muted-foreground/40 font-mono">{taskAge(task.created)}</span>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground ml-1">
-            <X className="w-4 h-4" />
+            <X className="size-4" />
           </button>
         </div>
 
@@ -371,7 +371,7 @@ export function TaskEditor({
                 !editing ? 'text-accent' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <Eye className="w-3 h-3" /> View
+              <Eye className="size-3" /> View
             </button>
             <button
               type="button"
@@ -381,7 +381,7 @@ export function TaskEditor({
                 editing ? 'text-accent' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <Pencil className="w-3 h-3" /> Edit
+              <Pencil className="size-3" /> Edit
             </button>
           </div>
         </div>
@@ -415,7 +415,7 @@ export function TaskEditor({
                 if (e.key === 'Enter' || e.key === ' ') setEditing(true)
               }}
             >
-              Click to add content...
+              Click to add content…
             </div>
           )}
         </div>
@@ -446,7 +446,7 @@ export function TaskEditor({
                     }}
                     className="flex items-center gap-1 whitespace-nowrap px-3 py-1 text-[11px] font-bold font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors"
                   >
-                    <Zap className="w-3 h-3" />
+                    <Zap className="size-3" />
                     Launch <Kbd className="ml-1 opacity-60">L</Kbd>
                   </button>
                 </>
@@ -486,7 +486,7 @@ export function TaskEditor({
                     }}
                     className="flex items-center gap-1 whitespace-nowrap px-3 py-1 text-[11px] font-bold font-mono bg-primary/12 text-muted-foreground border border-primary/20 hover:bg-primary/20 transition-colors"
                   >
-                    <Archive className="w-3 h-3" />
+                    <Archive className="size-3" />
                     Archive <Kbd className="ml-1.5 opacity-60">A</Kbd>
                   </button>
                 </>
@@ -791,7 +791,7 @@ export function RunTaskDialog({
         <DialogTitle className="sr-only">Run Task: {task.title}</DialogTitle>
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-500/20">
-          <Zap className="w-4 h-4 text-amber-400" />
+          <Zap className="size-4 text-amber-400" />
           <span className="text-sm font-mono font-bold text-amber-400">
             {phase === 'config'
               ? 'Run Task'
@@ -870,7 +870,7 @@ export function RunTaskDialog({
                 disabled={!spawnPath}
                 className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors disabled:opacity-50"
               >
-                <Zap className="w-3 h-3" />
+                <Zap className="size-3" />
                 Run
                 <Kbd className="bg-amber-500/20 text-amber-400/70">↵</Kbd>
               </button>
@@ -997,7 +997,7 @@ function ProjectCard({
             setShowActions(!showActions)
           }}
         >
-          <MoreHorizontal className="w-3.5 h-3.5" />
+          <MoreHorizontal className="size-3.5" />
         </button>
       </div>
 
@@ -1019,7 +1019,7 @@ function ProjectCard({
                 setShowActions(false)
               }}
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
+              <ArrowLeft className="size-3.5" />
             </button>
           )}
           {canMoveRight && (
@@ -1033,7 +1033,7 @@ function ProjectCard({
                 setShowActions(false)
               }}
             >
-              <ArrowRight className="w-3.5 h-3.5" />
+              <ArrowRight className="size-3.5" />
             </button>
           )}
           {task.status !== 'archived' && (
@@ -1047,7 +1047,7 @@ function ProjectCard({
                 setShowActions(false)
               }}
             >
-              <Archive className="w-3.5 h-3.5" />
+              <Archive className="size-3.5" />
             </button>
           )}
           <button
@@ -1060,7 +1060,7 @@ function ProjectCard({
               setShowActions(false)
             }}
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="size-3.5" />
           </button>
         </div>
       )}
@@ -1082,7 +1082,7 @@ function InlineAdd({ onAdd }: { onAdd: (text: string) => void }) {
           setAdding(true)
         }}
       >
-        + Add...
+        + Add…
       </button>
     )
   }
@@ -1180,7 +1180,7 @@ function ViewConfigPanel({
           className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground/60 hover:text-foreground transition-colors"
           title="Reset to defaults"
         >
-          <RotateCcw className="w-3 h-3" />
+          <RotateCcw className="size-3" />
           Reset
         </button>
       </div>
@@ -1409,7 +1409,7 @@ export const ProjectBoard = memo(function ProjectBoard({ conversationId }: { con
 
   if (loading && tasks.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-muted-foreground/40 text-xs font-mono">Loading...</div>
+      <div className="flex items-center justify-center h-32 text-muted-foreground/40 text-xs font-mono">Loading…</div>
     )
   }
 
@@ -1429,7 +1429,7 @@ export const ProjectBoard = memo(function ProjectBoard({ conversationId }: { con
                 window.dispatchEvent(new Event('open-batch-selector'))
               }}
             >
-              <ListChecks className="w-3.5 h-3.5" />
+              <ListChecks className="size-3.5" />
             </button>
             <button
               type="button"
@@ -1449,7 +1449,7 @@ export const ProjectBoard = memo(function ProjectBoard({ conversationId }: { con
                 })
               }}
             >
-              <Search className="w-3.5 h-3.5" />
+              <Search className="size-3.5" />
             </button>
             <button
               type="button"
@@ -1463,7 +1463,7 @@ export const ProjectBoard = memo(function ProjectBoard({ conversationId }: { con
                 setConfigOpen(v => !v)
               }}
             >
-              <Sliders className="w-3.5 h-3.5" />
+              <Sliders className="size-3.5" />
             </button>
             <button
               type="button"
@@ -1607,8 +1607,8 @@ export const ProjectBoard = memo(function ProjectBoard({ conversationId }: { con
               setArchiveExpanded(!archiveExpanded)
             }}
           >
-            {archiveExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            <Archive className="w-3 h-3" />
+            {archiveExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+            <Archive className="size-3" />
             <span className="text-[11px] font-mono uppercase tracking-wider">Archived</span>
             <span className="text-[10px] font-mono">{archivedTasks.length}</span>
           </button>

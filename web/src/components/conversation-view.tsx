@@ -89,7 +89,7 @@ export function ConversationView({
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border/50">
         <button type="button" onClick={onBack} className="text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="size-4" />
         </button>
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="text-teal-400 font-bold">{nameA}</span>
@@ -103,7 +103,7 @@ export function ConversationView({
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {loading && (
           <div className="flex justify-center py-8">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         )}
 

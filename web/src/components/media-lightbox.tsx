@@ -167,7 +167,7 @@ export function MediaLightbox() {
               className="flex items-center gap-1.5 px-2 py-1 text-foreground/80 hover:text-foreground hover:bg-muted/50 rounded transition-colors"
               title="Download"
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="size-3.5" />
               <span>DOWNLOAD</span>
             </button>
             <button
@@ -176,7 +176,7 @@ export function MediaLightbox() {
               className="flex items-center gap-1.5 px-2 py-1 text-foreground/80 hover:text-foreground hover:bg-muted/50 rounded transition-colors"
               title="Copy URL"
             >
-              <Copy className="h-3.5 w-3.5" />
+              <Copy className="size-3.5" />
               <span>{copied ? 'COPIED' : 'COPY URL'}</span>
             </button>
             <a
@@ -187,7 +187,7 @@ export function MediaLightbox() {
               title="Open in new tab"
               onClick={() => haptic('tick')}
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <ExternalLink className="size-3.5" />
               <span>OPEN</span>
             </a>
           </div>

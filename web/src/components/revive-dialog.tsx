@@ -266,7 +266,7 @@ export function ReviveDialog() {
         <div className="p-5 flex flex-col gap-4 min-h-0 max-h-[calc(85vh-2rem)]">
           <div className="flex items-center justify-between shrink-0">
             <DialogTitle className="text-sm font-bold font-mono flex items-center gap-2">
-              {phase === 'launching' && <RefreshCw className="w-4 h-4 text-emerald-400" />}
+              {phase === 'launching' && <RefreshCw className="size-4 text-emerald-400" />}
               {phase === 'config'
                 ? 'REVIVE SESSION'
                 : progress.isConnected

@@ -97,7 +97,7 @@ function SearchIndexManager() {
         triggers on every insert. Use rebuild after a restore or if you suspect drift.
       </div>
 
-      {loading && <div className="text-[10px] text-muted-foreground">Loading index stats...</div>}
+      {loading && <div className="text-[10px] text-muted-foreground">Loading index stats…</div>}
 
       {error && (
         <div className="p-2 border border-destructive/40 bg-destructive/5 rounded text-[10px] text-destructive font-mono">

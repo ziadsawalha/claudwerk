@@ -126,7 +126,7 @@ export function TasksView({ conversationId, pendingCount }: TasksViewProps) {
   const totalArchived = archivedTaskCount
 
   if (loading) {
-    return <div className="text-xs text-muted-foreground p-4">Loading tasks...</div>
+    return <div className="text-xs text-muted-foreground p-4">Loading tasks…</div>
   }
 
   if (tasks.length === 0 && totalArchived === 0) {

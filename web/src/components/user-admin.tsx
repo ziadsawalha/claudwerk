@@ -200,7 +200,7 @@ function GrantEditor({ grants, onChange }: GrantEditorProps) {
               }}
               className="text-muted-foreground hover:text-destructive p-1"
             >
-              <X className="w-3 h-3" />
+              <X className="size-3" />
             </button>
           </div>
 
@@ -278,7 +278,7 @@ function GrantEditor({ grants, onChange }: GrantEditorProps) {
           }
         />
         <Button size="sm" variant="outline" onClick={addGrant} disabled={!newCwd.trim()} className="text-xs h-7">
-          <Plus className="w-3 h-3 mr-1" /> Add grant
+          <Plus className="size-3 mr-1" /> Add grant
         </Button>
       </div>
     </div>
@@ -344,7 +344,7 @@ function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void })
             <div className="flex items-center gap-2 bg-secondary rounded p-2">
               <code className="text-xs flex-1 break-all select-all">{inviteUrl}</code>
               <Button size="sm" variant="ghost" onClick={handleCopy} className="shrink-0">
-                <Copy className="w-3 h-3" />
+                <Copy className="size-3" />
               </Button>
             </div>
             <Button size="sm" onClick={handleClose} className="w-full">
@@ -381,7 +381,7 @@ function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void })
                 Cancel
               </Button>
               <Button size="sm" onClick={handleCreate} disabled={!name.trim() || creating} className="flex-1">
-                <UserPlus className="w-3 h-3 mr-1" />
+                <UserPlus className="size-3 mr-1" />
                 {creating ? 'Creating...' : 'Create invite'}
               </Button>
             </div>
@@ -461,7 +461,7 @@ function UserEditPanel({ user, onSave, onClose }: { user: UserSummary; onSave: (
           </p>
         </div>
         <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
-          <X className="w-4 h-4" />
+          <X className="size-4" />
         </button>
       </div>
 
@@ -498,7 +498,7 @@ function UserEditPanel({ user, onSave, onClose }: { user: UserSummary; onSave: (
               key={cred.credentialId}
               className="flex items-center gap-2 bg-secondary/50 rounded px-3 py-2 text-xs group"
             >
-              <KeyRound className="w-3 h-3 text-muted-foreground shrink-0" />
+              <KeyRound className="size-3 text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-foreground/80 truncate text-[10px]">
                   {cred.credentialId.slice(0, 24)}...
@@ -540,7 +540,7 @@ function UserEditPanel({ user, onSave, onClose }: { user: UserSummary; onSave: (
                   className="text-muted-foreground/40 hover:text-destructive p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Delete passkey"
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="size-3" />
                 </button>
               )}
             </div>
@@ -561,11 +561,11 @@ function UserEditPanel({ user, onSave, onClose }: { user: UserSummary; onSave: (
         <Button size="sm" variant={user.revoked ? 'outline' : 'destructive'} onClick={handleRevoke} className="text-xs">
           {user.revoked ? (
             <>
-              <Shield className="w-3 h-3 mr-1" /> Restore
+              <Shield className="size-3 mr-1" /> Restore
             </>
           ) : (
             <>
-              <ShieldOff className="w-3 h-3 mr-1" /> Revoke
+              <ShieldOff className="size-3 mr-1" /> Revoke
             </>
           )}
         </Button>
@@ -614,7 +614,7 @@ export function UserAdminDialog({ open, onOpenChange }: { open: boolean; onOpenC
           <div className="flex items-center justify-between px-6 pt-5 pb-3 pr-12">
             <DialogTitle className="text-accent font-bold uppercase tracking-wider text-[10px]">Users</DialogTitle>
             <Button size="sm" variant="outline" onClick={() => setShowInvite(true)} className="text-xs h-7">
-              <UserPlus className="w-3 h-3 mr-1" /> Invite
+              <UserPlus className="size-3 mr-1" /> Invite
             </Button>
           </div>
           <div className="px-6 pb-6 overflow-y-auto">
@@ -628,7 +628,7 @@ export function UserAdminDialog({ open, onOpenChange }: { open: boolean; onOpenC
                 onClose={() => setEditingUser(null)}
               />
             ) : loading ? (
-              <p className="text-xs text-muted-foreground text-center py-4">Loading...</p>
+              <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
             ) : (
               <div className="space-y-2">
                 {users.map(user => (

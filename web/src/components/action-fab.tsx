@@ -31,28 +31,28 @@ function buildActions(conversation: Conversation | undefined, selectedConversati
   const actions: FanAction[] = [
     {
       id: 'switcher',
-      icon: <Command className="w-4 h-4" />,
+      icon: <Command className="size-4" />,
       label: 'Switcher',
       action: () => useConversationsStore.getState().toggleSwitcher(),
       color: 'bg-primary',
     },
     {
       id: 'task',
-      icon: <PenLine className="w-4 h-4" />,
+      icon: <PenLine className="size-4" />,
       label: 'Task',
       action: () => window.dispatchEvent(new Event('open-quick-task')),
       color: 'bg-active',
     },
     {
       id: 'batch-tasks',
-      icon: <ListChecks className="w-4 h-4" />,
+      icon: <ListChecks className="size-4" />,
       label: 'Batch',
       action: () => window.dispatchEvent(new Event('open-batch-selector')),
       color: 'bg-info',
     },
     {
       id: 'launch',
-      icon: <Rocket className="w-4 h-4" />,
+      icon: <Rocket className="size-4" />,
       label: 'Launch',
       action: () =>
         openSpawnDialog({
@@ -63,7 +63,7 @@ function buildActions(conversation: Conversation | undefined, selectedConversati
     },
     {
       id: 'spawn',
-      icon: <MessageSquarePlus className="w-4 h-4" />,
+      icon: <MessageSquarePlus className="size-4" />,
       label: 'Spawn',
       action: () => useConversationsStore.getState().openSwitcherWithFilter('S:~/'),
       color: 'bg-accent',
@@ -75,14 +75,14 @@ function buildActions(conversation: Conversation | undefined, selectedConversati
       // Active conversation actions
       actions.push({
         id: 'share',
-        icon: <Share2 className="w-4 h-4" />,
+        icon: <Share2 className="size-4" />,
         label: 'Share',
         action: () => useConversationsStore.getState().openTab(selectedConversationId, 'shared'),
         color: 'bg-event-prompt',
       })
       actions.push({
         id: 'terminate',
-        icon: <Power className="w-4 h-4" />,
+        icon: <Power className="size-4" />,
         label: 'Terminate',
         action: () => {
           // Open the proper modal -- inline two-tap confirm was easy to miss on
@@ -97,7 +97,7 @@ function buildActions(conversation: Conversation | undefined, selectedConversati
       // Ended conversation actions
       actions.push({
         id: 'revive',
-        icon: <RefreshCw className="w-4 h-4" />,
+        icon: <RefreshCw className="size-4" />,
         label: 'Revive...',
         action: () => {
           useConversationsStore.getState().selectConversation(conversation.id)
@@ -107,7 +107,7 @@ function buildActions(conversation: Conversation | undefined, selectedConversati
       })
       actions.push({
         id: 'dismiss',
-        icon: <Trash2 className="w-4 h-4" />,
+        icon: <Trash2 className="size-4" />,
         label: 'Dismiss',
         action: () => useConversationsStore.getState().dismissConversation(conversation.id),
         color: 'bg-red-500/80',

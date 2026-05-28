@@ -141,7 +141,7 @@ export function ToastContainer() {
                   }}
                   className="mt-2 inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded bg-muted hover:bg-muted/70 text-foreground"
                 >
-                  <Copy className="w-3 h-3" />
+                  <Copy className="size-3" />
                   copy command
                 </button>
               ) : null}
@@ -154,7 +154,7 @@ export function ToastContainer() {
               }}
               className="shrink-0 text-muted-foreground hover:text-foreground"
             >
-              <X className="w-3 h-3" />
+              <X className="size-3" />
             </button>
           </div>
         </div>

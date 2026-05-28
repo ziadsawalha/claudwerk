@@ -724,7 +724,7 @@ export function ProjectSettingsEditor({ project, onClose }: ProjectSettingsEdito
                 : 'border-border text-muted-foreground cursor-not-allowed',
             )}
           >
-            <Check className="w-3 h-3" />
+            <Check className="size-3" />
             Save
           </button>
           {hasAnySettings && (
@@ -734,7 +734,7 @@ export function ProjectSettingsEditor({ project, onClose }: ProjectSettingsEdito
               disabled={saving}
               className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider border border-red-500/50 text-red-400 hover:bg-red-500/20 transition-colors"
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash2 className="size-3" />
               Reset All
             </button>
           )}
@@ -780,7 +780,7 @@ export function ProjectSettingsEditor({ project, onClose }: ProjectSettingsEdito
             <div>
               <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Icon</div>
               <div className="relative mb-1.5">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none" />
                 <input
                   type="text"
                   value={iconSearch}
@@ -818,7 +818,7 @@ export function ProjectSettingsEditor({ project, onClose }: ProjectSettingsEdito
                           : 'border-border hover:border-primary hover:bg-muted/30 text-muted-foreground',
                       )}
                     >
-                      <IconComp className="w-4 h-4" />
+                      <IconComp className="size-4" />
                     </button>
                   )
                 })}
@@ -882,7 +882,7 @@ export function ProjectSettingsEditor({ project, onClose }: ProjectSettingsEdito
                   >
                     {term}
                     <button type="button" onClick={() => removeKeyterm(term)} className="hover:text-red-400 ml-0.5">
-                      <X className="w-2.5 h-2.5" />
+                      <X className="size-2.5" />
                     </button>
                   </span>
                 ))}
@@ -1092,7 +1092,7 @@ export function ProjectSettingsButton({ onClick }: { onClick: (e: React.MouseEve
       className="text-muted-foreground hover:text-accent transition-colors p-0.5"
       title="Edit project settings"
     >
-      <Pencil className="w-3 h-3" />
+      <Pencil className="size-3" />
     </button>
   )
 }

@@ -101,7 +101,7 @@ export function SharedConversationView({ token: _token }: { token: string }) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-4 max-w-md px-6">
-          <Link2Off className="w-12 h-12 text-muted-foreground mx-auto" />
+          <Link2Off className="size-12 text-muted-foreground mx-auto" />
           <h1 className="text-lg font-bold text-foreground">Share link has expired</h1>
           <p className="text-sm text-muted-foreground">
             The person who shared this conversation has either revoked the link or it has reached its time limit.
@@ -126,7 +126,7 @@ export function SharedConversationView({ token: _token }: { token: string }) {
     return (
       <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-2">
-          <div className="text-sm text-muted-foreground animate-pulse">Waiting for conversation data...</div>
+          <div className="text-sm text-muted-foreground animate-pulse">Waiting for conversation data…</div>
         </div>
       </div>
     )
@@ -144,7 +144,7 @@ export function SharedConversationView({ token: _token }: { token: string }) {
         </span>
         {timeLeft && (
           <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono">
-            <Clock className="w-3 h-3" />
+            <Clock className="size-3" />
             {timeLeft}
           </span>
         )}

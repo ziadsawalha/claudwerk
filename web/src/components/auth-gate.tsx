@@ -91,7 +91,7 @@ function InviteRegistration({ token, onSuccess }: { token: string; onSuccess: (n
   }
 
   if (status === 'validating') {
-    return <div className="text-muted-foreground">Validating invite...</div>
+    return <div className="text-muted-foreground">Validating invite…</div>
   }
 
   if (status === 'error') {
@@ -259,7 +259,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center font-mono text-muted-foreground text-xs">
-        Initializing...
+        Initializing…
       </div>
     )
   }

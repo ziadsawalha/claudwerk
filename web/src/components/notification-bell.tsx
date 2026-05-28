@@ -42,7 +42,7 @@ export function NotificationBell() {
           className="relative text-muted-foreground hover:text-foreground transition-colors shrink-0"
           title="Notifications"
         >
-          <Bell className="w-3.5 h-3.5" />
+          <Bell className="size-3.5" />
           {totalCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-amber-500 text-background text-[8px] font-bold leading-none px-0.5 animate-in zoom-in-50 duration-150">
               {totalCount > 99 ? '99+' : totalCount}

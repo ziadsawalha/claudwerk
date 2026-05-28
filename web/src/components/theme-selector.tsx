@@ -24,12 +24,12 @@ function ThemePreview({ variables }: { variables: Record<string, string> }) {
         <div className="h-1 w-3/4 rounded-full mb-0.5" style={{ background: variables.foreground, opacity: 0.15 }} />
         <div className="h-1 w-1/2 rounded-full mb-1" style={{ background: variables.foreground, opacity: 0.15 }} />
         <div className="flex gap-0.5 items-center">
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: variables.primary }} />
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: variables.accent }} />
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: variables.active }} />
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: variables.destructive }} />
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: variables['event-prompt'] }} />
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: variables.info }} />
+          <div className="size-1.5 rounded-full" style={{ background: variables.primary }} />
+          <div className="size-1.5 rounded-full" style={{ background: variables.accent }} />
+          <div className="size-1.5 rounded-full" style={{ background: variables.active }} />
+          <div className="size-1.5 rounded-full" style={{ background: variables.destructive }} />
+          <div className="size-1.5 rounded-full" style={{ background: variables['event-prompt'] }} />
+          <div className="size-1.5 rounded-full" style={{ background: variables.info }} />
         </div>
       </div>
     </div>
