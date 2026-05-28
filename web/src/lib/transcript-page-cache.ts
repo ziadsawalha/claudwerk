@@ -157,4 +157,3 @@ export function cacheLookupBefore(
   )
   return { entries: slice, oldestSeq, hasMoreInCache }
 }
-
