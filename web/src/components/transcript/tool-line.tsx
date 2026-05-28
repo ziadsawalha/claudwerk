@@ -9,8 +9,6 @@ import { Collapsible, getToolStyle } from './shared'
 import type { ToolCaseInput } from './tool-case-types'
 import { dispatchToolCase, renderErrorFallback, renderPersistedOutput } from './tool-dispatch'
 
-export { dispatchToolCase, renderErrorFallback, renderPersistedOutput } from './tool-dispatch'
-
 function isDockerfileOperation(input: Record<string, unknown>): boolean {
   const filePath = input.path as string | undefined
   if (!filePath) return false

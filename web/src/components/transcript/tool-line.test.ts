@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCaseInput, ToolCaseResult } from './tool-case-types'
-import { dispatchToolCase, renderErrorFallback, renderPersistedOutput } from './tool-line'
+import { dispatchToolCase, renderErrorFallback, renderPersistedOutput } from './tool-dispatch'
 
 function makeCtx(overrides: Partial<ToolCaseInput> = {}): ToolCaseInput {
   return {
