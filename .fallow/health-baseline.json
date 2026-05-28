@@ -3080,6 +3080,17 @@
       "complexity_moderate": {
         "count": 1
       }
+    },
+    "web/src/components/project-list/conversation-item-compact.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
     }
   },
   "runtime_coverage_findings": [],
