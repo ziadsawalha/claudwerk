@@ -6,7 +6,7 @@ import { formatCost, getConversationCost, getCostColor } from '@/lib/cost-utils'
 import type { Conversation } from '@/lib/types'
 import { projectPath } from '@/lib/types'
 import { cn, contextWindowSize, formatEffort, formatModel, formatPermissionMode } from '@/lib/utils'
-import { worktreeName } from './header-info-rows'
+import { worktreeName } from './header-info-helpers'
 
 interface HeaderCollapsedBarProps {
   conversation: Conversation

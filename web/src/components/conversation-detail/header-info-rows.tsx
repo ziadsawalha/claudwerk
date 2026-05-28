@@ -7,6 +7,7 @@ import type { Conversation } from '@/lib/types'
 import { projectPath } from '@/lib/types'
 import { cn, formatTime, haptic } from '@/lib/utils'
 import type { ConversationTarget } from './conversation-header'
+import { worktreeName } from './header-info-helpers'
 
 export function ErrorBanner({ lastError }: { lastError: Conversation['lastError'] }) {
   if (!lastError) return null
@@ -58,12 +59,6 @@ export function ProjectPathRow({ project }: { project: string }) {
       </button>
     </div>
   )
-}
-
-/** Extract the worktree name from a `.../.claude/worktrees/<name>` path, else null. */
-export function worktreeName(path: string): string | null {
-  const m = path.match(/\/\.claude\/worktrees\/([^/]+)/)
-  return m ? m[1] : null
 }
 
 /**
