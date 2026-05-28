@@ -9,10 +9,6 @@ import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { InlineConfirmButton } from './inline-confirm-button'
 import { StatusIndicator } from './status-indicator'
 
-export function isDaemonTransport(conversation: Conversation): boolean {
-  return conversation.transport === 'claude-daemon'
-}
-
 // ─── Spawn lineage (Phase 4) ───────────────────────────────────────
 
 /** Direct-children count for a conversation. Prefers the REST `directChildCount`;

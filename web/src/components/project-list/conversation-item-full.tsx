@@ -19,10 +19,10 @@ import {
   DismissButton,
   InlineDescription,
   InlineRename,
-  isDaemonTransport,
   ResultTextModal,
   SpawnedFromSubtext,
 } from './conversation-item-helpers'
+import { isDaemonTransport } from './conversation-item-internals'
 import { GhostAttachButton, GhostBadge, GhostStatusDot } from './ghost-attach'
 import { SentinelProfileBadge } from './sentinel-profile-badge'
 import { StatusIndicator } from './status-indicator'
