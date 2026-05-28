@@ -14,7 +14,7 @@ import {
   useVoiceRecording,
 } from '@/hooks/use-voice-recording'
 import { haptic } from '@/lib/utils'
-import { formatKeyCode } from './settings/key-capture'
+import { formatKeyCode } from './settings/key-capture-format'
 
 function useMicExpired() {
   return useSyncExternalStore(subscribeMicExpired, getMicExpired)
