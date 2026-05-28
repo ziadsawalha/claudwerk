@@ -3067,6 +3067,19 @@
       "complexity_moderate": {
         "count": 1
       }
+    },
+    "web/src/components/project-list/conversation-item-full.tsx": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "web/src/components/project-list/conversation-item-helpers.tsx": {
+      "complexity_moderate": {
+        "count": 1
+      }
     }
   },
   "runtime_coverage_findings": [],
