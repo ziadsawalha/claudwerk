@@ -39,7 +39,10 @@ interface SheafNodeRowProps {
 function selectConv(id: string) {
   const store = useConversationsStore.getState()
   store.selectConversation(id, 'sheaf')
-  window.location.hash = `conversation/${id}`
+  // selectConversation routes hash via history.replaceState, which does NOT
+  // fire `hashchange`. App's useHash listens to hashchange only, so without
+  // this nudge SheafPage stays mounted on top of the dashboard.
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
 }
 
 function SheafNodeRow({ node, depth, now }: SheafNodeRowProps) {

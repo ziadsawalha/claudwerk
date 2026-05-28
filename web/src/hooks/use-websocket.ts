@@ -168,10 +168,19 @@ function refetchStaleTranscripts(staleTranscripts?: Record<string, number>): voi
         // is a real tail-grow, so the head may now exceed the cap. Evicted
         // entries flow into the page cache. Keep this in lockstep with
         // handleTranscriptEntries' prune logic; the LIVE_CAP constant lives
-        // there to keep both call-sites aligned by import.
+        // there to keep both call-sites aligned by import. ALSO suppressed
+        // while state.scrollbackActive[sid] is true -- see the WS-broadcast
+        // site for the user-yank rationale; deferred-collapse runs on
+        // setScrollbackActive(sid, false) when the user returns to bottom.
         let merged = [...existing, ...fresh]
         const LIVE_CAP = 100
-        if (merged.length > LIVE_CAP) {
+        const scrollback = state.scrollbackActive[sid]
+        if (merged.length > LIVE_CAP && scrollback) {
+          console.debug(
+            `[transcript-prune] ${sid.slice(0, 8)} DEFERRED (scrollback active, delta refetch): live=${merged.length} > cap ${LIVE_CAP}`,
+          )
+        }
+        if (merged.length > LIVE_CAP && !scrollback) {
           const t0 = performance.now()
           const dropCount = merged.length - LIVE_CAP
           const evicted = merged.slice(0, dropCount)

@@ -365,8 +365,18 @@ function handleTranscriptEntries(msg: DashboardMessage) {
       // entries are pushed into the page cache so a scroll-up after the
       // prune can replay them locally without a broker round-trip. Skipped
       // on the initial-replace path -- that's a server-determined snapshot,
-      // not a live tail-grow.
-      if (result.length > TRANSCRIPT_LIVE_CAP) {
+      // not a live tail-grow. ALSO skipped while the user is in scrollback
+      // (follow=false mirrored into state.scrollbackActive[sid]): pruning
+      // the head while the user is reading prepended-older history would
+      // yank entries out from under their viewport. Deferred-collapse runs
+      // on return-to-bottom via setScrollbackActive(sid, false).
+      const scrollback = state.scrollbackActive[sid]
+      if (result.length > TRANSCRIPT_LIVE_CAP && scrollback) {
+        console.debug(
+          `[transcript-prune] ${sid.slice(0, 8)} DEFERRED (scrollback active): live=${result.length} > cap ${TRANSCRIPT_LIVE_CAP}, collapse on return-to-bottom`,
+        )
+      }
+      if (result.length > TRANSCRIPT_LIVE_CAP && !scrollback) {
         const t0 = performance.now()
         const dropCount = result.length - TRANSCRIPT_LIVE_CAP
         const evicted = result.slice(0, dropCount)
