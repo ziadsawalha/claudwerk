@@ -168,7 +168,7 @@ export function renderMcpDialog({ input }: ToolCaseInput): ToolCaseResult {
   )
   const details = (
     <div className="text-[10px] font-mono bg-violet-500/5 border border-violet-500/20 rounded px-3 py-2 text-violet-400/70">
-      Waiting for user response...
+      Waiting for user response…
     </div>
   )
   return { summary, details }

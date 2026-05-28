@@ -279,7 +279,7 @@ const ThinkingSpinner = memo(function ThinkingSpinner({ conversationId }: { conv
   return (
     <div className="mt-2 flex flex-col items-start px-4 py-1.5 text-[11px] font-mono text-muted-foreground/60">
       <div className="flex items-center gap-2">
-        <span className="inline-block w-2 h-2 bg-accent rounded-full animate-pulse" />
+        <span className="inline-block size-2 bg-accent rounded-full animate-pulse" />
         <span className="text-accent/70">
           {verb}
           {'.'.repeat(dots)}

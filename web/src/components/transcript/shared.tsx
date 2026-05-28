@@ -337,7 +337,7 @@ export function Collapsible({
         onClick={toggle}
         className="flex items-center gap-1 text-muted-foreground hover:text-foreground text-[10px] font-mono"
       >
-        {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        {isOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         {label}
       </button>
       {isOpen && <div className="mt-1 ml-4 min-w-0 overflow-hidden">{children}</div>}

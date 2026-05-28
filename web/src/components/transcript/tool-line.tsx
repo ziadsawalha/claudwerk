@@ -113,7 +113,7 @@ export function ToolLine({
           )}
           title={name}
         >
-          <Icon className="w-3 h-3 shrink-0" />
+          <Icon className="size-3 shrink-0" />
           <span className="truncate max-w-[120px]">{displayName}</span>
         </span>
         <span className={cn('truncate flex-1', isError ? 'text-red-400/80' : 'text-foreground/80')}>

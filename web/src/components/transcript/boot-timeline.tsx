@@ -55,7 +55,7 @@ function BootLine({ entry, startTs }: { entry: TranscriptBootEntry; startTs: num
             setOpen(true)
           }}
         >
-          <Info className="w-3 h-3" />
+          <Info className="size-3" />
         </button>
       )}
       {open && (

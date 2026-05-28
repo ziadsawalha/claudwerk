@@ -60,7 +60,7 @@ export const ThinkingPill = memo(function ThinkingPill({ conversationId }: Think
   if (mode === 'compact') {
     return (
       <div className="mt-1 flex items-center gap-1.5 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
-        <span className="inline-block w-1.5 h-1.5 bg-accent rounded-full animate-pulse" />
+        <span className="inline-block size-1.5 bg-accent rounded-full animate-pulse" />
         <span className="text-purple-400/70">thinking</span>
         <span className="text-muted-foreground/50 tabular-nums">{formatCount(last.tokens)}</span>
       </div>

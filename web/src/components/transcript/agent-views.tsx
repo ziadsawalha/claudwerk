@@ -47,7 +47,7 @@ export function AgentTranscriptInline({ agentId, toolId }: { agentId: string; to
 
   return (
     <Collapsible id={collapsibleId} label="agent transcript" onExpand={handleExpand}>
-      {loading && <div className="text-[10px] text-muted-foreground animate-pulse">loading transcript...</div>}
+      {loading && <div className="text-[10px] text-muted-foreground animate-pulse">loading transcript…</div>}
       {error && <div className="text-[10px] text-red-400">Error: {error}</div>}
       {entries && entries.length === 0 && (
         <div className="text-[10px] text-muted-foreground">No transcript entries</div>
