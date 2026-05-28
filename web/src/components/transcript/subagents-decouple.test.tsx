@@ -22,7 +22,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { act, Profiler } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useConversationsStore } from '@/hooks/use-conversations'
-import { AgentTaskBadge } from './tool-cases-agent'
+import { AgentTaskBadge } from './agent-task-badge'
 
 type Status = 'running' | 'stopped'
 function sub(description: string, status: Status) {

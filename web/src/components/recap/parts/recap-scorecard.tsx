@@ -1,7 +1,7 @@
 /** One-glance scorecard strip: the TL;DR-of-the-TL;DR for a recap. */
 
 import type { RecapDigest, RecapMetadata } from '@shared/protocol'
-import { fmtCompact, fmtUsd } from './recap-bits'
+import { fmtCompact, fmtUsd } from './recap-format'
 
 function Stat({ value, label, tone }: { value: string | number; label: string; tone?: string }) {
   return (

@@ -1,7 +1,7 @@
 /** Charts off the persisted RecapDigest: cost-per-day, model mix, commit churn. */
 
 import type { RecapDigest } from '@shared/protocol'
-import { fmtCompact, fmtUsd } from './recap-bits'
+import { fmtCompact, fmtUsd } from './recap-format'
 
 const MODEL_COLORS = ['var(--accent)', 'var(--success)', 'var(--warning)', 'var(--info)', 'var(--muted-foreground)']
 

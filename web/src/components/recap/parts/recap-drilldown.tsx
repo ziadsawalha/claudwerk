@@ -2,7 +2,7 @@
  *  heaviest-first. Rows are clickable in-app (open the conversation). */
 
 import type { RecapDigest } from '@shared/protocol'
-import { fmtUsd } from './recap-bits'
+import { fmtUsd } from './recap-format'
 
 function Row({ c }: { c: RecapDigest['conversations'][number] }) {
   return (
