@@ -99,9 +99,10 @@ export function isSkillContent(entry: TranscriptUserEntry): boolean {
   if (entry.isMeta !== true) return false
   const content = entry.message?.content
   if (!Array.isArray(content)) return false
-  const text = content
-    .filter(c => c.type === 'text')
-    .map(c => c.text)
-    .join('')
+  const parts: string[] = []
+  for (const c of content) {
+    if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text)
+  }
+  const text = parts.join('')
   return text.length > 300 && (text.startsWith('Base directory for this skill:') || text.startsWith('#'))
 }

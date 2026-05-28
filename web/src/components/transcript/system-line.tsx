@@ -142,10 +142,11 @@ function describeSystemEntry(
           : Array.isArray(msg)
             ? msg.map(b => (b as { text?: string })?.text ?? '').join('')
             : content
-      const lines = raw
-        .split('\n')
-        .map(l => l.trim())
-        .filter(Boolean)
+      const lines: string[] = []
+      for (const l of raw.split('\n')) {
+        const trimmed = l.trim()
+        if (trimmed) lines.push(trimmed)
+      }
       const header = lines[0]?.replace(/\s*feedback:?\s*$/i, '') || 'Hook'
       const reason = lines.slice(1).join(' ')
       const summary = reason ? `${header}: ${reason}` : header

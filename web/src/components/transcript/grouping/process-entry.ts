@@ -162,15 +162,16 @@ function handleUser(entry: TranscriptEntry, state: GroupingState): boolean {
     }
   }
 
-  const textContent =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content
-            .filter(c => c.type === 'text')
-            .map(c => c.text)
-            .join('')
-        : ''
+  let textContent = ''
+  if (typeof content === 'string') {
+    textContent = content
+  } else if (Array.isArray(content)) {
+    const parts: string[] = []
+    for (const c of content) {
+      if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text)
+    }
+    textContent = parts.join('')
+  }
 
   // CC injects blocked-hook feedback (a Stop/SubagentStop hook's `reason`) as a
   // plain user entry whose first text block is "<Event> hook feedback:\n

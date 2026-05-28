@@ -63,8 +63,14 @@ function buildDiffLines(patches: Array<{ oldStart: number; lines: string[] }>): 
       const oldLine = allLines[removeStart + p]
       const newLine = allLines[addStart + p]
       const diffs = diffWords(oldLine.content, newLine.content)
-      oldLine.wordDiffs = diffs.filter(d => !d.added).map(d => ({ value: d.value, removed: d.removed }))
-      newLine.wordDiffs = diffs.filter(d => !d.removed).map(d => ({ value: d.value, added: d.added }))
+      const oldDiffs: Array<{ value: string; removed?: boolean }> = []
+      const newDiffs: Array<{ value: string; added?: boolean }> = []
+      for (const d of diffs) {
+        if (!d.added) oldDiffs.push({ value: d.value, removed: d.removed })
+        if (!d.removed) newDiffs.push({ value: d.value, added: d.added })
+      }
+      oldLine.wordDiffs = oldDiffs
+      newLine.wordDiffs = newDiffs
     }
   }
 

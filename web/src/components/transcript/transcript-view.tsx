@@ -859,12 +859,14 @@ export const TranscriptView = memo(function TranscriptView({
                   const entry = group.entries[0] as {
                     message?: { content?: string | Array<{ type: string; text?: string }> }
                   }
-                  const content = Array.isArray(entry?.message?.content)
-                    ? entry.message.content
-                        .filter(b => b.type === 'text')
-                        .map(b => b.text || '')
-                        .join('')
-                    : ''
+                  let content = ''
+                  if (Array.isArray(entry?.message?.content)) {
+                    const parts: string[] = []
+                    for (const b of entry.message.content) {
+                      if (b.type === 'text') parts.push(b.text || '')
+                    }
+                    content = parts.join('')
+                  }
                   return <SkillDivider name={group.skillName || 'skill'} content={content} />
                 }
                 return (

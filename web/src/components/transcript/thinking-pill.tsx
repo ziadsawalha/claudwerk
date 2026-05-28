@@ -27,7 +27,11 @@ function formatCount(n: number): string {
 
 function sparkline(samples: ThinkingSample[]): string {
   if (samples.length === 0) return ''
-  const deltas = samples.map(s => s.delta ?? 0).filter(d => d >= 0)
+  const deltas: number[] = []
+  for (const s of samples) {
+    const d = s.delta ?? 0
+    if (d >= 0) deltas.push(d)
+  }
   if (deltas.length === 0) return ''
   const max = Math.max(...deltas, 1)
   return deltas.map(d => BARS[Math.min(BARS.length - 1, Math.floor((d / max) * (BARS.length - 1)))]).join('')
