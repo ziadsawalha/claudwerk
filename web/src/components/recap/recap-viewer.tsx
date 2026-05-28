@@ -75,7 +75,7 @@ function ActionButton({
     >
       {isLoading ? (
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          <span className="inline-block size-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
           {children}
         </span>
       ) : (
@@ -202,7 +202,7 @@ function StreamingState({ recap }: { recap: PeriodRecapDoc | null }) {
   return (
     <div className="px-4 py-6 text-center text-sm">
       <div className="mb-2 text-muted-foreground">
-        Generating recap... {status} {phase ? `(${phase})` : ''}
+        Generating recap… {status} {phase ? `(${phase})` : ''}
       </div>
       <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden mx-auto max-w-md">
         <div
@@ -281,7 +281,7 @@ export function RecapViewer() {
           {error ? (
             <div className="p-6 text-sm text-red-400">{error}</div>
           ) : !recap ? (
-            <div className="p-6 text-sm text-muted-foreground">Loading...</div>
+            <div className="p-6 text-sm text-muted-foreground">Loading…</div>
           ) : isTerminal(recap.status) && recap.markdown ? (
             <>
               <RecapHeader recap={recap} mode={mode} setMode={setMode} />

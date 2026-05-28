@@ -60,7 +60,7 @@ export function PublicRecapView({ token }: { token: string }) {
   }, [token])
 
   if (state.loading) {
-    return <div className="flex items-center justify-center min-h-screen text-sm text-muted-foreground">Loading...</div>
+    return <div className="flex items-center justify-center min-h-screen text-sm text-muted-foreground">Loading…</div>
   }
   if (state.error || !state.recap) {
     return (

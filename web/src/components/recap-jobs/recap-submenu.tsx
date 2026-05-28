@@ -112,11 +112,11 @@ export function RecapSubmenu({ projectUri, label = 'Recap' }: RecapSubmenuProps)
             </ContextMenu.Item>
           ))}
           <ContextMenu.Item className={menuItemClass} onSelect={customRange}>
-            Custom range...
+            Custom range…
           </ContextMenu.Item>
           <ContextMenu.Separator className="h-px bg-border my-1" />
           <ContextMenu.Item className={menuItemClass} onSelect={viewHistory}>
-            View past recaps...
+            View past recaps…
           </ContextMenu.Item>
         </ContextMenu.SubContent>
       </ContextMenu.Portal>
