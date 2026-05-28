@@ -164,6 +164,8 @@ function BatchSelectedPill() {
     >
       {count > 0 ? `${count} selected` : 'batch'}
       {count > 0 && (
+        // nested inside outer batch <button>; native <button> would be invalid HTML
+        // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
         <span
           role="button"
           tabIndex={0}

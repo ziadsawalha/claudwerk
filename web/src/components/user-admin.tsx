@@ -153,6 +153,8 @@ function GrantEditor({ grants, onChange }: GrantEditorProps) {
       {grants.map((g, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: grants may share scope, positional index needed for disambiguation
         <div key={`${g.project}-${i}`} className="bg-secondary/50 rounded text-xs">
+          {/* grant row toggles an expanded edit view; contains nested remove <button> */}
+          {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
           <div
             role="button"
             tabIndex={0}
@@ -632,21 +634,14 @@ export function UserAdminDialog({ open, onOpenChange }: { open: boolean; onOpenC
             ) : (
               <div className="space-y-2">
                 {users.map(user => (
-                  <div
+                  <button
+                    type="button"
                     key={user.name}
-                    role="button"
-                    tabIndex={0}
                     onClick={() => {
                       haptic('tap')
                       setEditingUser(user.name)
                     }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        haptic('tap')
-                        setEditingUser(user.name)
-                      }
-                    }}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer w-full text-left appearance-none border-0 text-inherit"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -675,7 +670,7 @@ export function UserAdminDialog({ open, onOpenChange }: { open: boolean; onOpenC
                     <div className="text-muted-foreground/40 text-[10px] shrink-0">
                       {user.credentialCount} key{user.credentialCount !== 1 ? 's' : ''}
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

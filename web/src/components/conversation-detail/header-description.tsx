@@ -52,12 +52,10 @@ export function HeaderDescription({ conversation }: { conversation: Conversation
   }
 
   return (
-    <div
-      className="group/desc flex items-center gap-1 cursor-pointer"
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
+      className="group/desc flex items-center gap-1 cursor-pointer appearance-none bg-transparent border-0 p-0 text-left w-full text-inherit"
       onClick={() => setEditing(conversation.id)}
-      onKeyDown={e => e.key === 'Enter' && setEditing(conversation.id)}
     >
       <span
         className={cn(
@@ -68,6 +66,6 @@ export function HeaderDescription({ conversation }: { conversation: Conversation
         {conversation.description || 'add description...'}
       </span>
       <Pencil className="size-2.5 text-muted-foreground/20 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/desc:opacity-100 transition-opacity" />
-    </div>
+    </button>
   )
 }

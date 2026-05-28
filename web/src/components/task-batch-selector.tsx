@@ -551,7 +551,6 @@ export const TaskBatchSelector = memo(function TaskBatchSelector() {
               return (
                 <div
                   key={task.slug}
-                  role="group"
                   className={cn(
                     'flex items-start border-b border-border/20 transition-colors',
                     'hover:bg-accent/5',

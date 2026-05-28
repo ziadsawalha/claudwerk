@@ -24,22 +24,15 @@ function ProjectHeader({ project, expanded, onToggle }: Omit<ProjectSectionProps
   const totalTokens = totals.tokens.input + totals.tokens.output + totals.tokens.cache
   const accent = useMemo(() => accentFor(project.label), [project.label])
   return (
-    <div
-      className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-background/90 backdrop-blur border-b border-l-2 border-border/60 flex flex-wrap items-baseline gap-x-4 gap-y-1 cursor-pointer select-none"
+    <button
+      type="button"
+      className="sticky top-0 z-10 -mx-4 px-4 py-2 bg-background/90 backdrop-blur border-b border-l-2 border-border/60 flex flex-wrap items-baseline gap-x-4 gap-y-1 cursor-pointer select-none w-[calc(100%+2rem)] text-left appearance-none text-inherit"
       style={{
         borderLeftColor: accent.border,
         backgroundImage: `linear-gradient(90deg, ${accent.tint}, transparent 280px)`,
       }}
-      role="button"
-      tabIndex={0}
       aria-expanded={expanded}
       onClick={onToggle}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onToggle()
-        }
-      }}
     >
       {expanded ? (
         <ChevronDown className="size-4 self-center shrink-0 text-muted-foreground" />
@@ -67,7 +60,7 @@ function ProjectHeader({ project, expanded, onToggle }: Omit<ProjectSectionProps
           {formatCost(totals.cost.amount, totals.cost.estimated)}
         </span>
       </div>
-    </div>
+    </button>
   )
 }
 

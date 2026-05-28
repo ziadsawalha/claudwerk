@@ -41,18 +41,14 @@ function DismissAllEndedButton({ endedIds }: { endedIds: string[] }) {
       }}
       confirmLabel={<span className="text-muted-foreground">dismiss {endedIds.length}?</span>}
       trigger={requestConfirm => (
-        <div
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           onClick={requestConfirm}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') requestConfirm(e)
-          }}
-          className="text-[9px] text-muted-foreground/40 hover:text-destructive cursor-pointer px-1 transition-colors"
+          className="text-[9px] text-muted-foreground/40 hover:text-destructive cursor-pointer px-1 transition-colors appearance-none bg-transparent border-0"
           title={`Dismiss ${endedIds.length} ended conversation${endedIds.length > 1 ? 's' : ''}`}
         >
           {'✕'} ended
-        </div>
+        </button>
       )}
     />
   )
@@ -139,6 +135,8 @@ const ProjectConversationGroup = memo(
             conversations={conversations}
             onOpenSettings={() => setShowSettings(true)}
           >
+            {/* contains nested interactive children (settings/dismiss buttons); cannot be a native <button> */}
+            {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
             <div
               role="button"
               tabIndex={0}
@@ -295,21 +293,14 @@ export function PinnedProjectNode({ project }: { project: string }) {
   return (
     <PinnedProjectContextMenu project={project} onOpenSettings={() => setShowSettings(true)}>
       <div>
-        <div
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           onClick={() => {
             haptic('tap')
             selectProject(project)
           }}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              haptic('tap')
-              selectProject(project)
-            }
-          }}
           className={cn(
-            'border border-border hover:border-primary p-2 pl-3 transition-colors cursor-pointer',
+            'border border-border hover:border-primary p-2 pl-3 transition-colors cursor-pointer text-left w-full appearance-none bg-transparent text-inherit',
             isSelected && 'border-primary bg-accent/10',
           )}
           style={displayColor ? { borderLeftColor: displayColor, borderLeftWidth: '3px' } : undefined}
@@ -329,7 +320,7 @@ export function PinnedProjectNode({ project }: { project: string }) {
             </span>
             <Pin className="size-2.5 text-muted-foreground/30 shrink-0" />
           </div>
-        </div>
+        </button>
         {showSettings && <ProjectSettingsEditor project={project} onClose={() => setShowSettings(false)} />}
       </div>
     </PinnedProjectContextMenu>

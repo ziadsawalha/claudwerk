@@ -71,6 +71,8 @@ export function GroupNode({
 
   return (
     <div>
+      {/* contains nested input/textbox; cannot be a native <button> */}
+      {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
       <div
         role="button"
         tabIndex={0}
@@ -115,6 +117,8 @@ export function GroupNode({
             onClick={e => e.stopPropagation()}
           />
         ) : (
+          // double-click-to-edit affordance; not a real text input until <input> renders
+          // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
           <span
             role="textbox"
             tabIndex={0}

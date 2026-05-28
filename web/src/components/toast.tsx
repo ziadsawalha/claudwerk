@@ -110,6 +110,8 @@ export function ToastContainer() {
   return (
     <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
       {toasts.map(t => (
+        // toast wraps nested copy/dismiss buttons; semantic <button> would nest buttons
+        // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
         <div
           key={t.id}
           className={`bg-background border rounded-lg shadow-lg p-3 animate-in slide-in-from-right-5 fade-in duration-200 ${t.variant === 'warning' ? 'border-orange-500/50' : t.variant === 'success' ? 'border-amber-500/50' : 'border-accent/50'} ${t.conversationId || t.taskId ? 'cursor-pointer hover:border-accent' : ''}`}

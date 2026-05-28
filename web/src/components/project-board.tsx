@@ -394,6 +394,8 @@ export function TaskEditor({
               editorViewRef={editorViewRef}
             />
           ) : body.trim() ? (
+            // markdown body may contain links; cannot be a native <button>
+            // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
             <div
               role="button"
               tabIndex={0}
@@ -406,17 +408,13 @@ export function TaskEditor({
               <Markdown>{body}</Markdown>
             </div>
           ) : (
-            <div
-              role="button"
-              tabIndex={0}
-              className="text-sm text-muted-foreground/30 font-mono cursor-text min-h-[200px]"
+            <button
+              type="button"
+              className="text-sm text-muted-foreground/30 font-mono cursor-text min-h-[200px] text-left w-full appearance-none bg-transparent border-0 p-0"
               onClick={() => setEditing(true)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') setEditing(true)
-              }}
             >
               Click to add content…
-            </div>
+            </button>
           )}
         </div>
 
@@ -940,6 +938,8 @@ function ProjectCard({
   const style = transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined
 
   return (
+    // task card carries dnd-kit drag handlers + nested action buttons; semantic <button> would nest buttons
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
     <div
       ref={setNodeRef}
       style={style}

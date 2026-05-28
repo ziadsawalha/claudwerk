@@ -20,13 +20,15 @@ function InlineConfirmButton({
 
   if (confirming) {
     return (
+      // rendered inside conversation-row interactive; semantic <button> children would nest buttons
+      // react-doctor-disable-next-line react-doctor/no-static-element-interactions
       <div
         className="flex items-center gap-1 text-[9px]"
-        role="group"
         onClick={e => e.stopPropagation()}
         onKeyDown={e => e.stopPropagation()}
       >
         {confirmLabel}
+        {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
         <div
           role="button"
           tabIndex={0}
@@ -38,6 +40,7 @@ function InlineConfirmButton({
         >
           yes
         </div>
+        {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
         <div
           role="button"
           tabIndex={0}

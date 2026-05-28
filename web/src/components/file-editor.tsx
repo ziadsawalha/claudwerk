@@ -259,6 +259,8 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
       </div>
 
       {/* Draggable resize handle */}
+      {/* draggable separator; native <hr> cannot carry pointer interactions */}
+      {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
       <div
         role="separator"
         tabIndex={0}

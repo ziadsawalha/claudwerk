@@ -15,11 +15,14 @@ export function AutocompleteDropdown({ items, selectedIndex, trigger, onSelect, 
   const triggerChar = trigger || '/'
 
   return (
+    // ARIA listbox/option pattern; native <select>/<option> can't support the autocomplete UX
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
     <div
       role="listbox"
       className="absolute bottom-full left-0 right-0 z-30 mb-1 bg-background border border-border rounded shadow-lg max-h-[240px] overflow-y-auto"
     >
       {items.map((entry, i) => (
+        // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
         <div
           key={`${triggerChar}${entry.item}`}
           role="option"

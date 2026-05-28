@@ -110,13 +110,21 @@ function AdHocBadge({ conversation }: { conversation: Conversation }) {
   }
 
   return (
+    // nested inside outer <button>, semantic <button> would be invalid HTML
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
     <span
       role="button"
       tabIndex={0}
       className="text-[10px] text-amber-400 font-bold px-1 py-0.5 bg-amber-500/10 rounded cursor-pointer hover:bg-amber-500/20"
-      onClick={openTask}
+      onClick={e => {
+        e.stopPropagation()
+        openTask()
+      }}
       onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') openTask()
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.stopPropagation()
+          openTask()
+        }
       }}
       title={conversation.adHocTaskId ? `Task: ${conversation.adHocTaskId}` : 'Ad-hoc conversation'}
     >

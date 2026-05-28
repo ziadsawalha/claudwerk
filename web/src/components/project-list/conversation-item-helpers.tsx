@@ -119,21 +119,14 @@ export const SpawnRootStub = memo(function SpawnRootStub({ conversationId }: { c
   if (!conversation) return null
   const title = conversation.title || conversation.agentName || conversation.id.slice(0, 8)
   return (
-    <div
+    <button
+      type="button"
       data-conversation-id={conversation.id}
-      role="button"
-      tabIndex={0}
       onClick={() => {
         haptic('tap')
         selectConversation(conversation.id, 'click')
       }}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          haptic('tap')
-          selectConversation(conversation.id, 'click')
-        }
-      }}
-      className="w-full text-left border border-border/60 p-2 pl-4 transition-colors cursor-pointer hover:border-primary/40"
+      className="w-full text-left border border-border/60 p-2 pl-4 transition-colors cursor-pointer hover:border-primary/40 appearance-none bg-transparent text-inherit"
       title={`Spawn root -- ${projectPath(conversation.project)}`}
     >
       <div className="flex items-center gap-1.5">
@@ -141,7 +134,7 @@ export const SpawnRootStub = memo(function SpawnRootStub({ conversationId }: { c
         <span className="font-mono text-[11px] truncate flex-1 text-muted-foreground">{title}</span>
         <SpawnedChildrenBadge conversation={conversation} />
       </div>
-    </div>
+    </button>
   )
 })
 
@@ -156,6 +149,8 @@ export function ResultTextModal({ conversation }: { conversation: Conversation }
 
   return (
     <>
+      {/* nested inside conversation row interactive; semantic <button> would be invalid HTML */}
+      {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
       <span
         role="button"
         tabIndex={0}
@@ -212,6 +207,8 @@ export function DismissButton({ conversationId }: { conversationId: string }) {
     <InlineConfirmButton
       onConfirm={() => dismissConversation(conversationId)}
       trigger={requestConfirm => (
+        // nested inside conversation row interactive; semantic <button> would be invalid HTML
+        // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
         <div
           role="button"
           tabIndex={0}
@@ -367,8 +364,10 @@ export function ConversationItemShell({
   children: ReactNode
 }) {
   return (
+    // shell wraps nested interactives (dismiss/attach/etc); semantic <button> would nest buttons
     <div
       data-conversation-id={conversation.id}
+      // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
       role="button"
       tabIndex={0}
       onClick={onClick}

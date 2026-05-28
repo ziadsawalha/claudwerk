@@ -263,6 +263,8 @@ export function ConversationInfoButton({ conversation, visible }: { conversation
 
   return (
     <>
+      {/* nested inside conversation-row interactive; semantic <button> would be invalid HTML */}
+      {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
       <span
         role="button"
         tabIndex={0}

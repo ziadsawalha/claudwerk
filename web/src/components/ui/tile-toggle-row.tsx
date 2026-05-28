@@ -33,33 +33,24 @@ export function TileToggleRow({
     haptic('tap')
   }
 
-  function handleKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      handleToggle()
-    }
-  }
-
   return (
-    <div
-      role="button"
-      tabIndex={disabled ? -1 : 0}
+    <button
+      type="button"
       aria-label={ariaLabel || title}
       aria-pressed={checked}
-      aria-disabled={disabled || undefined}
+      disabled={disabled}
       className={cn(
-        'flex items-center justify-between py-1.5 px-1 rounded cursor-pointer select-none',
+        'flex items-center justify-between py-1.5 px-1 rounded cursor-pointer select-none w-full appearance-none bg-transparent border-0 text-left text-inherit',
         'focus:outline-none focus:ring-1 focus:ring-primary/50',
         disabled && 'opacity-50 cursor-not-allowed',
       )}
       onClick={handleToggle}
-      onKeyDown={handleKey}
     >
       <div>
         <div className="text-sm font-mono">{title}</div>
         {subtitle && <div className="text-[10px] text-comment">{subtitle}</div>}
       </div>
       <ToggleSwitch on={checked} />
-    </div>
+    </button>
   )
 }

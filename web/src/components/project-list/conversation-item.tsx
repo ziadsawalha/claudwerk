@@ -86,21 +86,14 @@ export const InactiveProjectItem = memo(
     return (
       <ConversationContextMenu conversation={latest} onOpenSettings={() => setShowSettings(true)}>
         <div>
-          <div
+          <button
+            type="button"
             data-conversation-id={latest.id}
-            role="button"
-            tabIndex={0}
             onClick={() => {
               haptic('tap')
               selectConversation(latest.id, 'click')
             }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                haptic('tap')
-                selectConversation(latest.id, 'click')
-              }
-            }}
-            className="w-full text-left border border-border hover:border-primary p-2 pl-3 transition-colors cursor-pointer"
+            className="w-full text-left border border-border hover:border-primary p-2 pl-3 transition-colors cursor-pointer appearance-none bg-transparent text-inherit"
             style={displayColor ? { borderLeftColor: displayColor, borderLeftWidth: '3px' } : undefined}
             title={`${conversations.length} conversation${conversations.length > 1 ? 's' : ''}\n${projectPath(latest.project)}`}
           >
@@ -120,7 +113,7 @@ export const InactiveProjectItem = memo(
                 {formatAge(latest.lastActivity)}
               </span>
             </div>
-          </div>
+          </button>
           {showSettings && <ProjectSettingsEditor project={latest.project} onClose={() => setShowSettings(false)} />}
         </div>
       </ConversationContextMenu>

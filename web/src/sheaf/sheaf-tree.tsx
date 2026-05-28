@@ -72,6 +72,8 @@ export function SheafNodeRow({ node, depth, now, showRecaps = true, flat = false
   const totalTokens = node.tokens.input + node.tokens.output + node.tokens.cache
 
   return (
+    // tree row may render nested toggle/recap actions; keep div-with-role to allow future children
+    // react-doctor-disable-next-line react-doctor/prefer-tag-over-role
     <div
       className="group border-l-2 border-transparent hover:border-foreground/30 hover:bg-foreground/[0.03] transition-colors px-2 py-1.5 cursor-pointer"
       style={{ marginLeft: depth * 20 }}

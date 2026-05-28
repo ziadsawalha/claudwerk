@@ -37,8 +37,12 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
       className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]"
       onClick={onClose}
     >
+      {/* React-controlled modal; native <dialog> open/close API is incompatible with this overlay pattern. */}
+      {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role, react-doctor/prefer-html-dialog */}
       <div
         role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         className="w-full max-w-lg bg-surface-inset border border-primary/20 shadow-2xl font-mono"
         onClick={e => e.stopPropagation()}
         onKeyDown={e => e.stopPropagation()}

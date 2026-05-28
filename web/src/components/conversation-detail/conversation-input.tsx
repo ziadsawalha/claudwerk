@@ -157,21 +157,13 @@ export const InputBar = memo(function InputBar({ conversationId }: { conversatio
       className={cn('shrink-0 p-3 border-t bg-background z-10 transition-colors duration-200', 'border-border')}
     >
       {showAttention && pendingAttention && conversationHasTerminal && (
-        <div
-          role="button"
-          tabIndex={0}
-          className="mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded font-mono text-xs text-amber-400 flex items-center gap-2 animate-pulse cursor-pointer hover:bg-amber-500/20 transition-colors"
+        <button
+          type="button"
+          className="mb-2 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded font-mono text-xs text-amber-400 flex items-center gap-2 animate-pulse cursor-pointer hover:bg-amber-500/20 transition-colors text-left w-full appearance-none"
           onClick={() => {
             haptic('tap')
             const store = useConversationsStore.getState()
             if (store.selectedConversationId) store.openTab(store.selectedConversationId, 'tty')
-          }}
-          onKeyDown={e => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              haptic('tap')
-              const store = useConversationsStore.getState()
-              if (store.selectedConversationId) store.openTab(store.selectedConversationId, 'tty')
-            }
           }}
         >
           <span className="text-amber-500 font-bold shrink-0">!</span>
@@ -200,7 +192,7 @@ export const InputBar = memo(function InputBar({ conversationId }: { conversatio
             {pendingAttention.type === 'ask' && <>TTY is waiting for your answer</>}
           </span>
           <span className="text-amber-500/60 shrink-0 text-[10px]">open terminal</span>
-        </div>
+        </button>
       )}
       {stashCount > 0 && (
         <button

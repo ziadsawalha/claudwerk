@@ -12,17 +12,13 @@ function PrefixChip({ prefix, label, onTap }: { prefix: string; label: string; o
     onTap(prefix)
   }
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      className="touch-chip cursor-pointer active:bg-primary/20 rounded px-1 -mx-0.5"
+    <button
+      type="button"
+      className="touch-chip cursor-pointer active:bg-primary/20 rounded px-1 -mx-0.5 appearance-none bg-transparent border-0 text-inherit"
       onClick={handleTap}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') handleTap()
-      }}
     >
       <Kbd>{prefix}</Kbd> {label}
-    </span>
+    </button>
   )
 }
 
