@@ -35,6 +35,7 @@ import type {
   TranscriptEntry,
 } from '@/lib/types'
 import { formatRateBucketName, haptic } from '@/lib/utils'
+import { clearThinkingProgress, recordThinkingProgress } from './thinking-progress-store'
 import { recordTokenSample } from './token-flow-store'
 import {
   applyHashRoute,
@@ -318,6 +319,10 @@ function handleTranscriptEntries(msg: DashboardMessage) {
   const sid = msg.conversationId
   const newEntries = msg.entries as TranscriptEntry[]
   const initial = msg.isInitial as boolean
+  // Terminus for the live thinking indicator: any new (non-initial) entry
+  // means the model has emitted SOMETHING -- the thinking phase is over.
+  // Cheap insurance even though the store has its own 4s staleness clear.
+  if (!initial && newEntries.length > 0) clearThinkingProgress(sid)
   useConversationsStore.setState(state => {
     const existing = state.transcripts[sid] || []
     // isInitial=true REPLACES the cache. The agent host fires this on WS
@@ -1186,6 +1191,20 @@ function handleTokenSample(msg: DashboardMessage): void {
   })
 }
 
+// Live thinking-progress ping -> per-conversation ring outside React/Zustand.
+// Ephemeral: dropped after a 4s idle window, cleared when a new transcript
+// entry arrives. The ThinkingPill component reads via useSyncExternalStore.
+function handleThinkingProgress(msg: DashboardMessage): void {
+  const conversationId = msg.conversationId as string | undefined
+  const tokens = msg.tokens as number | undefined
+  if (!conversationId || typeof tokens !== 'number') return
+  recordThinkingProgress(conversationId, {
+    tokens,
+    delta: typeof msg.delta === 'number' ? (msg.delta as number) : undefined,
+    t: (msg.t as number | undefined) || Date.now(),
+  })
+}
+
 function extractRateLimitFields(msg: DashboardMessage): RateLimitFields {
   const info = (msg.raw as Record<string, unknown>)?.rate_limit_info as Record<string, unknown> | undefined
   const sentinelId = (msg.sentinelId as string | undefined) || ''
@@ -1286,6 +1305,7 @@ export const handlers: Record<string, MessageHandler> = {
   usage_update: handleUsageUpdate,
   sentinel_usage_report: handleSentinelUsageReport,
   token_sample: handleTokenSample,
+  thinking_progress: handleThinkingProgress,
   claude_health_update: handleClaudeHealthUpdate,
   claude_efficiency_update: handleClaudeEfficiencyUpdate,
   rate_limit_status: handleRateLimitStatus,
