@@ -48,17 +48,20 @@ export function useFileEditor(conversationId: string | null) {
 
   const sendWsMessage = useConversationsStore(state => state.sendWsMessage)
 
-  function sendRequest(msg: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const requestId = crypto.randomUUID()
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        pendingRequests.current.delete(requestId)
-        reject(new Error('Request timed out'))
-      }, REQUEST_TIMEOUT_MS)
-      pendingRequests.current.set(requestId, { resolve, reject, timeout })
-      sendWsMessage({ ...msg, requestId })
-    })
-  }
+  const sendRequest = useCallback(
+    (msg: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const requestId = crypto.randomUUID()
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          pendingRequests.current.delete(requestId)
+          reject(new Error('Request timed out'))
+        }, REQUEST_TIMEOUT_MS)
+        pendingRequests.current.set(requestId, { resolve, reject, timeout })
+        sendWsMessage({ ...msg, requestId })
+      })
+    },
+    [sendWsMessage],
+  )
 
   // Handle incoming WS messages for file editor
   const handleMessage = useCallback(
@@ -105,7 +108,6 @@ export function useFileEditor(conversationId: string | null) {
   }, [handleMessage])
 
   // Load file list
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendRequest is recreated each render but intentionally omitted - conversationId is the real trigger
   const loadFileList = useCallback(async () => {
     if (!conversationId) return
     setLoading(true)
@@ -121,10 +123,9 @@ export function useFileEditor(conversationId: string | null) {
     } finally {
       setLoading(false)
     }
-  }, [conversationId])
+  }, [conversationId, sendRequest])
 
   // Open a file
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendRequest is recreated each render but intentionally omitted - conversationId/sendWsMessage are the real triggers
   const openFile = useCallback(
     async (path: string) => {
       if (!conversationId) return
@@ -149,7 +150,7 @@ export function useFileEditor(conversationId: string | null) {
         setLoading(false)
       }
     },
-    [conversationId, sendWsMessage],
+    [conversationId, sendWsMessage, sendRequest],
   )
 
   // Close current file
@@ -169,7 +170,6 @@ export function useFileEditor(conversationId: string | null) {
   }, [conversationId, activeFile, sendWsMessage])
 
   // Save file
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendRequest is recreated each render but intentionally omitted - conversationId/dirty are the real triggers
   const saveFile = useCallback(async () => {
     if (!conversationId || !activeFileRef.current || !dirty) return
     setSaving(true)
@@ -195,7 +195,7 @@ export function useFileEditor(conversationId: string | null) {
     } finally {
       setSaving(false)
     }
-  }, [conversationId, dirty])
+  }, [conversationId, dirty, sendRequest])
 
   // Update content (from editor changes)
   const updateContent = useCallback(
@@ -224,7 +224,6 @@ export function useFileEditor(conversationId: string | null) {
   )
 
   // Load history
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendRequest is recreated each render but intentionally omitted - conversationId is the real trigger
   const loadHistory = useCallback(
     async (path: string) => {
       if (!conversationId) return
@@ -239,11 +238,10 @@ export function useFileEditor(conversationId: string | null) {
         setError(err instanceof Error ? err.message : String(err))
       }
     },
-    [conversationId],
+    [conversationId, sendRequest],
   )
 
   // Restore version
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendRequest is recreated each render but intentionally omitted - conversationId is the real trigger
   const restoreVersion = useCallback(
     async (path: string, ver: number) => {
       if (!conversationId) return
@@ -262,11 +260,10 @@ export function useFileEditor(conversationId: string | null) {
         setError(err instanceof Error ? err.message : String(err))
       }
     },
-    [conversationId],
+    [conversationId, sendRequest],
   )
 
   // Quick note append
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sendRequest is recreated each render but intentionally omitted - conversationId is the real trigger
   const appendQuickNote = useCallback(
     async (text: string) => {
       if (!conversationId) return
@@ -280,7 +277,7 @@ export function useFileEditor(conversationId: string | null) {
         setError(err instanceof Error ? err.message : String(err))
       }
     },
-    [conversationId],
+    [conversationId, sendRequest],
   )
 
   // Cleanup on conversation change
