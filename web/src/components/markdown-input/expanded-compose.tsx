@@ -150,7 +150,7 @@ export function ExpandedCompose({
               title="Voice input"
               style={{ touchAction: 'manipulation' }}
             >
-              <Mic className="w-4 h-4" />
+              <Mic className="size-4" />
             </button>
           )}
           <button
@@ -159,7 +159,7 @@ export function ExpandedCompose({
             className="text-muted-foreground hover:text-accent transition-colors p-1"
             title="Attach file"
           >
-            <Paperclip className="w-4 h-4" />
+            <Paperclip className="size-4" />
           </button>
           <button
             type="button"

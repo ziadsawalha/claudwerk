@@ -413,7 +413,7 @@ export function MarkdownInput({
             title="Voice input (tap to record)"
             style={{ touchAction: 'manipulation' }}
           >
-            <Mic className="w-3.5 h-3.5" />
+            <Mic className="size-3.5" />
           </button>
         )}
         <button
@@ -422,7 +422,7 @@ export function MarkdownInput({
           className="text-muted-foreground hover:text-accent transition-colors p-0.5"
           title="Attach file (or paste/drop image)"
         >
-          <Paperclip className="w-3.5 h-3.5" />
+          <Paperclip className="size-3.5" />
         </button>
       </div>
       <input
