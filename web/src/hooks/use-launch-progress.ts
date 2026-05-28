@@ -12,7 +12,7 @@ import { haptic } from '@/lib/utils'
 import { useConversationsStore } from './use-conversations'
 import { useLaunchChannel } from './use-launch-channel'
 
-export type LaunchStep = {
+export type LaunchProgressStep = {
   label: string
   /** `warn` = soft pre-flight finding. Non-fatal but worth surfacing distinctly. */
   status: 'pending' | 'active' | 'done' | 'error' | 'warn'
@@ -46,7 +46,7 @@ export function useLaunchProgress({
   enabled = true,
   onTimeout,
 }: UseLaunchProgressOptions) {
-  const [steps, setSteps] = useState<LaunchStep[]>([])
+  const [steps, setSteps] = useState<LaunchProgressStep[]>([])
   const [error, setError] = useState<string | null>(null)
   const [startTime, setStartTime] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -60,7 +60,7 @@ export function useLaunchProgress({
   const effectiveWrapperId = launch.conversationId || externalWrapperId
 
   /** Initialize monitoring. Call when launching begins. */
-  function start(initialSteps?: LaunchStep[]) {
+  function start(initialSteps?: LaunchProgressStep[]) {
     setStartTime(Date.now())
     setSteps(initialSteps || [])
     setError(null)
@@ -124,10 +124,10 @@ export function useLaunchProgress({
     if (!autoInsertEvents || launch.events.length === 0 || !enabled) return
     setSteps(prev => {
       const existingLabels = new Set(prev.map(s => s.label))
-      const newSteps: LaunchStep[] = []
+      const newSteps: LaunchProgressStep[] = []
       for (const evt of launch.events) {
         if (existingLabels.has(evt.step)) continue
-        const status: LaunchStep['status'] =
+        const status: LaunchProgressStep['status'] =
           evt.status === 'ok'
             ? 'done'
             : evt.status === 'error'

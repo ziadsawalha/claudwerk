@@ -92,6 +92,9 @@ export function recordTokenSample(s: TokenSample): void {
   dirty = true
 }
 
+// fallow-ignore-next-line duplicate-export
+// Standard useSyncExternalStore surface (subscribe + getVersion) -- intentionally
+// re-named per store; not a name collision.
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => {
@@ -100,6 +103,7 @@ export function subscribe(fn: () => void): () => void {
 }
 
 /** Stable primitive snapshot for useSyncExternalStore. */
+// fallow-ignore-next-line duplicate-export
 export function getVersion(): number {
   return version
 }

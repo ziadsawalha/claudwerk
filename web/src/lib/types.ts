@@ -288,30 +288,7 @@ export function projectPath(uri: string): string {
   }
 }
 
-/**
- * Convert a filesystem path to a project URI.
- * e.g. "/Users/jonas/foo" -> "claude:///Users/jonas/foo"
- * Duplicated from src/shared/project-uri.ts since web bundle can't import from src/shared/.
- */
-export function cwdToProjectUri(cwd: string): string {
-  return `claude://${cwd}`
-}
-
-/**
- * Extract a human-readable label from a project URI.
- * Returns the last path segment (e.g. "claude:///Users/jonas/foo" -> "foo").
- * Duplicated from src/shared/project-uri.ts since web bundle can't import from src/shared/.
- */
-export function extractProjectLabel(uri: string): string {
-  if (!uri || uri === '*') return uri || ''
-  try {
-    const url = new URL(uri)
-    const segments = decodeURIComponent(url.pathname).split('/').filter(Boolean)
-    return segments.length > 0 ? segments[segments.length - 1] : uri
-  } catch {
-    // Legacy "cwd:<path>" format or plain path
-    const path = uri.startsWith('cwd:') ? uri.slice(4) : uri
-    const segments = path.split('/').filter(Boolean)
-    return segments.length > 0 ? segments[segments.length - 1] : uri
-  }
-}
+// cwdToProjectUri + extractProjectLabel re-export from the shared module.
+// Web previously kept divergent stubs under a "can't import from src/shared/"
+// rationale that no longer applies (the @shared/* path alias works).
+export { cwdToProjectUri, extractProjectLabel } from '@shared/project-uri'

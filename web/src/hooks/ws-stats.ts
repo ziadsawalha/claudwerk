@@ -79,6 +79,8 @@ export function getRates() {
   return rates
 }
 
+// fallow-ignore-next-line duplicate-export
+// Standard useSyncExternalStore subscribe surface -- intentionally per-store.
 export function subscribe(fn: () => void) {
   listeners.add(fn)
   return () => listeners.delete(fn)
