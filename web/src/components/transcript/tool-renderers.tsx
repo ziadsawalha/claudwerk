@@ -70,108 +70,117 @@ function buildDiffLines(patches: Array<{ oldStart: number; lines: string[] }>): 
   return allLines
 }
 
-// Syntax-highlighted diff view for Edit operations
-export const DiffView = memo(function DiffView({
-  patches,
-  filePath,
-}: {
-  patches: Array<{ oldStart: number; lines: string[] }>
-  filePath?: string
-}) {
-  const [highlighted, setHighlighted] = useState<Map<string, string> | null>(null)
-  const [revealed, setRevealed] = useState(false)
-  const prefs = useConversationsStore(s => s.controlPanelPrefs)
-  const limit = resolveToolDisplay(prefs, 'Edit').lineLimit
+/** Structural equality on diff hunks. Strings compare by value, so two
+ *  arrays with the same content but different refs (toolUseResult gets
+ *  rehydrated on every transcript tick) are considered equal -- which keeps
+ *  DiffView's memo + its Shiki tokenize useEffect from firing. O(total lines),
+ *  bails on first mismatch, no allocation. */
+export function patchesEqual(
+  a: Array<{ oldStart: number; lines: string[] }>,
+  b: Array<{ oldStart: number; lines: string[] }>,
+): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].oldStart !== b[i].oldStart) return false
+    const al = a[i].lines
+    const bl = b[i].lines
+    if (al.length !== bl.length) return false
+    for (let j = 0; j < al.length; j++) {
+      if (al[j] !== bl[j]) return false
+    }
+  }
+  return true
+}
 
-  useEffect(() => {
-    const lang = filePath ? langFromPath(filePath) : undefined
-    if (!lang) return
-    if (patches.length === 0) return
+// Syntax-highlighted diff view for Edit operations.
+// Custom memo equality: patches arrays get a fresh ref on every transcript
+// rehydrate even when content is identical -- shallow memo would re-run Shiki
+// on every render. patchesEqual compares hunks structurally.
+export const DiffView = memo(
+  function DiffView({
+    patches,
+    filePath,
+  }: {
+    patches: Array<{ oldStart: number; lines: string[] }>
+    filePath?: string
+  }) {
+    const [highlighted, setHighlighted] = useState<Map<string, string> | null>(null)
+    const [revealed, setRevealed] = useState(false)
+    const prefs = useConversationsStore(s => s.controlPanelPrefs)
+    const limit = resolveToolDisplay(prefs, 'Edit').lineLimit
 
-    ensureLang(lang)
-      .then(async ok => {
-        if (!ok) return
-        const highlighter = await getHighlighter()
-        const lineMap = new Map<string, string>()
-        // Highlight each patch separately, and within a patch run TWO passes:
-        // one over (context + removed) lines and one over (context + added) lines.
-        // Mixing +/- lines or concatenating across hunks creates syntactically
-        // broken code that shiki's tokenizer can't recover from (e.g. a stray
-        // unterminated string makes it emit the rest as one plain token).
-        const runPass = (lines: string[]) => {
-          if (lines.length === 0) return
-          try {
-            const tokens = highlighter.codeToTokens(lines.join('\n'), { lang, theme: 'tokyo-night' })
-            for (let i = 0; i < tokens.tokens.length; i++) {
-              const lineTokens = tokens.tokens[i] as Array<{ color?: string; content: string }>
-              const html = lineTokens
-                .map(t => `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`)
-                .join('')
-              lineMap.set(lines[i], html)
+    useEffect(() => {
+      const lang = filePath ? langFromPath(filePath) : undefined
+      if (!lang) return
+      if (patches.length === 0) return
+
+      ensureLang(lang)
+        .then(async ok => {
+          if (!ok) return
+          const highlighter = await getHighlighter()
+          const lineMap = new Map<string, string>()
+          // Highlight each patch separately, and within a patch run TWO passes:
+          // one over (context + removed) lines and one over (context + added) lines.
+          // Mixing +/- lines or concatenating across hunks creates syntactically
+          // broken code that shiki's tokenizer can't recover from (e.g. a stray
+          // unterminated string makes it emit the rest as one plain token).
+          const runPass = (lines: string[]) => {
+            if (lines.length === 0) return
+            try {
+              const tokens = highlighter.codeToTokens(lines.join('\n'), { lang, theme: 'tokyo-night' })
+              for (let i = 0; i < tokens.tokens.length; i++) {
+                const lineTokens = tokens.tokens[i] as Array<{ color?: string; content: string }>
+                const html = lineTokens
+                  .map(t => `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`)
+                  .join('')
+                lineMap.set(lines[i], html)
+              }
+            } catch {
+              // skip -- line stays plain
             }
-          } catch {
-            // skip -- line stays plain
           }
-        }
-        for (const patch of patches) {
-          const beforeLines: string[] = []
-          const afterLines: string[] = []
-          for (const line of patch.lines) {
-            const prefix = line[0]
-            const content = line.slice(1)
-            if (prefix === ' ' || prefix === '-') beforeLines.push(content)
-            if (prefix === ' ' || prefix === '+') afterLines.push(content)
+          for (const patch of patches) {
+            const beforeLines: string[] = []
+            const afterLines: string[] = []
+            for (const line of patch.lines) {
+              const prefix = line[0]
+              const content = line.slice(1)
+              if (prefix === ' ' || prefix === '-') beforeLines.push(content)
+              if (prefix === ' ' || prefix === '+') afterLines.push(content)
+            }
+            runPass(beforeLines)
+            runPass(afterLines)
           }
-          runPass(beforeLines)
-          runPass(afterLines)
-        }
-        setHighlighted(lineMap)
-      })
-      .catch(() => {})
-  }, [patches, filePath])
+          setHighlighted(lineMap)
+        })
+        .catch(() => {})
+    }, [patches, filePath])
 
-  const allLines = useMemo(() => buildDiffLines(patches), [patches])
-  const totalLines = allLines.length
-  const needsTruncation = limit > 0 && totalLines > limit && !revealed
-  const visibleLines = needsTruncation ? allLines.slice(0, limit) : allLines
+    const allLines = useMemo(() => buildDiffLines(patches), [patches])
+    const totalLines = allLines.length
+    const needsTruncation = limit > 0 && totalLines > limit && !revealed
+    const visibleLines = needsTruncation ? allLines.slice(0, limit) : allLines
 
-  return (
-    <div>
-      <pre className="text-[10px] font-mono overflow-x-auto">
-        {visibleLines.map((line, j) => {
-          if (line.hunkHeader) {
+    return (
+      <div>
+        <pre className="text-[10px] font-mono overflow-x-auto">
+          {visibleLines.map((line, j) => {
+            if (line.hunkHeader) {
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional, no stable IDs
+                <div key={j} className="text-muted-foreground">
+                  {line.hunkHeader}
+                </div>
+              )
+            }
+            const syntaxHtml = highlighted?.get(line.content)
             return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional, no stable IDs
-              <div key={j} className="text-muted-foreground">
-                {line.hunkHeader}
-              </div>
-            )
-          }
-          const syntaxHtml = highlighted?.get(line.content)
-          return (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional, no stable IDs
-              key={j}
-              className={cn(line.prefix === '+' && 'bg-green-500/10', line.prefix === '-' && 'bg-red-500/10')}
-            >
-              <span
-                className={cn(
-                  line.prefix === '+' && 'text-green-400',
-                  line.prefix === '-' && 'text-red-400',
-                  line.prefix !== '+' && line.prefix !== '-' && 'text-muted-foreground',
-                )}
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are positional, no stable IDs
+                key={j}
+                className={cn(line.prefix === '+' && 'bg-green-500/10', line.prefix === '-' && 'bg-red-500/10')}
               >
-                {line.prefix}
-              </span>
-              {line.wordDiffs ? (
-                <WordDiffLine
-                  parts={line.wordDiffs}
-                  mode={line.prefix === '+' ? 'add' : 'remove'}
-                  syntaxHtml={syntaxHtml}
-                />
-              ) : syntaxHtml ? (
-                <span dangerouslySetInnerHTML={{ __html: syntaxHtml }} />
-              ) : (
                 <span
                   className={cn(
                     line.prefix === '+' && 'text-green-400',
@@ -179,25 +188,45 @@ export const DiffView = memo(function DiffView({
                     line.prefix !== '+' && line.prefix !== '-' && 'text-muted-foreground',
                   )}
                 >
-                  {line.content}
+                  {line.prefix}
                 </span>
-              )}
-            </div>
-          )
-        })}
-      </pre>
-      {needsTruncation && (
-        <button
-          type="button"
-          onClick={() => setRevealed(true)}
-          className="text-[10px] text-accent hover:text-accent/80 font-mono mt-0.5 px-2"
-        >
-          +{totalLines - limit} more lines
-        </button>
-      )}
-    </div>
-  )
-})
+                {line.wordDiffs ? (
+                  <WordDiffLine
+                    parts={line.wordDiffs}
+                    mode={line.prefix === '+' ? 'add' : 'remove'}
+                    syntaxHtml={syntaxHtml}
+                  />
+                ) : syntaxHtml ? (
+                  <span dangerouslySetInnerHTML={{ __html: syntaxHtml }} />
+                ) : (
+                  <span
+                    className={cn(
+                      line.prefix === '+' && 'text-green-400',
+                      line.prefix === '-' && 'text-red-400',
+                      line.prefix !== '+' && line.prefix !== '-' && 'text-muted-foreground',
+                    )}
+                  >
+                    {line.content}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </pre>
+        {needsTruncation && (
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="text-[10px] text-accent hover:text-accent/80 font-mono mt-0.5 px-2"
+          >
+            +{totalLines - limit} more lines
+          </button>
+        )}
+      </div>
+    )
+  },
+  (a, b) => a.filePath === b.filePath && patchesEqual(a.patches, b.patches),
+)
 
 interface SyntaxToken {
   text: string
