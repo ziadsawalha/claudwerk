@@ -32,11 +32,11 @@ export function SharedConversationView({ token: _token }: { token: string }) {
 
   // Fetch transcript for selected conversation
   const fetchedRef = useRef(false)
-  const scrollBumpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!selectedConversationId || !isConnected || fetchedRef.current) return
     fetchedRef.current = true
     let cancelled = false
+    let scrollBumpTimeout: ReturnType<typeof setTimeout> | null = null
     fetchConversationEvents(selectedConversationId).then(events => {
       if (cancelled) return
       useConversationsStore.getState().setEvents(selectedConversationId, events)
@@ -46,13 +46,13 @@ export function SharedConversationView({ token: _token }: { token: string }) {
       useConversationsStore.getState().setTranscript(selectedConversationId, transcript.entries)
       // Bump newDataSeq again after a delay to trigger scroll-to-bottom
       // after the virtualizer has measured all items
-      scrollBumpTimeoutRef.current = setTimeout(() => {
+      scrollBumpTimeout = setTimeout(() => {
         useConversationsStore.setState(s => ({ newDataSeq: s.newDataSeq + 1 }))
       }, 200)
     })
     return () => {
       cancelled = true
-      if (scrollBumpTimeoutRef.current) clearTimeout(scrollBumpTimeoutRef.current)
+      if (scrollBumpTimeout) clearTimeout(scrollBumpTimeout)
     }
   }, [selectedConversationId, isConnected])
 
