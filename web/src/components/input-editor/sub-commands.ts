@@ -103,9 +103,12 @@ const SUB_COMMANDS: SubCommandDef[] = [
         { value: 'bypassPermissions', label: 'Bypass - skip permission prompts' },
       ]
       const ql = q.toLowerCase()
-      return modes
-        .filter(m => !ql || m.value.toLowerCase().includes(ql) || m.label.toLowerCase().includes(ql))
-        .map(m => ({ value: m.value, label: m.label, builtin: true }))
+      const out: Array<{ value: string; label: string; builtin: true }> = []
+      for (const m of modes) {
+        if (ql && !m.value.toLowerCase().includes(ql) && !m.label.toLowerCase().includes(ql)) continue
+        out.push({ value: m.value, label: m.label, builtin: true })
+      }
+      return out
     },
   },
   { name: 'plan', noArg: true },
@@ -122,13 +125,21 @@ const SUB_COMMANDS: SubCommandDef[] = [
 
 export const BUILTIN_NAMES = SUB_COMMANDS.map(c => c.name)
 
+const NO_ARG_NAMES: string[] = []
+for (const c of SUB_COMMANDS) {
+  if (c.noArg) NO_ARG_NAMES.push(c.name)
+}
 export const NO_ARG_COMMANDS: ReadonlySet<string> = new Set([
-  ...SUB_COMMANDS.filter(c => c.noArg).map(c => c.name),
+  ...NO_ARG_NAMES,
   'context', // CC-reported commands that take no args
   'quit',
 ])
 
-const SUB_COMMAND_MAP = new Map(SUB_COMMANDS.filter(c => c.completer).map(c => [c.name, c]))
+const SUB_COMMAND_ENTRIES: Array<[string, SubCommandDef]> = []
+for (const c of SUB_COMMANDS) {
+  if (c.completer) SUB_COMMAND_ENTRIES.push([c.name, c])
+}
+const SUB_COMMAND_MAP = new Map(SUB_COMMAND_ENTRIES)
 
 /** Match `/command args...` at start of input. Returns [def, argsRest] or null. */
 export function matchSubCommand(input: string): [SubCommandDef, string] | null {

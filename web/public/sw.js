@@ -27,7 +27,10 @@ self.addEventListener('install', event => {
       .then(async manifest => {
         installedBuildHash = manifest.buildHash
         const cache = await caches.open(`${PRECACHE}-${manifest.buildHash}`)
-        const urls = manifest.files.map(f => f.url).filter(u => !u.endsWith('.map'))
+        const urls = []
+        for (const f of manifest.files) {
+          if (!f.url.endsWith('.map')) urls.push(f.url)
+        }
         urls.push('/')
         await cache.addAll(urls)
         console.log(`[sw] precached ${urls.length} files (build: ${manifest.buildHash})`)

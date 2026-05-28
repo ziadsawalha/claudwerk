@@ -267,10 +267,13 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
   // honest about how dense it actually is.
   const showHostCol = useMemo(() => convRows.some(r => hostLabel(r.conv) !== null), [convRows])
   const showRecapCol = useMemo(() => convRows.some(r => recapSnippet(r.conv) !== null), [convRows])
-  const focusableIndices = useMemo(
-    () => flatRows.map((r, i) => (r.kind === 'conv' ? i : -1)).filter(i => i >= 0),
-    [flatRows],
-  )
+  const focusableIndices = useMemo(() => {
+    const out: number[] = []
+    for (let i = 0; i < flatRows.length; i++) {
+      if (flatRows[i].kind === 'conv') out.push(i)
+    }
+    return out
+  }, [flatRows])
 
   // Clamp focus when list size changes.
   useEffect(() => {

@@ -90,7 +90,10 @@ export function BatchProgress({ action, conversationIds, batchId, input, onRetry
   }, [])
 
   const settled = Array.from(rows.values()).filter(r => r.settledAt)
-  const failedIds = settled.filter(r => !r.ok).map(r => r.conversationId)
+  const failedIds: string[] = []
+  for (const r of settled) {
+    if (!r.ok) failedIds.push(r.conversationId)
+  }
   const total = conversationIds.length
 
   return (

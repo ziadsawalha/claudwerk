@@ -79,13 +79,13 @@ export function useConversationMode(
   // Pinned projects (the projectSettings key is a normalized project URI, directly
   // usable as a selectProject() argument -- see PinnedProjectNode). All pinned
   // projects surface, even ones that already have active conversation rows.
-  const pinnedProjectUris = useMemo(
-    () =>
-      Object.entries(projectSettings)
-        .filter(([, ps]) => ps.pinned)
-        .map(([uri]) => uri),
-    [projectSettings],
-  )
+  const pinnedProjectUris = useMemo(() => {
+    const out: string[] = []
+    for (const [uri, ps] of Object.entries(projectSettings)) {
+      if (ps.pinned) out.push(uri)
+    }
+    return out
+  }, [projectSettings])
 
   const projectFzf = useMemo(
     () =>
@@ -148,9 +148,11 @@ export function useConversationMode(
   const mergedItems: MergedItem[] = useMemo(() => {
     if (!isConversationMode) return []
     if (!filter) {
-      const convItems: MergedItem[] = allConversations
-        .filter(s => s.status !== 'ended' && s.id !== selectedConversationId)
-        .map(s => ({ kind: 'conversation' as const, conversation: s, score: 0, live: true }))
+      const convItems: MergedItem[] = []
+      for (const s of allConversations) {
+        if (s.status === 'ended' || s.id === selectedConversationId) continue
+        convItems.push({ kind: 'conversation' as const, conversation: s, score: 0, live: true })
+      }
       const projItems: MergedItem[] = pinnedProjectUris.map(uri => ({
         kind: 'project' as const,
         projectUri: uri,
@@ -190,10 +192,13 @@ export function useConversationMode(
   ])
 
   const filteredConversations = useMemo(
-    () =>
-      mergedItems
-        .filter((i): i is Extract<MergedItem, { kind: 'conversation' }> => i.kind === 'conversation')
-        .map(i => i.conversation),
+    () => {
+      const out: Conversation[] = []
+      for (const i of mergedItems) {
+        if (i.kind === 'conversation') out.push(i.conversation)
+      }
+      return out
+    },
     [mergedItems],
   )
 
@@ -205,7 +210,10 @@ function sortConversationsForPalette(
   mruIndex: Map<string, number>,
   freqMap: Record<string, { count: number }>,
 ): Conversation[] {
-  const activeProjects = new Set(conversations.filter(s => s.status !== 'ended').map(s => s.project))
+  const activeProjects = new Set<string>()
+  for (const s of conversations) {
+    if (s.status !== 'ended') activeProjects.add(s.project)
+  }
   const deduplicated = conversations.filter(s => s.status !== 'ended' || !activeProjects.has(s.project))
   return deduplicated.toSorted((a, b) => {
     const ai = mruIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER
