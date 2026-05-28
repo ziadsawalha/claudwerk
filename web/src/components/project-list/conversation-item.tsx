@@ -37,6 +37,7 @@ import { BackendIcon } from './backend-icon'
 import { ConversationContextMenu } from './conversation-context-menu'
 import { GhostAttachButton, GhostBadge, GhostStatusDot } from './ghost-attach'
 import { InlineConfirmButton } from './inline-confirm-button'
+import { LaunchParamsSection } from './launch-params-section'
 import { SentinelProfileBadge } from './sentinel-profile-badge'
 
 // ─── Shared visual components ──────────────────────────────────────
@@ -237,134 +238,6 @@ function formatTokenCount(n: number): string {
   if (n < 1_000) return String(n)
   if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}k`
   return `${(n / 1_000_000).toFixed(2)}M`
-}
-
-// ─── Launch parameters section ───────────────────────────────────
-
-const SECRET_KEY_PATTERN = /TOKEN|KEY|SECRET|PASSWORD|AUTH|CREDENTIAL|PRIVATE/i
-
-function maskSecret(value: string): string {
-  if (value.length <= 8) return '*'.repeat(value.length)
-  return `${value.slice(0, 4)}${'*'.repeat(Math.min(value.length - 8, 12))}${value.slice(-4)}`
-}
-
-function LaunchParamRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-muted-foreground text-[10px] uppercase tracking-wider">{label}</span>
-      <span className="ml-auto text-foreground/80 truncate max-w-[220px]">{value}</span>
-    </div>
-  )
-}
-
-function LaunchParamsSection({ conversation }: { conversation: Conversation }) {
-  const lc = conversation.launchConfig
-  const [revealEnv, setRevealEnv] = useState(false)
-  const envEntries = lc?.env ? Object.entries(lc.env) : []
-
-  // Fallbacks so legacy conversations (no launchConfig captured) still show something
-  const headless: boolean | undefined = lc?.headless ?? (conversation.capabilities?.includes('headless') || undefined)
-  const autocompactPct = lc?.autocompactPct ?? conversation.autocompactPct
-  const permissionMode = lc?.permissionMode
-  const bare = lc?.bare
-  const repl = lc?.repl
-  const maxBudgetUsd = lc?.maxBudgetUsd
-
-  const hasAnyCore =
-    (conversation.backend && conversation.backend !== 'claude') ||
-    headless !== undefined ||
-    !!permissionMode ||
-    bare ||
-    repl ||
-    autocompactPct !== undefined ||
-    maxBudgetUsd !== undefined
-
-  if (!hasAnyCore && envEntries.length === 0) return null
-
-  return (
-    <>
-      <div className="border-t border-border" />
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground text-[10px] uppercase tracking-wider">Launch</span>
-          {!lc && (
-            <span className="text-[9px] text-muted-foreground/50" title="launch config not captured at spawn time">
-              (partial)
-            </span>
-          )}
-        </div>
-        <div className="space-y-1 pl-1">
-          {conversation.backend && conversation.backend !== 'claude' && (
-            <LaunchParamRow
-              label="backend"
-              value={
-                <span className="flex items-center gap-1">
-                  <BackendIcon backend={conversation.backend} transport={conversation.transport} size={10} />
-                  {conversation.backend}
-                </span>
-              }
-            />
-          )}
-          {headless !== undefined && (
-            <LaunchParamRow
-              label="mode"
-              value={
-                <span className={headless ? 'text-sky-400' : 'text-amber-400'}>{headless ? 'headless' : 'PTY'}</span>
-              }
-            />
-          )}
-          {permissionMode && <LaunchParamRow label="perms" value={permissionMode} />}
-          {bare && <LaunchParamRow label="bare" value="yes" />}
-          {repl && <LaunchParamRow label="repl" value="yes" />}
-          {autocompactPct !== undefined && <LaunchParamRow label="autocompact" value={`${autocompactPct}%`} />}
-          {maxBudgetUsd !== undefined && <LaunchParamRow label="budget" value={`$${maxBudgetUsd.toFixed(2)}`} />}
-        </div>
-
-        {envEntries.length > 0 && (
-          <div className="pt-1">
-            <div className="flex items-center gap-2 pb-1">
-              <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
-                Env ({envEntries.length})
-              </span>
-              <button
-                type="button"
-                className="ml-auto text-[9px] text-muted-foreground hover:text-foreground cursor-pointer px-1.5 py-0.5 border border-border hover:border-primary transition-colors"
-                onClick={e => {
-                  e.stopPropagation()
-                  haptic('tap')
-                  setRevealEnv(v => !v)
-                }}
-              >
-                {revealEnv ? 'hide secrets' : 'reveal secrets'}
-              </button>
-            </div>
-            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[10px] pl-1">
-              {envEntries.map(([k, v]) => {
-                const isSecret = SECRET_KEY_PATTERN.test(k)
-                const display = isSecret && !revealEnv ? maskSecret(v) : v
-                return (
-                  <div key={k} className="contents">
-                    <span className="text-muted-foreground truncate max-w-[140px]" title={k}>
-                      {k}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-right tabular-nums truncate',
-                        isSecret ? 'text-amber-400/80' : 'text-foreground/70',
-                      )}
-                      title={display}
-                    >
-                      {display}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  )
 }
 
 // ─── Conversation info dialog (replaces hover tooltip) ────────────────
