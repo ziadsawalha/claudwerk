@@ -877,7 +877,9 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   // Focus filter on open
   useEffect(() => {
-    if (open) setTimeout(() => filterRef.current?.focus(), 50)
+    if (!open) return
+    const t = setTimeout(() => filterRef.current?.focus(), 50)
+    return () => clearTimeout(t)
   }, [open])
 
   const buildDate = BUILD_VERSION.buildTime
