@@ -31,6 +31,7 @@ import { Markdown } from '../markdown'
 import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
+import { ThinkingPill } from './thinking-pill'
 
 /** Content-aware size estimation to minimize layout shift on first render.
  *  Falls back to measuredSizes cache for groups that have been rendered before. */
@@ -897,6 +898,8 @@ export const TranscriptView = memo(function TranscriptView({
         <StreamingBlock conversationId={selectedConversationId} />
         {/* Fun verb spinner while conversation is working */}
         <ThinkingSpinner conversationId={selectedConversationId} />
+        {/* Live thinking-token pill: ephemeral, renders only while pings arrive */}
+        <ThinkingPill conversationId={selectedConversationId} />
         {/* Pending permission + link requests: rendered inline at the bottom as
             blocking UI gates. Both follow the same pattern -- structured wire
             message -> store -> inline banner -> user response over WS. */}

@@ -58,6 +58,9 @@ export interface ControlPanelPrefs {
   showDiag: boolean
   showStreaming: boolean
   showPerfMonitor: boolean
+  /** Live "thinking" pill on the active turn (ephemeral, while pings arrive).
+   *  detailed = sparkline + tokens/sec + count; compact = spinner + count. */
+  thinkingIndicator: 'detailed' | 'compact' | 'off'
   toolDisplay: Partial<Record<ToolDisplayKey, Partial<ToolDisplayPrefs>>>
   chordTimeoutMs: number // how long to wait for second chord key before dismissing (ms)
   sanitizePaths: boolean // strip redundant `cd <project-path> &&` prefixes from displayed commands
@@ -92,6 +95,7 @@ const defaultPrefs: ControlPanelPrefs = {
   showDiag: false,
   showStreaming: true,
   showPerfMonitor: false,
+  thinkingIndicator: 'detailed',
   defaultConversationCwd: '',
   toolDisplay: {},
   chordTimeoutMs: 3000,
