@@ -12,16 +12,13 @@
 
 import { Copy } from 'lucide-react'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
-import type { LaunchStep } from '@/hooks/use-launch-progress'
+import type { LaunchProgressStep } from '@/hooks/use-launch-progress'
 import { cn } from '@/lib/utils'
-
-// Re-export for backward compat
-export type { LaunchStep } from '@/hooks/use-launch-progress'
 
 // ─── Shared sub-components ──────────────────────────────────────
 
 /** Step list with status icons (pulse/check/cross) */
-export function LaunchStepList({ steps }: { steps: LaunchStep[] }) {
+export function LaunchStepList({ steps }: { steps: LaunchProgressStep[] }) {
   return (
     <div className="space-y-2">
       {steps.map((step, i) => (
@@ -170,7 +167,7 @@ export function LaunchDialogBottom({
   onViewConversation,
 }: {
   phase: 'config' | 'launching'
-  steps: LaunchStep[]
+  steps: LaunchProgressStep[]
   displayError: string | null | undefined
   copied: boolean
   onCopyLog: () => void

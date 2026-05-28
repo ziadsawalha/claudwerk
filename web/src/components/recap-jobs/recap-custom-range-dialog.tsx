@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Kbd } from '@/components/ui/kbd'
 import { useKeyLayer } from '@/lib/key-layers'
 import { haptic } from '@/lib/utils'
-import { createRecap } from './recap-submenu'
+import { createRecap } from './recap-wire'
 
 interface DialogOptions {
   projectUri: string
