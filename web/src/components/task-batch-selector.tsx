@@ -176,7 +176,7 @@ function scoreTasks(tasks: ProjectTaskMeta[], query: string): ProjectTaskMeta[] 
 
   if (!text) {
     // No fuzzy text -- sort by priority then status boost
-    return [...tagFiltered].sort((a, b) => {
+    return tagFiltered.toSorted((a, b) => {
       const pw = priorityWeight(b.priority) - priorityWeight(a.priority)
       if (pw !== 0) return pw
       return batchStatusBoost(b.status) - batchStatusBoost(a.status)

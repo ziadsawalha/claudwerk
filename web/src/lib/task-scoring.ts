@@ -11,7 +11,7 @@ function statusBoost(status: string): number {
 /** Fuzzy-match and sort project tasks by relevance + status weight. Returns all tasks sorted by status when query is empty. */
 export function scoreAndSortTasks(tasks: ProjectTaskMeta[], query: string): ProjectTaskMeta[] {
   if (!query) {
-    return [...tasks].sort((a, b) => statusBoost(b.status) - statusBoost(a.status))
+    return tasks.toSorted((a, b) => statusBoost(b.status) - statusBoost(a.status))
   }
 
   const fzf = new Fzf(tasks, {

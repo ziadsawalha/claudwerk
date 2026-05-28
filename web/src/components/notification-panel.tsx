@@ -220,7 +220,7 @@ export function NotificationPanel({ onClose }: NotificationPanelProps) {
     list.push(item)
     grouped.set(item.conversationId, list)
   }
-  const conversationGroups = [...grouped.entries()].sort((a, b) => {
+  const conversationGroups = Array.from(grouped.entries()).toSorted((a, b) => {
     const aMax = Math.max(...a[1].map(i => i.timestamp))
     const bMax = Math.max(...b[1].map(i => i.timestamp))
     return bMax - aMax

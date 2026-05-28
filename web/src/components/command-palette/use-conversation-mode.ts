@@ -207,7 +207,7 @@ function sortConversationsForPalette(
 ): Conversation[] {
   const activeProjects = new Set(conversations.filter(s => s.status !== 'ended').map(s => s.project))
   const deduplicated = conversations.filter(s => s.status !== 'ended' || !activeProjects.has(s.project))
-  return [...deduplicated].sort((a, b) => {
+  return deduplicated.toSorted((a, b) => {
     const ai = mruIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER
     const bi = mruIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER
     // Top 2 MRU spots are sacred (alt-tab behavior)

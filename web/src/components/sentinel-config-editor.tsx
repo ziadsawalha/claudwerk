@@ -204,7 +204,7 @@ export function SentinelConfigEditor({
   const draftPools = useMemo(() => {
     const set = new Set<string>(pools)
     for (const d of Object.values(draft.profiles)) if (d.pool) set.add(d.pool)
-    return [...set].sort()
+    return Array.from(set).toSorted()
   }, [pools, draft.profiles])
 
   function patchProfile(name: string, next: ProfileDraft) {
@@ -280,7 +280,7 @@ export function SentinelConfigEditor({
             onChange={e => setDraft(d => ({ ...d, defaultPool: e.target.value }))}
             className="px-1 py-0.5 bg-muted border border-border text-foreground rounded text-[10px] lowercase"
           >
-            {[...new Set([...draftPools, draft.defaultPool])].sort().map(p => (
+            {Array.from(new Set([...draftPools, draft.defaultPool])).toSorted().map(p => (
               <option key={p} value={p}>
                 {p}
               </option>

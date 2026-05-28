@@ -243,7 +243,7 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
       showEnded,
     })
     const after = selectedOnly ? base.filter(c => selectedForBatch.has(c.id)) : base
-    return [...after].sort((a, b) => defaultSort(a, b, projectSettings))
+    return after.toSorted((a, b) => defaultSort(a, b, projectSettings))
   }, [
     conversations,
     filterProject,

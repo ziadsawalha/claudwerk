@@ -218,7 +218,7 @@ export function UsageBar() {
       bucket.snaps.push(entry)
     }
     for (const bucket of bySentinel.values()) bucket.snaps.sort((a, b) => a.profile.localeCompare(b.profile))
-    return [...bySentinel.values()].sort((a, b) => a.alias.localeCompare(b.alias))
+    return Array.from(bySentinel.values()).toSorted((a, b) => a.alias.localeCompare(b.alias))
   }, [profileUsage, sentinels])
 
   // Pick the summary chip's source: most-stressed across ALL profiles for
