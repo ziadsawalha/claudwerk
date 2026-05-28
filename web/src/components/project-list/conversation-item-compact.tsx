@@ -46,7 +46,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
   const ghostShort = useGhostShort(conversation.id)
   const isGhost = !!ghostShort && (conversation.connectionIds?.length ?? 0) === 0
 
-  function handleClick() {
+  function selectThisConversation() {
     haptic('tap')
     selectConversation(conversation.id, 'click')
   }
@@ -119,7 +119,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
       displayColor={displayColor}
       variant="compact"
       ghost={isGhost}
-      onClick={handleClick}
+      onClick={selectThisConversation}
     >
       {/* ── TITLE ROW: status, backend, title, action/attention badges, %, info ─ */}
       <div className="flex items-center gap-1.5">

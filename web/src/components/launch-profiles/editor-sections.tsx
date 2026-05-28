@@ -85,7 +85,7 @@ export function BackendSection({
   onChange: (next: BackendKind) => void
   hasIncompatibleFields: boolean
 }) {
-  function handleChange(next: BackendKind) {
+  function confirmAndSwitchBackend(next: BackendKind) {
     if (next === backend) return
     if (hasIncompatibleFields) {
       const ok = window.confirm('Switching backend will clear fields the new backend cannot use. Continue?')
@@ -95,7 +95,7 @@ export function BackendSection({
   }
   return (
     <Section title="Backend">
-      <BackendSelect value={backend} onChange={handleChange} chatAvailable hermesAvailable />
+      <BackendSelect value={backend} onChange={confirmAndSwitchBackend} chatAvailable hermesAvailable />
     </Section>
   )
 }

@@ -56,7 +56,7 @@ export const ConversationItemFull = memo(function ConversationItemFull({
   const ghostShort = useGhostShort(conversation.id)
   const isGhost = !!ghostShort && (conversation.connectionIds?.length ?? 0) === 0
 
-  function handleClick() {
+  function selectThisConversation() {
     haptic('tap')
     selectConversation(conversation.id, 'click')
   }
@@ -68,7 +68,7 @@ export const ConversationItemFull = memo(function ConversationItemFull({
       displayColor={displayColor}
       variant="full"
       ghost={isGhost}
-      onClick={handleClick}
+      onClick={selectThisConversation}
     >
       <div className="flex items-center gap-1.5">
         {isGhost ? (

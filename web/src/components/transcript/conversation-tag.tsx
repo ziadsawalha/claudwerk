@@ -133,7 +133,7 @@ export function ConversationTag({ idOrSlug, resolvedId, className }: Conversatio
   const status = conversation?.status
   const isEnded = status === 'ended'
 
-  const handleClick = () => {
+  const openTaggedConversation = () => {
     if (conversation) {
       haptic('tap')
       useConversationsStore.getState().selectConversation(conversation.id)
@@ -162,7 +162,7 @@ export function ConversationTag({ idOrSlug, resolvedId, className }: Conversatio
           !conversation && 'text-teal-400/40 hover:text-teal-400/60',
           className,
         )}
-        onClick={handleClick}
+        onClick={openTaggedConversation}
       >
         {displayName}
         {isEnded && <span className="ml-1 text-[9px] text-zinc-500 font-normal">(ended)</span>}

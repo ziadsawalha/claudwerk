@@ -449,7 +449,7 @@ export const Markdown = memo(function Markdown({ children, inline, copyable }: M
     renderMermaidBlocks(el)
   }, [html])
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
+  const handleMarkdownClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement
 
     // Lightbox chip: open the media overlay instead of navigating. Respect
@@ -487,9 +487,9 @@ export const Markdown = memo(function Markdown({ children, inline, copyable }: M
       role="document"
       className="prose-hacker [overflow-wrap:break-word]"
       dangerouslySetInnerHTML={{ __html: html }}
-      onClick={handleClick}
+      onClick={handleMarkdownClick}
       onKeyDown={e => {
-        if (e.key === 'Enter') handleClick(e as unknown as React.MouseEvent)
+        if (e.key === 'Enter') handleMarkdownClick(e as unknown as React.MouseEvent)
       }}
     />
   )

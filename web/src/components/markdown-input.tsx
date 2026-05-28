@@ -253,7 +253,7 @@ export function MarkdownInput({
     }
   }
 
-  function handleFocus() {
+  function expandOnMobileFocus() {
     if (isMobile && !inline) setExpanded(true)
   }
 
@@ -262,7 +262,7 @@ export function MarkdownInput({
     textareaRef.current?.blur()
   }
 
-  function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
+  function updateValueFromTextarea(e: React.ChangeEvent<HTMLTextAreaElement>) {
     onChange(e.target.value)
     requestAnimationFrame(syncScroll)
   }
@@ -309,7 +309,7 @@ export function MarkdownInput({
         expandedTextareaRef={expandedTextareaRef}
         fileInputRef={fileInputRef}
         highlightRef={highlightRef}
-        onInput={handleInput}
+        onInput={updateValueFromTextarea}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         onDrop={handleDrop}
@@ -378,9 +378,9 @@ export function MarkdownInput({
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={handleInput}
+        onChange={updateValueFromTextarea}
         onKeyDown={handleKeyDown}
-        onFocus={handleFocus}
+        onFocus={expandOnMobileFocus}
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={handleDragOver}

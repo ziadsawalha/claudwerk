@@ -56,7 +56,7 @@ export function LaunchProfileManager() {
     setSelectedId(created.id)
   }, [])
 
-  const handleChange = useCallback((next: LaunchProfile) => {
+  const replaceProfileInDraft = useCallback((next: LaunchProfile) => {
     setDraft(current => (current ? replaceProfile(current, next) : [next]))
   }, [])
 
@@ -94,7 +94,7 @@ export function LaunchProfileManager() {
           <ManagerList profiles={list} selectedId={selectedId} onSelect={setSelectedId} onCreate={handleCreate} />
           <div className="flex-1 flex flex-col min-w-0">
             {selected ? (
-              <ManagerEditor profile={selected} onChange={handleChange} />
+              <ManagerEditor profile={selected} onChange={replaceProfileInDraft} />
             ) : (
               <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
                 Select a profile to edit, or create a new one.
