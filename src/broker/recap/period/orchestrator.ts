@@ -16,6 +16,7 @@ import {
 import { pickModel } from './llm/escalate'
 import { buildPrompt, type PromptInputs } from './llm/prompt-builder'
 import { createProgressEmitter, type ProgressBroadcaster } from './progress'
+import { buildRecapDigest } from './render/digest'
 import { renderFinalMarkdown } from './render/markdown'
 import { buildFtsFields, denormalizeTags } from './render/metadata'
 import { parseRecapOutput, type RecapMetadata, RecapParseError } from './render/parse-recap'
@@ -194,11 +195,18 @@ async function runRecap(
     body: parsed.body,
   })
 
+  const digest = buildRecapDigest({
+    cost: promptInputs.cost,
+    conversations: promptInputs.conversations,
+    commits: promptInputs.commits,
+  })
+
   finalize(deps, recapId, {
     title: titleTemplate,
     subtitle: parsed.metadata.subtitle,
     markdown: finalMarkdown,
     metadata: parsed.metadata,
+    digestJson: JSON.stringify(digest),
     body: parsed.body,
     projectUri: args.projectUri,
     inputTokens: llmResult.inputTokens,
@@ -328,6 +336,7 @@ interface FinalizeArgs {
   subtitle?: string
   markdown: string
   metadata: RecapMetadata
+  digestJson: string
   body: string
   projectUri: string
   inputTokens: number
@@ -344,6 +353,7 @@ function finalize(deps: OrchestratorDeps, recapId: string, args: FinalizeArgs): 
     subtitle: args.subtitle ?? null,
     markdown: args.markdown,
     metadataJson: JSON.stringify(args.metadata),
+    digestJson: args.digestJson,
     inputTokens: args.inputTokens,
     outputTokens: args.outputTokens,
     llmCostUsd: args.costUsd,

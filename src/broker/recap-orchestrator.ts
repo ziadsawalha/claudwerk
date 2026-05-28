@@ -1,6 +1,8 @@
 import type {
   PeriodRecapDoc,
+  RecapDigest,
   RecapLogEntry,
+  RecapMetadata,
   RecapPeriodLabel,
   RecapSearchHit,
   RecapStatus,
@@ -119,5 +121,21 @@ function rowToSummary(row: RecapRow): RecapSummary {
 }
 
 function rowToDoc(row: RecapRow): PeriodRecapDoc {
-  return { ...rowToRecapMeta(row), markdown: row.markdown ?? undefined }
+  return {
+    ...rowToRecapMeta(row),
+    markdown: row.markdown ?? undefined,
+    metadata: parseJsonOr<RecapMetadata>(row.metadataJson),
+    digest: parseJsonOr<RecapDigest>(row.digestJson),
+  }
+}
+
+/** Parse a persisted JSON blob, tolerating null/garbage (pre-2.0 rows have
+ *  no digest_json and may predate a metadata field; degrade to undefined). */
+function parseJsonOr<T>(raw: string | null): T | undefined {
+  if (!raw) return undefined
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return undefined
+  }
 }

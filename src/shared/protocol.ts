@@ -3446,8 +3446,95 @@ export interface RecapSummary {
   error?: string
 }
 
+/** One cited item in a recap section (feature/bug/fix/incident/decision/...).
+ *  `inferred` mirrors the agent brief's FACT-vs-INFERENCE rule: true when the
+ *  claim is concluded from transcript text rather than backed by a commit/task. */
+export interface RecapItem {
+  title: string
+  detail?: string
+  conversations?: string[]
+  commits?: string[]
+  inferred?: boolean
+}
+
+/** Structured frontmatter the LLM emits, parsed and persisted as metadata_json.
+ *  This IS the search index AND (as of Recap 2.0) the primary render surface. */
+export interface RecapMetadata {
+  subtitle?: string
+  keywords: string[]
+  hashtags: string[]
+  goals: string[]
+  discoveries: string[]
+  side_effects: string[]
+  features: RecapItem[]
+  bugs: RecapItem[]
+  fixes: RecapItem[]
+  incidents: RecapItem[]
+  /** Non-obvious decisions made + WHY (the reasoning a diff cannot show). */
+  decisions: RecapItem[]
+  /** Approaches tried and ABANDONED + why they failed. git keeps no record. */
+  dead_ends: RecapItem[]
+  /** Constraints/landmines discovered: tool quirks, env quirks, failure modes. */
+  gotchas: RecapItem[]
+  open_questions: string[]
+  stakeholders: string[]
+}
+
+export interface RecapDigestConversation {
+  id: string
+  title: string
+  turns: number
+  status: string
+  costUsd?: number
+}
+
+export interface RecapDigestDay {
+  day: string
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  turns: number
+}
+
+export interface RecapDigestModel {
+  model: string
+  costUsd: number
+  tokens: number
+  turns: number
+}
+
+export interface RecapDigestCommits {
+  total: number
+  filesChanged: number
+  insertions: number
+  deletions: number
+}
+
+/** Curated, wire-safe projection of the gather digests for chart + drill-down
+ *  rendering. Persisted as digest_json. Absent on pre-2.0 recaps (degrade to
+ *  the markdown body). */
+export interface RecapDigest {
+  cost: {
+    totalCostUsd: number
+    totalTurns: number
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalCacheReadTokens: number
+    totalCacheWriteTokens: number
+    perDay: RecapDigestDay[]
+    perModel: RecapDigestModel[]
+  }
+  conversations: RecapDigestConversation[]
+  commits?: RecapDigestCommits
+}
+
 export interface PeriodRecapDoc extends RecapMeta {
   markdown?: string
+  /** Structured frontmatter (cards, chips). Absent on pre-2.0 recaps. */
+  metadata?: RecapMetadata
+  /** Charts + drill-down projection. Absent on pre-2.0 recaps. */
+  digest?: RecapDigest
 }
 
 export interface RecapLogEntry {
