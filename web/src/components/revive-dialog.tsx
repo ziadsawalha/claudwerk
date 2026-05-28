@@ -22,20 +22,11 @@ import { haptic } from '@/lib/utils'
 import { LaunchConfigFields, type LaunchFieldsValue } from './launch-config-fields'
 import { LaunchDialogBottom } from './launch-monitor'
 
-interface ReviveDialogOptions {
-  conversationId: string
-}
+import { _reviveDialogBus, type ReviveDialogOptions } from './revive-dialog-trigger'
 
 interface ReviveDialogState {
   open: boolean
   options: ReviveDialogOptions | null
-}
-
-let _openDialog: ((options: ReviveDialogOptions) => void) | null = null
-
-/** Open the revive dialog from anywhere */
-export function openReviveDialog(options: ReviveDialogOptions): void {
-  _openDialog?.(options)
 }
 
 export function ReviveDialog() {
@@ -68,7 +59,7 @@ export function ReviveDialog() {
 
   const progressReset = progress.reset
   useEffect(() => {
-    _openDialog = (options: ReviveDialogOptions) => {
+    _reviveDialogBus.open = (options: ReviveDialogOptions) => {
       const sess = useConversationsStore.getState().conversationsById[options.conversationId]
       const ps = sess ? projectSettings[projectIdentityKey(sess.project)] : undefined
       const gs = globalSettings as Record<string, unknown>
@@ -92,7 +83,7 @@ export function ReviveDialog() {
       setState({ open: true, options })
     }
     return () => {
-      _openDialog = null
+      _reviveDialogBus.open = null
     }
   }, [projectSettings, globalSettings, progressReset])
 

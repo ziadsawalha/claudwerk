@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button'
 import { projectPath } from '@/lib/types'
 import { haptic } from '@/lib/utils'
 import { BACKENDS } from '../project-list/backend-icon'
-import { openReviveDialog } from '../revive-dialog'
+import { openReviveDialog } from '../revive-dialog-trigger'
 
 interface ReviveFooterProps {
   conversationId: string

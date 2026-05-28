@@ -5,7 +5,7 @@ import type { Conversation } from '@/lib/types'
 import { extractProjectLabel, projectPath } from '@/lib/types'
 import { cn, contextWindowSize, formatModel, haptic } from '@/lib/utils'
 import { renderProjectIcon } from '../project-settings-editor'
-import { openReviveDialog } from '../revive-dialog'
+import { openReviveDialog } from '../revive-dialog-trigger'
 import { openSpawnDialog } from '../spawn-dialog'
 
 function matchesFilter(conversation: Conversation, query: string): boolean {

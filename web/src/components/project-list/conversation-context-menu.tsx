@@ -7,8 +7,8 @@ import type { Conversation, ProjectOrder, ProjectOrderGroup } from '@/lib/types'
 import { projectPath } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
 import { RecapSubmenu } from '../recap-jobs/recap-submenu'
-import { openReviveDialog } from '../revive-dialog'
-import { openManageProjectLinks } from '../settings/manage-project-links-dialog'
+import { openReviveDialog } from '../revive-dialog-trigger'
+import { openManageProjectLinks } from '../settings/manage-project-links-trigger'
 import { openSpawnDialog } from '../spawn-dialog'
 
 // ─── Conversation context menu (right-click) ─────────────────────────────
