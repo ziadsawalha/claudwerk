@@ -49,6 +49,7 @@ export function RecapCustomRangeDialog() {
   const [endStr, setEndStr] = useState(today)
   const [error, setError] = useState<string | null>(null)
   const startRef = useRef<HTMLInputElement>(null)
+  const focusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     _openDialog = options => {
@@ -58,10 +59,12 @@ export function RecapCustomRangeDialog() {
       const start = new Date(t.getTime() - 7 * 24 * 60 * 60 * 1000)
       setStartStr(isoLocalDay(start))
       setEndStr(isoLocalDay(t))
-      setTimeout(() => startRef.current?.focus(), 50)
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current)
+      focusTimeoutRef.current = setTimeout(() => startRef.current?.focus(), 50)
     }
     return () => {
       _openDialog = null
+      if (focusTimeoutRef.current) clearTimeout(focusTimeoutRef.current)
     }
   }, [])
 
