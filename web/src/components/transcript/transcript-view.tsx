@@ -605,6 +605,11 @@ export const TranscriptView = memo(function TranscriptView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow is read at switch time only; we don't want this to re-fire when follow alone toggles (the [follow] effect above handles that)
   useLayoutEffect(() => {
     followKilledRef.current = false
+    // Drop any in-flight prepend anchor from the OLD conversation -- the new
+    // one's mainGroups don't share keys with it, and we're about to set
+    // scrollTop explicitly below.
+    prependAnchorRef.current = null
+    anchorAppliedRef.current = false
     const el = parentRef.current
     if (!el) return
     if (follow) el.scrollTop = el.scrollHeight
@@ -631,70 +636,143 @@ export const TranscriptView = memo(function TranscriptView({
     }
   }, [totalSize, follow])
 
-  // Scroll-anchor correction for "Load earlier" (progressive load Phase 1a).
-  // Prepending older entries grows the content ABOVE the viewport (new groups +
-  // possible removal of the Load-earlier button when the head is reached). This
-  // effect runs after the prepend commit but BEFORE paint and shifts scrollTop by
-  // the scrollHeight delta, so the content the user was reading stays pinned --
-  // no jump. Measured 0px steady-state in the spike. scrollHeight (not
-  // getTotalSize) so the button's appearance/removal is accounted for too. The
-  // pin-to-bottom effect above early-returns because loadEarlier kills follow,
-  // so the two never fight.
-  const prependPendingRef = useRef(false)
+  // Scroll-anchor for prepend ("Load earlier" + infinite scrollback ?before=).
+  //
+  // Old approach (scrollHeight-delta): on the FIRST layout effect after a
+  // prepend commit, shift scrollTop by `newSH - prevSH` then clear the pending
+  // flag. Worked for local "Load earlier" because those groups were already in
+  // the measuredSizes cache -- one settle pass and done. Broke for server
+  // prepends: new groups land with estimateSize() placeholders, ResizeObserver
+  // later reports real heights (often 5-10x for tool results), totalSize
+  // changes again, but pending was already cleared -- no correction -- content
+  // above the viewport silently grew/shrank and the user saw a hop. Multiple
+  // off-screen settles compounded into the "massive jerk up/down."
+  //
+  // New approach (index re-pin): capture the group at the viewport TOP before
+  // prepend (its stableGroupKey + the pixel offset of scrollTop within it).
+  // After every commit, find the same group by key, read its measurement.start
+  // from the virtualizer, and set scrollTop = start + offsetWithinItem. Idempotent
+  // (skips writes when already at target) and survives any number of height-
+  // settle re-renders. Released on real user input (wheel/touch/keydown) AFTER
+  // the anchor has been applied at least once -- so the wheel that TRIGGERED
+  // the fetch doesn't immediately abandon the anchor it just set.
+  const prependAnchorRef = useRef<{ key: string; offsetWithinItem: number } | null>(null)
+  const anchorAppliedRef = useRef(false)
   // Re-entrancy guard for the scroll-up auto-trigger: set when a prepend is
   // kicked off, cleared here once scrollTop has been corrected (moved away from
   // the top), so a burst of scroll events can't fire multiple loads per chunk.
   const loadingEarlierRef = useRef(false)
   // Re-entrancy guard for the server-side older-history fetch (infinite scrollback).
   const fetchingOlderRef = useRef(false)
-  const prevScrollHeightRef = useRef(0)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize/windowStart are intentional triggers; scrollHeight is read live, not a dep
+  // Live mirrors so capture/release callbacks (stable closures) read current.
+  const mainGroupsRef = useRef(mainGroups)
+  mainGroupsRef.current = mainGroups
+  const virtualizerRef = useRef(virtualizer)
+  virtualizerRef.current = virtualizer
+
+  const captureAnchor = useCallback(() => {
+    const el = parentRef.current
+    const v = virtualizerRef.current
+    const groups = mainGroupsRef.current
+    if (!el || !v) return
+    const items = v.getVirtualItems()
+    if (items.length === 0) return
+    const scrollTop = el.scrollTop
+    // The item whose tail is past the viewport top = the one containing it.
+    const head = items.find(it => it.end > scrollTop) ?? items[0]
+    const g = groups[head.index]
+    if (!g) return
+    prependAnchorRef.current = {
+      key: stableGroupKey(g),
+      offsetWithinItem: scrollTop - head.start,
+    }
+    anchorAppliedRef.current = false
+  }, [])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize is the intentional trigger; mainGroups + virtualizer are read for the re-pin lookup
   useLayoutEffect(() => {
     const el = parentRef.current
-    const newSH = el ? el.scrollHeight : 0
-    if (prependPendingRef.current && el) {
-      const t0 = performance.now()
-      const added = newSH - prevScrollHeightRef.current
-      el.scrollTop = el.scrollTop + added
-      prependPendingRef.current = false
+    const anchor = prependAnchorRef.current
+    if (!anchor || !el) return
+    const t0 = performance.now()
+    const newIdx = mainGroups.findIndex(g => stableGroupKey(g) === anchor.key)
+    if (newIdx < 0) {
+      // Anchor group merged or disappeared in regroup -- can't re-pin safely.
+      prependAnchorRef.current = null
+      anchorAppliedRef.current = false
       loadingEarlierRef.current = false
-      record('scroll', 'loadEarlierAnchor', performance.now() - t0, `+${Math.round(added)}px`)
+      return
     }
-    prevScrollHeightRef.current = newSH
-  }, [totalSize, windowStart])
+    const m = virtualizer.measurementsCache[newIdx]
+    if (!m) return
+    const target = m.start + anchor.offsetWithinItem
+    if (Math.abs(el.scrollTop - target) > 1) {
+      el.scrollTop = target
+      record('scroll', 'prependAnchor', performance.now() - t0, `idx ${newIdx}`)
+    }
+    anchorAppliedRef.current = true
+    loadingEarlierRef.current = false
+  }, [totalSize, windowStart, mainGroups])
+
+  // Release the anchor on real user scroll input -- but only AFTER it has been
+  // applied at least once. The wheel/touch that triggered the fetch is itself
+  // user input; releasing on it would defeat the anchor before the prepend
+  // even lands.
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    const release = () => {
+      if (!anchorAppliedRef.current) return
+      prependAnchorRef.current = null
+      anchorAppliedRef.current = false
+    }
+    el.addEventListener('wheel', release, { passive: true })
+    el.addEventListener('touchstart', release, { passive: true })
+    el.addEventListener('keydown', release)
+    return () => {
+      el.removeEventListener('wheel', release)
+      el.removeEventListener('touchstart', release)
+      el.removeEventListener('keydown', release)
+    }
+  }, [])
 
   // "Load earlier": prepend a chunk of older entries. Kill follow (this is an
-  // explicit history action) so the pin-to-bottom effect stands down, mark the
-  // prepend so the anchor effect corrects scroll on the resulting commit.
+  // explicit history action) so the pin-to-bottom effect stands down, capture
+  // the viewport-top anchor so the layout effect can re-pin across settles.
   const loadEarlier = useCallback(() => {
     followKilledRef.current = true
-    prependPendingRef.current = true
+    captureAnchor()
     setWindowStart(s => Math.max(0, s - LOAD_CHUNK))
-  }, [])
+  }, [captureAnchor])
 
   // Infinite scrollback past the locally-held window: fetch the next OLDER page
   // from the broker (?before=) and prepend it to the store. The store array
   // grows at the head; windowStart stays 0 so the fetched page renders, and the
-  // prepend layout-effect (set prependPendingRef here) corrects scrollTop -> no
-  // jump. Only for the main transcript view (cacheKey set), never subagents.
+  // anchor captured here lets the layout effect re-pin scrollTop across the
+  // multi-phase height-settle that follows. Only for the main transcript view
+  // (cacheKey set), never subagents.
   const fetchOlder = useCallback(() => {
     const cid = cacheKeyRef.current
     const oldestSeq = entriesRef.current[0]?.seq
     if (!cid || oldestSeq === undefined || oldestSeq <= 1) return
     fetchingOlderRef.current = true
     followKilledRef.current = true
+    captureAnchor()
     fetchTranscriptBefore(cid, oldestSeq, LOAD_CHUNK)
       .then(res => {
         if (res && res.entries.length > 0) {
-          prependPendingRef.current = true
           useConversationsStore.getState().prependTranscript(cid, res.entries)
+        } else {
+          // Empty response -- no prepend will happen, drop the anchor.
+          prependAnchorRef.current = null
         }
         fetchingOlderRef.current = false
       })
       .catch(() => {
+        prependAnchorRef.current = null
         fetchingOlderRef.current = false
       })
-  }, [])
+  }, [captureAnchor])
 
   const killFollow = useCallback(
     (e: React.WheelEvent | React.TouchEvent) => {
@@ -746,6 +824,10 @@ export const TranscriptView = memo(function TranscriptView({
     if (followKilledRef.current) return
     const el = parentRef.current
     if (!el) return
+    // Explicit jump-to-bottom -- release any pending prepend anchor so the
+    // layout effect doesn't immediately yank us back.
+    prependAnchorRef.current = null
+    anchorAppliedRef.current = false
     const t0 = performance.now()
     el.scrollTop = el.scrollHeight
     record('scroll', 'scrollToBottom', performance.now() - t0, 'single write')
