@@ -126,6 +126,7 @@ function OptionsInput({
           return (
             // biome-ignore lint/a11y/useKeyWithClickEvents: dialog option
             // biome-ignore lint/a11y/noStaticElementInteractions: dialog option
+            // react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions
             <div
               key={opt.value}
               onClick={() => handleSelect(opt.value)}
@@ -257,6 +258,7 @@ function ImagePickerInput({
           return (
             // biome-ignore lint/a11y/useKeyWithClickEvents: dialog image picker
             // biome-ignore lint/a11y/noStaticElementInteractions: dialog image picker
+            // react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions
             <div
               key={img.value}
               onClick={() => handleSelect(img.value)}
@@ -286,6 +288,7 @@ function ToggleInput({ id, label, form }: { id: string; label: string; form: Dia
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: dialog toggle
     // biome-ignore lint/a11y/noStaticElementInteractions: dialog toggle
+    // react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions
     <div
       className="flex items-center gap-3 cursor-pointer py-1"
       onClick={() => {
@@ -461,6 +464,7 @@ function GroupLayout({
     <div className="rounded border border-border/30 overflow-hidden">
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: dialog group header */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: dialog group header */}
+      {/* react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions */}
       <div
         className="flex items-center gap-2 px-3 py-2 bg-muted/30 cursor-pointer select-none"
         onClick={() => {

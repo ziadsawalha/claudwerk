@@ -266,6 +266,7 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
     return (
       // biome-ignore lint/a11y/useKeyWithClickEvents: restore handle
       // biome-ignore lint/a11y/noStaticElementInteractions: restore handle
+      // react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions
       <div
         className="fixed top-0 right-0 bottom-0 z-50 w-10 flex flex-col items-center cursor-pointer group"
         onClick={handleRestore}
@@ -323,6 +324,7 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: modal backdrop */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop */}
+      {/* react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleCancel} />
 
       {/* Modal */}
