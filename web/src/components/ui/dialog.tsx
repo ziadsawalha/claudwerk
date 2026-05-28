@@ -48,7 +48,7 @@ function DialogContent({ className, children, ...props }: React.ComponentProps<t
       >
         {children}
         <DialogPrimitive.Close className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors">
-          <XIcon className="h-4 w-4" />
+          <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
