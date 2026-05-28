@@ -12,7 +12,7 @@ export function FileResults({
   onFileSelect,
 }: FileResultsProps) {
   if (loading) {
-    return <div className="px-3 py-4 text-center text-[10px] text-comment">Loading files...</div>
+    return <div className="px-3 py-4 text-center text-[10px] text-comment">Loading files…</div>
   }
 
   if (files.length === 0) {
@@ -33,7 +33,7 @@ export function FileResults({
             i === activeIndex ? 'bg-primary/20' : 'hover:bg-primary/10',
           )}
         >
-          <FileText className="w-3.5 h-3.5 text-primary shrink-0" />
+          <FileText className="size-3.5 text-primary shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="text-xs text-foreground truncate">{file.path}</div>
           </div>

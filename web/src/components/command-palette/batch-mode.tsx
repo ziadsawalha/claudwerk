@@ -137,9 +137,9 @@ function flatten(rows: Conversation[], groupBy: boolean, settings: Record<string
 function StatusDot({ status }: { status: Conversation['status'] }) {
   if (status === 'active') {
     return (
-      <span className="w-2 h-2 inline-block shrink-0" title="active">
+      <span className="size-2 inline-block shrink-0" title="active">
         <span
-          className="block w-2 h-2 rounded-full animate-spin"
+          className="block size-2 rounded-full animate-spin"
           style={{ border: '1.5px solid var(--active)', borderTopColor: 'transparent' }}
         />
       </span>
@@ -147,8 +147,8 @@ function StatusDot({ status }: { status: Conversation['status'] }) {
   }
   if (status === 'ended') return <span className="text-[9px] uppercase font-bold text-muted-foreground/60">end</span>
   if (status === 'starting' || status === 'booting')
-    return <span className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: 'var(--idle)' }} />
-  return <span className="w-2 h-2 rounded-full shrink-0 bg-idle" title={status} />
+    return <span className="size-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: 'var(--idle)' }} />
+  return <span className="size-2 rounded-full shrink-0 bg-idle" title={status} />
 }
 
 function MutedDefault({ value }: { value: string | undefined | null }) {
@@ -691,7 +691,7 @@ function BatchGroupHeader({ row, cols }: { row: GroupRow; cols: number }) {
     <tr className="bg-muted/15 border-y border-border/30">
       <td colSpan={cols} className="px-2 py-1">
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider">
-          {row.color && <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: row.color }} />}
+          {row.color && <span className="size-2 rounded-sm shrink-0" style={{ backgroundColor: row.color }} />}
           {row.icon && <span className="shrink-0 text-muted-foreground">{renderProjectIcon(row.icon, 'w-3 h-3')}</span>}
           <span className="text-foreground font-bold">{row.label}</span>
           <span className="text-muted-foreground/60">({row.count})</span>

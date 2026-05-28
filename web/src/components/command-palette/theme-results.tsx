@@ -2,7 +2,7 @@ import type { Theme } from '@/lib/themes'
 import { cn } from '@/lib/utils'
 
 function ColorDot({ color }: { color: string }) {
-  return <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
+  return <div className="size-2.5 rounded-full shrink-0" style={{ background: color }} />
 }
 
 function ThemeRow({

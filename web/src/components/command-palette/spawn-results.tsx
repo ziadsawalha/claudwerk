@@ -105,14 +105,14 @@ function PoolEntryRow({
         active ? 'bg-primary/20' : 'hover:bg-primary/10',
       )}
     >
-      <Hash className="w-3.5 h-3.5 shrink-0 text-active" />
+      <Hash className="size-3.5 shrink-0 text-active" />
       <span className="text-xs text-foreground">#{pool.name}</span>
       <span className="text-[9px] text-comment">
         {pool.profileCount} profile{pool.profileCount === 1 ? '' : 's'}
       </span>
       {pool.isDefault && (
         <span className="text-[9px] text-active uppercase tracking-wide flex items-center gap-0.5">
-          <Star className="w-2.5 h-2.5" /> default
+          <Star className="size-2.5" /> default
         </span>
       )}
     </button>
@@ -241,7 +241,7 @@ export function SpawnResults({
   }
 
   if (loading) {
-    return <div className="px-3 py-4 text-center text-[10px] text-comment">Loading directories...</div>
+    return <div className="px-3 py-4 text-center text-[10px] text-comment">Loading directories…</div>
   }
 
   if (error) {
@@ -281,7 +281,7 @@ export function SpawnResults({
           onClick={() => onSpawn(path.endsWith('/') ? path.slice(0, -1) : path, true)}
           className="w-full px-3 py-2 flex items-center gap-3 text-left bg-amber-400/10 hover:bg-amber-400/20 transition-colors"
         >
-          <FolderPlus className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <FolderPlus className="size-3.5 text-amber-400 shrink-0" />
           <span className="text-xs">
             <span className="text-amber-400 font-bold">Create</span>{' '}
             <span className="text-foreground">{path.endsWith('/') ? path.slice(0, -1) : path}</span>{' '}
@@ -301,7 +301,7 @@ export function SpawnResults({
             i === activeIndex ? 'bg-primary/20' : 'hover:bg-primary/10',
           )}
         >
-          <FolderPlus className="w-3.5 h-3.5 text-active shrink-0" />
+          <FolderPlus className="size-3.5 text-active shrink-0" />
           <span className="text-xs text-foreground">{dir}/</span>
         </button>
       ))}
@@ -311,12 +311,12 @@ export function SpawnResults({
           onClick={() => onSpawn(path.slice(0, -1))}
           className="w-full px-3 py-2 flex items-center gap-3 text-left bg-active/10 hover:bg-active/20 transition-colors border-t border-primary/20"
         >
-          <FolderPlus className="w-3.5 h-3.5 text-active shrink-0" />
+          <FolderPlus className="size-3.5 text-active shrink-0" />
           <span className="text-xs text-active font-bold">Spawn conversation at {path.slice(0, -1)}</span>
         </button>
       )}
       {spawning && (
-        <div className="px-3 py-4 text-center text-[10px] text-active animate-pulse">Spawning conversation...</div>
+        <div className="px-3 py-4 text-center text-[10px] text-active animate-pulse">Spawning conversation…</div>
       )}
     </>
   )

@@ -45,8 +45,8 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
       >
         {/* Search input */}
         <div className="px-3 py-2 border-b border-primary/20 flex items-center gap-2">
-          {palette.mode === 'spawn' && <FolderPlus className="w-4 h-4 text-active shrink-0" />}
-          {palette.mode === 'file' && <FileText className="w-4 h-4 text-primary shrink-0" />}
+          {palette.mode === 'spawn' && <FolderPlus className="size-4 text-active shrink-0" />}
+          {palette.mode === 'file' && <FileText className="size-4 text-primary shrink-0" />}
           <input
             ref={palette.inputRef}
             type="text"
@@ -123,7 +123,7 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
           ) : palette.mode === 'task' ? (
             <div>
               {palette.tasksLoading ? (
-                <div className="px-4 py-3 text-comment text-xs">Loading tasks...</div>
+                <div className="px-4 py-3 text-comment text-xs">Loading tasks…</div>
               ) : palette.filteredTasks.length === 0 ? (
                 <div className="px-4 py-3 text-comment text-xs">No matching tasks</div>
               ) : (

@@ -35,7 +35,7 @@ export function CommandRow({ command, active, onMouseEnter, onClick, dim }: Comm
         <span className={cn('text-xs truncate', dim ? 'text-comment' : 'text-foreground')}>{command.label}</span>
       </span>
       {hasSubmenu ? (
-        <ChevronRight className="w-3.5 h-3.5 text-comment shrink-0" />
+        <ChevronRight className="size-3.5 text-comment shrink-0" />
       ) : (
         (command.shortcuts || (command.shortcut ? [command.shortcut] : [])).length > 0 && (
           <span className="flex items-center gap-1.5 shrink-0">

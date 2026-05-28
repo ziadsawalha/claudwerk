@@ -8,14 +8,10 @@ import type { BatchAction, BatchActionRunResult } from './batch-actions'
 function RowStatusIcon({ row }: { row: RowState | undefined }) {
   if (!row?.settledAt) {
     return (
-      <span className="w-3 h-3 inline-block rounded-full border-2 border-muted-foreground/40 border-t-transparent animate-spin" />
+      <span className="size-3 inline-block rounded-full border-2 border-muted-foreground/40 border-t-transparent animate-spin" />
     )
   }
-  return row.ok ? (
-    <Check className="w-3 h-3 text-active shrink-0" />
-  ) : (
-    <X className="w-3 h-3 text-destructive shrink-0" />
-  )
+  return row.ok ? <Check className="size-3 text-active shrink-0" /> : <X className="size-3 text-destructive shrink-0" />
 }
 
 function ProgressRow({
