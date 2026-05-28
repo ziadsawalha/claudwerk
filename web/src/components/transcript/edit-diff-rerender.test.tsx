@@ -43,19 +43,23 @@ vi.mock('diff', async importOriginal => {
   }
 })
 
-// Replace DiffView with a memo'd render counter. Keeps memo semantics (default
-// shallow compare on `patches`/`filePath`) so a stable patches ref skips it,
-// but drops the real async Shiki highlighting that otherwise fires during
-// testing-library cleanup.
+// Replace DiffView with a memo'd render counter. Reuses the real
+// `patchesEqual` so Path A (precomputed structuredPatch on toolUseResult)
+// is exercised with the SAME memo semantics the real DiffView has -- a fresh
+// array ref with structurally-equal hunks must NOT bust the memo. Drops the
+// real async Shiki highlight (a test-env cleanup hazard).
 const diffViewRender = vi.fn()
 vi.mock('./tool-renderers', async importOriginal => {
   const actual = await importOriginal<typeof import('./tool-renderers')>()
   return {
     ...actual,
-    DiffView: memo(function MockDiffView() {
-      diffViewRender()
-      return null
-    }),
+    DiffView: memo(
+      function MockDiffView(_props: { patches: Array<{ oldStart: number; lines: string[] }>; filePath?: string }) {
+        diffViewRender()
+        return null
+      },
+      (a, b) => a.filePath === b.filePath && actual.patchesEqual(a.patches, b.patches),
+    ),
   }
 })
 
@@ -123,5 +127,48 @@ describe('Edit diff recompute on re-render', () => {
     rerender(line([]))
     expect(structuredPatchSpy).toHaveBeenCalledTimes(1)
     expect(diffViewRender).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** Path A regression: CC's real Edit tool results carry a precomputed
+ *  `structuredPatch` on toolUseResult, so renderEdit skips EditDiff and hands
+ *  the array straight to DiffView. The transcript pipeline rehydrates
+ *  toolUseResult on every tick -- new array ref, identical contents. Before
+ *  this fix, DiffView's default shallow memo broke on the ref change and
+ *  re-ran Shiki on every update ("diffs re-rendering FULLY on each transcript
+ *  update"). After the fix, DiffView uses structural equality on patches. */
+describe('Edit diff: precomputed structuredPatch path (Path A)', () => {
+  function lineWithPatch(patch: Array<{ oldStart: number; lines: string[] }>) {
+    return (
+      <MemoizedToolLine
+        tool={editTool}
+        toolUseResult={{ structuredPatch: patch }}
+        isError={false}
+        expandAll={false}
+        renderAgentInline={noop}
+      />
+    )
+  }
+
+  it('does NOT re-colour when toolUseResult is rehydrated with structurally-equal patches', () => {
+    // First render with one patch ref.
+    const patch1 = [{ oldStart: 1, lines: [' const a = 1', '-const b = 2', '+const b = 999'] }]
+    const { rerender } = render(lineWithPatch(patch1))
+    expect(diffViewRender).toHaveBeenCalledTimes(1)
+    // Rehydrate: fresh array, fresh inner objects, fresh inner arrays --
+    // every reference is new -- but contents are identical. Shallow memo
+    // would break; structural memo must hold.
+    const patch2 = [{ oldStart: 1, lines: [' const a = 1', '-const b = 2', '+const b = 999'] }]
+    rerender(lineWithPatch(patch2))
+    expect(diffViewRender).toHaveBeenCalledTimes(1)
+  })
+
+  it('DOES re-render when patch contents actually change', () => {
+    const patch1 = [{ oldStart: 1, lines: [' const a = 1', '-const b = 2', '+const b = 999'] }]
+    const { rerender } = render(lineWithPatch(patch1))
+    expect(diffViewRender).toHaveBeenCalledTimes(1)
+    const patch2 = [{ oldStart: 1, lines: [' const a = 1', '-const b = 2', '+const b = 7777'] }]
+    rerender(lineWithPatch(patch2))
+    expect(diffViewRender).toHaveBeenCalledTimes(2)
   })
 })
