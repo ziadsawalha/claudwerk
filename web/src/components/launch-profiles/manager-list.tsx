@@ -41,7 +41,7 @@ export function ManagerList({ profiles, selectedId, onSelect, onCreate }: Props)
         onClick={onCreate}
         className="flex items-center gap-2 px-2 py-1.5 text-xs text-primary hover:bg-muted/40 transition-colors"
       >
-        <Plus className="h-3.5 w-3.5" />
+        <Plus className="size-3.5" />
         <span>New profile</span>
       </button>
     </div>
@@ -72,7 +72,7 @@ function ListRow({
       )}
     >
       <span className="truncate flex items-center gap-2">
-        {pinBlocked && <AlertTriangle className="h-3 w-3 text-warning shrink-0" />}
+        {pinBlocked && <AlertTriangle className="size-3 text-warning shrink-0" />}
         <span className="truncate">{profile.name || '(unnamed)'}</span>
       </span>
       {profile.chord && (

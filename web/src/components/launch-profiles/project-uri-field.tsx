@@ -41,7 +41,7 @@ export function ProjectUriField({ value, onChange }: Props) {
                 : 'border-primary/20 text-muted-foreground hover:text-foreground',
             )}
           >
-            <Hammer className="h-3 w-3" />
+            <Hammer className="size-3" />
             Build
           </button>
         </div>

@@ -59,8 +59,8 @@ export function ProfileDropdown({ selectedId, profiles, onSelectProfile, onPickC
         <SelectGroup>
           <SelectSeparator />
           <SelectLabel>Actions</SelectLabel>
-          <SelectItem value={NEW_VALUE}>+ New profile...</SelectItem>
-          <SelectItem value={MANAGE_VALUE}>Manage profiles...</SelectItem>
+          <SelectItem value={NEW_VALUE}>+ New profile…</SelectItem>
+          <SelectItem value={MANAGE_VALUE}>Manage profiles…</SelectItem>
         </SelectGroup>
       </SelectContent>
     </Select>

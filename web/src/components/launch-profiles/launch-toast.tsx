@@ -94,7 +94,7 @@ function LaunchToastRow({ toast }: { toast: LaunchToastItem }) {
           onClick={() => dismissLaunchToast(toast.id)}
           className="text-muted-foreground hover:text-foreground"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="size-3.5" />
         </button>
       </div>
       {toast.profileId && (

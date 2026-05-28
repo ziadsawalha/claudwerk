@@ -128,7 +128,7 @@ function DirBrowser({
       />
       <div className="border border-primary/15 bg-surface-inset/70 max-h-44 overflow-y-auto">
         {path !== '/' && (
-          <DirRow icon={<ChevronUp className="h-3 w-3" />} label=".." onClick={() => onPathChange(parentPath(path))} />
+          <DirRow icon={<ChevronUp className="size-3" />} label=".." onClick={() => onPathChange(parentPath(path))} />
         )}
         <DirList dirs={dirs} loading={loading} error={error} onEnter={name => onPathChange(joinPath(path, name))} />
       </div>
@@ -150,7 +150,7 @@ function DirList({
   if (loading) {
     return (
       <div className="flex items-center gap-1.5 px-2 py-1 text-comment">
-        <Loader2 className="h-3 w-3 animate-spin" /> Listing...
+        <Loader2 className="size-3 animate-spin" /> Listing…
       </div>
     )
   }
@@ -161,7 +161,7 @@ function DirList({
       {dirs.map(d => (
         <DirRow
           key={d}
-          icon={<FolderClosed className="h-3 w-3 text-primary/70" />}
+          icon={<FolderClosed className="size-3 text-primary/70" />}
           label={d}
           onClick={() => onEnter(d)}
         />
