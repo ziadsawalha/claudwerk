@@ -32,9 +32,7 @@ import { memo } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptContentBlock } from '@/lib/types'
 import { MemoizedToolLine } from './tool-line'
-// Static import so fallow sees the patchesEqual export consumed.
-// The vi.mock factory below re-uses the same function via `actual.patchesEqual`.
-import { patchesEqual } from './tool-renderers'
+import { patchesEqual } from './tool-renderers-utils'
 
 // Count diff recomputes. Arrow form (not bare `vi.fn(actual.structuredPatch)`):
 // the bare form invokes the impl with a mangled `this` and throws under render.
@@ -61,7 +59,7 @@ vi.mock('./tool-renderers', async importOriginal => {
         diffViewRender()
         return null
       },
-      (a, b) => a.filePath === b.filePath && actual.patchesEqual(a.patches, b.patches),
+      (a, b) => a.filePath === b.filePath && patchesEqual(a.patches, b.patches),
     ),
   }
 })
