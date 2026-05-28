@@ -178,3 +178,54 @@ describe('stream-handlers UUID synthesis', () => {
     expect(entries[0].uuid).not.toBe(entries[1].uuid)
   })
 })
+
+describe('stream-handlers thinking_tokens', () => {
+  test('system/thinking_tokens fires onThinkingProgress and does NOT persist a transcript entry', () => {
+    const entries: TranscriptEntry[] = []
+    const progress: Array<{ tokens: number; delta?: number }> = []
+    const hctx: HandlerContext = {
+      monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
+      replay: createReplayBuffer(),
+      pendingControlRequests: new Map(),
+      callbacks: {
+        onTranscriptEntries(e) {
+          entries.push(...e)
+        },
+        onThinkingProgress(s) {
+          progress.push(s)
+        },
+      },
+    }
+    hctx.replay.done = true
+
+    handleMessage(hctx, {
+      type: 'system',
+      subtype: 'thinking_tokens',
+      estimated_tokens: 150,
+      estimated_tokens_delta: 100,
+    })
+
+    expect(entries).toHaveLength(0)
+    expect(progress).toEqual([{ tokens: 150, delta: 100 }])
+  })
+
+  test('first thinking_tokens ping (no delta field) yields undefined delta', () => {
+    const progress: Array<{ tokens: number; delta?: number }> = []
+    const hctx: HandlerContext = {
+      monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
+      replay: createReplayBuffer(),
+      pendingControlRequests: new Map(),
+      callbacks: {
+        onTranscriptEntries() {},
+        onThinkingProgress(s) {
+          progress.push(s)
+        },
+      },
+    }
+    hctx.replay.done = true
+
+    handleMessage(hctx, { type: 'system', subtype: 'thinking_tokens', estimated_tokens: 50 })
+
+    expect(progress).toEqual([{ tokens: 50, delta: undefined }])
+  })
+})

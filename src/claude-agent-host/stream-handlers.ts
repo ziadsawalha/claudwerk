@@ -37,6 +37,7 @@ export interface HandlerContext {
     | 'onScheduledTaskFire'
     | 'onPlanModeChanged'
     | 'onApiStatus'
+    | 'onThinkingProgress'
   >
 }
 
@@ -106,6 +107,19 @@ function handleSystem(hctx: HandlerContext, msg: Record<string, unknown>) {
   }
 
   if (subtype === 'hook_started' || subtype === 'hook_response') return
+
+  // Backend-agnostic thinking-progress ping. EPHEMERAL: handed off to the
+  // onThinkingProgress callback (which the agent host forwards as a
+  // ThinkingProgress wire message), but explicitly NOT persisted as a
+  // TranscriptEntry. CC emits these every ~1.5s while in extended thinking;
+  // turning them into transcript entries would flood the store + UI with
+  // noise for what is purely a liveness cue.
+  if (subtype === 'thinking_tokens') {
+    const tokens = typeof msg.estimated_tokens === 'number' ? msg.estimated_tokens : 0
+    const delta = typeof msg.estimated_tokens_delta === 'number' ? msg.estimated_tokens_delta : undefined
+    callbacks.onThinkingProgress?.({ tokens, delta })
+    return
+  }
 
   if (!replay.done) flushReplayBuffer(replay, callbacks.onTranscriptEntries)
 

@@ -333,6 +333,20 @@ export function buildHeadlessSpawnOptions(deps: HeadlessCallbackDeps): StreamBac
       }
     },
 
+    onThinkingProgress({ tokens, delta }) {
+      // EPHEMERAL: forward to broker if connected, drop on the floor
+      // otherwise. No buffer, no replay -- by design. See ThinkingProgress
+      // in src/shared/protocol.ts.
+      if (!ctx.wsClient?.isConnected()) return
+      ctx.wsClient.send({
+        type: 'thinking_progress',
+        conversationId: ctx.conversationId,
+        tokens,
+        delta,
+        t: Date.now(),
+      } as unknown as AgentHostMessage)
+    },
+
     onPlanModeChanged(planMode) {
       if (shouldSuppressStaleStatusPlanMode(ctx, planMode)) return
       ctx.diag('headless', `Plan mode: ${planMode ? 'ON' : 'OFF'} (from status message)`)

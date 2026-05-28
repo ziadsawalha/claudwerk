@@ -89,6 +89,10 @@ export interface StreamBackendOptions {
   onScheduledTaskFire?: (content: string) => void
   onPlanModeChanged?: (planMode: boolean) => void
   onApiStatus?: (status: string) => void
+  /** Backend emitted a thinking-progress ping (CC: `system/thinking_tokens`).
+   *  EPHEMERAL -- the receiver MUST NOT persist these; see ThinkingProgress
+   *  in src/shared/protocol.ts. */
+  onThinkingProgress?: (sample: { tokens: number; delta?: number }) => void
   onJsonStreamLine?: (line: string) => void
   onExit?: (code: number | null) => void
 }
@@ -165,6 +169,7 @@ export function spawnStreamClaude(options: StreamBackendOptions): StreamProcess 
       onScheduledTaskFire: options.onScheduledTaskFire,
       onPlanModeChanged: options.onPlanModeChanged,
       onApiStatus: options.onApiStatus,
+      onThinkingProgress: options.onThinkingProgress,
     },
   }
 
