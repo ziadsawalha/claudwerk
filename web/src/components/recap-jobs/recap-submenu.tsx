@@ -14,9 +14,14 @@
 
 import type { RecapPeriodLabel } from '@shared/protocol'
 import { ContextMenu } from 'radix-ui'
-import { wsSend } from '@/hooks/use-conversations'
 import { haptic } from '@/lib/utils'
 import { openRecapCustomRangeDialog } from './recap-custom-range-dialog'
+import { type CreateRecapOptions, createRecap } from './recap-wire'
+
+// `createRecap` is re-exported (in addition to its canonical home in
+// ./recap-wire) so existing call sites and the recap-submenu.test.ts file
+// keep importing from this module.
+export { createRecap }
 
 const menuItemClass =
   'flex items-center px-3 py-1.5 text-[11px] font-mono cursor-pointer outline-none data-[highlighted]:bg-accent/20 data-[highlighted]:text-accent'
@@ -29,43 +34,6 @@ const PRESET_LABELS: { label: RecapPeriodLabel; display: string }[] = [
   { label: 'this_week', display: 'This week' },
   { label: 'this_month', display: 'This month' },
 ]
-
-function browserTimeZone(): string {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
-    if (typeof tz === 'string' && tz.length > 0) return tz
-  } catch {
-    /* fall through */
-  }
-  return 'UTC'
-}
-
-export interface CreateRecapOptions {
-  projectUri: string
-  label: RecapPeriodLabel
-  start?: number
-  end?: number
-  signals?: string[]
-  force?: boolean
-}
-
-/** Send recap_create over the dashboard WS. Returns whether the send was
- *  attempted (false only when the WS is not OPEN). */
-export function createRecap(opts: CreateRecapOptions): boolean {
-  const period: { label: RecapPeriodLabel; start?: number; end?: number } = { label: opts.label }
-  if (opts.label === 'custom') {
-    if (opts.start == null || opts.end == null) return false
-    period.start = opts.start
-    period.end = opts.end
-  }
-  return wsSend('recap_create', {
-    projectUri: opts.projectUri,
-    period,
-    timeZone: browserTimeZone(),
-    ...(opts.signals?.length ? { signals: opts.signals } : {}),
-    ...(opts.force ? { force: true } : {}),
-  })
-}
 
 /** "View past recaps..." -- opens the recap-history modal (Phase 10). */
 export function openRecapHistory(projectUri?: string) {
