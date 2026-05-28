@@ -46,10 +46,12 @@ self.addEventListener('activate', event => {
       const allPrecaches = keys.filter(k => k.startsWith(PRECACHE))
       const currentName = installedBuildHash ? `${PRECACHE}-${installedBuildHash}` : null
       const oldPrecaches = currentName ? allPrecaches.filter(k => k !== currentName) : []
-      for (const k of oldPrecaches) {
-        console.log(`[sw] deleting old cache: ${k}`)
-        await caches.delete(k)
-      }
+      await Promise.all(
+        oldPrecaches.map(k => {
+          console.log(`[sw] deleting old cache: ${k}`)
+          return caches.delete(k)
+        }),
+      )
       await clients.claim()
       if (oldPrecaches.length > 0) {
         const fromHash = oldPrecaches[0].slice(PRECACHE.length + 1) || null
@@ -122,7 +124,7 @@ self.addEventListener('fetch', event => {
             const keys = await cache.keys()
             if (keys.length > FILE_CACHE_MAX) {
               const toDelete = keys.slice(0, keys.length - FILE_CACHE_MAX)
-              for (const key of toDelete) await cache.delete(key)
+              await Promise.all(toDelete.map(key => cache.delete(key)))
             }
           })
           return response
