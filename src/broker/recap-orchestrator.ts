@@ -14,7 +14,9 @@ import type { CommitDigest, PeriodScope } from './recap/period/gather/types'
 import {
   type RegenerateArgs,
   type RegenerateResult,
+  type ResumeResult,
   regenerateRecap,
+  resumeRecap,
   type StartArgs,
   type StartResult,
   startRecap,
@@ -29,6 +31,9 @@ export interface RecapOrchestrator {
   start(args: StartArgs): Promise<StartResult>
   /** Pillar C++: re-run a recap from a downstream stage off its on-disk bundle. */
   regenerate(args: RegenerateArgs): RegenerateResult
+  /** G3: resume an interrupted/partial/failed chunked recap, reusing persisted
+   *  chunks and re-running only the missing ones. */
+  resume(recapId: string): ResumeResult
   cancel(recapId: string): void
   dismiss(recapId: string): void
   list(filter: { projectUri?: string; status?: RecapStatus[]; limit?: number }): RecapSummary[]
@@ -79,6 +84,18 @@ export function initRecapOrchestrator(opts: InitOptions): RecapOrchestrator {
           bundle,
         },
         args,
+      ),
+    resume: recapId =>
+      resumeRecap(
+        {
+          store,
+          brokerStore: opts.brokerStore,
+          broadcaster: opts.broadcaster,
+          informConversation: opts.informConversation,
+          gatherCommits: opts.gatherCommits,
+          bundle,
+        },
+        recapId,
       ),
     cancel(recapId: string) {
       const row = store.get(recapId)

@@ -306,6 +306,21 @@ export function createRecapsRouter(_conversationStore: ConversationStore, helper
     }
   })
 
+  // G3 resume-from-map: re-run an interrupted/partial/failed chunked recap,
+  // reusing persisted chunks and re-paying only the missing ones. Read
+  // permission on the recap's project is sufficient (it re-runs your own recap).
+  app.post('/api/recaps/:id/resume', c => {
+    const loaded = loadReadable(c)
+    if (loaded instanceof Response) return loaded
+    const orch = getRecapOrchestrator()
+    if (!orch) return c.json({ error: 'recap orchestrator not initialised' }, 503)
+    try {
+      return c.json(orch.resume(loaded.id))
+    } catch (err) {
+      return c.json(badRequest((err as Error).message), 409)
+    }
+  })
+
   // Public share viewer. No auth required -- the token IS the capability.
   // Validates targetKind === 'recap' and returns recap markdown + metadata.
   // Respects Accept header: text/html (or browser default) returns rendered HTML,

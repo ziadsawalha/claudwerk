@@ -116,12 +116,16 @@ export interface RecapBundleManifest {
   createdBy?: string
   /** Pillar C++ provenance: set when this bundle was produced by recap_regenerate. */
   regenerate?: { from: string; mode: 'fork' | 'in-place'; sourceRecapId: string; at: number }
+  /** How many times this recap has been resumed (resume-from-map). Capped so a
+   *  permanently-broken recap can't be retried forever. Lives on the manifest
+   *  (a bundle concern) -- no DB column needed. */
+  resumeCount?: number
 }
 
 export type RecapBundleManifestPatch = Partial<
   Pick<
     RecapBundleManifest,
-    'mode' | 'models' | 'chunkCount' | 'recipe' | 'status' | 'error' | 'cost' | 'timing' | 'regenerate'
+    'mode' | 'models' | 'chunkCount' | 'recipe' | 'status' | 'error' | 'cost' | 'timing' | 'regenerate' | 'resumeCount'
   >
 > & { startedAt?: number; completedAt?: number }
 
@@ -153,6 +157,9 @@ export interface RecapBundleWriter {
   readManifest(recapId: string): RecapBundleManifest | null
   /** Read the merged JSON (<merge> output) -- the synthesize-stage input. */
   readMerged<T = unknown>(recapId: string): T | null
+  /** Read one chunk's persisted parsed extraction (resume-from-map reuses these
+   *  instead of re-paying the map call). null if that chunk was never persisted. */
+  readMapParsed<T = unknown>(recapId: string, chunkIndex: number): T | null
   /** Read the saved final-stage raw response (render-stage input). */
   readFinalResponse(recapId: string): string | null
   /** Read the first assembled prompt recorded for a stage (e.g. 'oneshot'). */
@@ -219,6 +226,10 @@ export function createRecapBundleWriter(cacheDir: string): RecapBundleWriter {
         console.error(`[recap-bundle] mkdir failed for ${recapId}:`, describe(err))
         return
       }
+      // A resume re-enters begin() on the SAME bundle. The chunks/*.parsed.json
+      // files survive (mkdir is a no-op when they exist), but the manifest is
+      // rewritten -- carry forward resumeCount so the max-attempts cap holds.
+      const prior = readManifest(recapId)
       const manifest: RecapBundleManifest = {
         pipelineVersion: RECAP_PIPELINE_VERSION,
         recapId,
@@ -231,6 +242,7 @@ export function createRecapBundleWriter(cacheDir: string): RecapBundleWriter {
         artifacts: { merged: false, finalMarkdown: false, mapChunks: 0 },
         timing: { createdAt: init.createdAt, updatedAt: Date.now() },
         ...(init.createdBy ? { createdBy: init.createdBy } : {}),
+        ...(prior?.resumeCount ? { resumeCount: prior.resumeCount } : {}),
       }
       writeManifest(recapId, manifest)
     },
@@ -334,6 +346,10 @@ export function createRecapBundleWriter(cacheDir: string): RecapBundleWriter {
       return readJsonFile<T>(join(bundleDir(recapId), 'merged.json'))
     },
 
+    readMapParsed<T = unknown>(recapId: string, chunkIndex: number): T | null {
+      return readJsonFile<T>(join(bundleDir(recapId), 'chunks', `map-${chunkIndex}.parsed.json`))
+    },
+
     readFinalResponse(recapId) {
       const path = join(bundleDir(recapId), 'final-response.txt')
       if (!existsSync(path)) return null
@@ -385,13 +401,20 @@ export function createRecapBundleWriter(cacheDir: string): RecapBundleWriter {
       if (patch.error !== undefined) manifest.error = patch.error
       if (patch.cost !== undefined) manifest.cost = patch.cost
       if (patch.regenerate !== undefined) manifest.regenerate = patch.regenerate
+      if (patch.resumeCount !== undefined) manifest.resumeCount = patch.resumeCount
       if (patch.startedAt !== undefined) manifest.timing.startedAt = patch.startedAt
       if (patch.completedAt !== undefined) manifest.timing.completedAt = patch.completedAt
       manifest.timing.updatedAt = Date.now()
       writeManifest(recapId, manifest)
       // Evict the per-recap counter once the run reaches a terminal state -- the
       // on-disk bundle stands alone; only the in-memory seq needs cleanup.
-      if (patch.status === 'done' || patch.status === 'failed' || patch.status === 'cancelled') {
+      // 'interrupted' is NOT terminal (resumable), so it keeps its counter.
+      if (
+        patch.status === 'done' ||
+        patch.status === 'partial' ||
+        patch.status === 'failed' ||
+        patch.status === 'cancelled'
+      ) {
         seqByRecap.delete(recapId)
       }
     },

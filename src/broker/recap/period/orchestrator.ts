@@ -6,6 +6,7 @@ import type {
   RecapSignal,
   RecapTuning,
 } from '../../../shared/protocol'
+import { isRecapInFlight } from '../../../shared/protocol'
 import type { StoreDriver } from '../../store/types'
 import { type ChatRequest, chat } from '../shared/openrouter-client'
 import type { NormalizedUsage } from '../shared/pricing'
@@ -137,13 +138,14 @@ function scheduleRun(
   args: StartArgs,
   period: ResolvedPeriod,
   timeZone: string,
+  reuseMap?: (index: number) => RecapMetadata | null,
 ): void {
   setImmediate(() => {
     // The ledger lives at this scope so the failure path can persist whatever
     // cost was already burned (record-on-failure) -- the runLlmCall wrapper
     // also flushes it incrementally, but this guarantees the final state.
     const ledger = new RecapLedger()
-    runRecap(deps, recapId, args, period, timeZone, ledger).catch(err => {
+    runRecap(deps, recapId, args, period, timeZone, ledger, reuseMap).catch(err => {
       console.error(`[recap] run failed for ${recapId}:`, err)
       const built = ledger.build()
       deps.store.update(recapId, {
@@ -305,6 +307,120 @@ export function regenerateRecap(deps: OrchestratorDeps, args: RegenerateArgs): R
   })
 
   return { recapId: targetId, sourceRecapId: src.id, mode, from: args.from }
+}
+
+// ---------------------------------------------------------------------------
+// G3 -- resume-from-map (don't re-pay the chunks already extracted)
+// ---------------------------------------------------------------------------
+
+export interface ResumeResult {
+  recapId: string
+  resumeCount: number
+  /** Chunks reusable from the bundle (won't be re-paid). */
+  reusableChunks: number
+  totalChunks: number
+}
+
+/** A recap can be resumed at most this many times before it's permanently
+ *  failed -- a cost guard against a forever-broken recap (dialog: max 2). */
+export const MAX_RESUME_ATTEMPTS = 2
+
+/**
+ * Resume an interrupted / partial / failed CHUNKED recap from its on-disk bundle:
+ * re-gather + re-split (deterministic -- same chunkSize -> same boundaries), reuse
+ * every persisted chunk extraction, re-run ONLY the missing chunks, then merge +
+ * reduce + finalize. The expensive map work already paid is NOT re-paid. Capped
+ * at MAX_RESUME_ATTEMPTS. Validates synchronously; runs in the background.
+ */
+// fallow-ignore-next-line complexity
+export function resumeRecap(deps: OrchestratorDeps, recapId: string): ResumeResult {
+  const row = deps.store.get(recapId)
+  if (!row) throw new Error(`recap ${recapId} not found`)
+  if (!deps.bundle) throw new Error('run-artifact bundles are not enabled on this broker')
+  const manifest = deps.bundle.readManifest(recapId)
+  if (!manifest) {
+    throw new Error(`recap ${recapId} has no run-artifact bundle (predates Pillar C+); create a fresh recap`)
+  }
+  if (manifest.mode !== 'chunked') {
+    throw new Error(
+      `recap ${recapId} is mode=${manifest.mode ?? 'unknown'}; resume-from-map only applies to chunked recaps`,
+    )
+  }
+  if (isRecapInFlight(row.status)) {
+    throw new Error(`recap ${recapId} is still ${row.status} -- nothing to resume`)
+  }
+  const priorResumes = manifest.resumeCount ?? 0
+  if (priorResumes >= MAX_RESUME_ATTEMPTS) {
+    const reason = `resume cap reached (${MAX_RESUME_ATTEMPTS} attempts) -- not retrying`
+    deps.store.update(recapId, { status: 'failed', error: reason })
+    deps.bundle.updateManifest(recapId, { status: 'failed', error: reason })
+    throw new Error(`recap ${recapId}: ${reason}`)
+  }
+
+  const totalChunks = manifest.chunkCount ?? 0
+  let reusableChunks = 0
+  for (let i = 0; i < totalChunks; i++) {
+    if (deps.bundle.readMapParsed(recapId, i) != null) reusableChunks++
+  }
+
+  // Reconstruct run inputs from the row + manifest so the re-split is IDENTICAL
+  // (same chunkSize -> same boundaries -> persisted map-N aligns with chunk N).
+  const recipe = (jsonParseOr(row.argsJson) ?? {}) as Record<string, unknown>
+  const period: ResolvedPeriod = {
+    label: manifest.period.label,
+    start: row.periodStart,
+    end: row.periodEnd,
+    human: manifest.period.human ?? '',
+    isoRange: manifest.period.isoRange ?? '',
+  }
+  const tuning: RecapTuning = {
+    forceMode: 'chunked',
+    ...(typeof recipe.chunkSize === 'number' ? { chunkSize: recipe.chunkSize } : {}),
+    ...(typeof recipe.thresholdChars === 'number' ? { thresholdChars: recipe.thresholdChars } : {}),
+    ...(typeof recipe.thresholdConvs === 'number' ? { thresholdConvs: recipe.thresholdConvs } : {}),
+    ...(manifest.models?.map ? { mapModel: manifest.models.map } : {}),
+    ...(manifest.models?.reduce ? { reduceModel: manifest.models.reduce } : {}),
+  }
+  const args: StartArgs = {
+    type: 'recap_create',
+    projectUri: row.projectUri,
+    period: {
+      label: row.periodLabel as RecapCreateMessage['period']['label'],
+      start: row.periodStart,
+      end: row.periodEnd,
+    },
+    timeZone: row.timeZone,
+    audience: row.audience,
+    ...(((jsonParseOr(row.signalsJson) as RecapSignal[] | undefined) ?? undefined) && {
+      signals: jsonParseOr(row.signalsJson) as RecapSignal[],
+    }),
+    tuning,
+    force: true,
+    ...(row.informConversationId ? { informConversationId: row.informConversationId } : {}),
+  }
+
+  const resumeCount = priorResumes + 1
+  deps.bundle.updateManifest(recapId, { status: 'rendering', resumeCount })
+  deps.store.update(recapId, { status: 'rendering', progress: 0, error: null })
+  scheduleRun(
+    deps,
+    recapId,
+    args,
+    period,
+    row.timeZone,
+    i => deps.bundle?.readMapParsed<RecapMetadata>(recapId, i) ?? null,
+  )
+
+  return { recapId, resumeCount, reusableChunks, totalChunks }
+}
+
+function jsonParseOr(raw: string | null | undefined): unknown {
+  if (!raw) return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return undefined
+  }
 }
 
 // fallow-ignore-next-line complexity
@@ -475,6 +591,8 @@ async function runRecap(
   period: ResolvedPeriod,
   timeZone: string,
   ledger: RecapLedger,
+  /** Resume-from-map: reuse persisted chunk extractions instead of re-paying. */
+  reuseMap?: (index: number) => RecapMetadata | null,
 ): Promise<void> {
   const startedAt = Date.now()
   const audience: RecapAudience = args.audience ?? 'human'
@@ -548,6 +666,7 @@ async function runRecap(
     promptInputs,
     audience,
     args,
+    reuseMap,
   })
   const partialReason = partial
     ? `${partial.failed} of ${partial.total} chunk(s) failed -- recap is partial`
@@ -867,6 +986,8 @@ export interface MapStageResult {
   failed: number
   /** Chunks skipped by the G8 empty-input gate (NOT failures). */
   skippedEmpty: number
+  /** Chunks reused from the bundle on a resume (NOT re-mapped, NOT failures). */
+  reused: number
   /** True if the overall stage deadline fired. */
   stageTimedOut: boolean
 }
@@ -887,9 +1008,10 @@ export async function runMapStage(
   chunks: ReturnType<typeof splitIntoChunks>,
   mapModel: string,
   t: RecapTuning,
+  reuseMap?: (index: number) => RecapMetadata | null,
 ): Promise<MapStageResult> {
   const stageDeadlineMs = mapStageDeadlineMs(chunks.length)
-  const state = { failed: 0, skippedEmpty: 0, stageTimedOut: false }
+  const state = { failed: 0, skippedEmpty: 0, reused: 0, stageTimedOut: false }
   let stageTimer: ReturnType<typeof setTimeout> | undefined
   const stageDeadline = new Promise<never>((_, reject) => {
     stageTimer = setTimeout(() => {
@@ -901,6 +1023,14 @@ export async function runMapStage(
 
   const metas = await parallelMap(chunks, MAP_CONCURRENCY, async chunk => {
     const phase = `render/map ${chunk.index + 1}/${chunks.length}`
+    // Resume-from-map: a chunk already extracted on a prior run is reused from
+    // the bundle -- no LLM call, no cost. NOT a failure, NOT empty.
+    const reused = reuseMap?.(chunk.index) ?? null
+    if (reused) {
+      emit.emit('info', phase, `chunk ${chunk.index + 1} reused from bundle (resume -- not re-mapped)`)
+      state.reused++
+      return reused
+    }
     // G8 empty-input gate: nothing to send -> skip the call. An empty/whitespace
     // prompt wastes spend and can hang a provider; a content-free chunk is just
     // "done, no evidence" (Jonas's instinct -- defensive, not this incident's bug).
@@ -976,6 +1106,9 @@ interface ProduceArgs {
   promptInputs: PromptInputs
   audience: RecapAudience
   args: StartArgs
+  /** Resume-from-map: return a chunk's already-parsed extraction (from the
+   *  bundle) to reuse it instead of re-paying the map call. null -> re-map. */
+  reuseMap?: (index: number) => RecapMetadata | null
 }
 
 interface ProduceResult {
@@ -1055,8 +1188,9 @@ async function runChunked(
   emit.setProgress(45, 'render/map')
 
   // MAP -- parallel extraction with per-call timeout + overall stage deadline +
-  // the G8 empty gate. Degrades dropped chunks rather than hanging the barrier.
-  const { metas, failed, skippedEmpty, stageTimedOut } = await runMapStage(
+  // the G8 empty gate + resume-from-map reuse. Degrades dropped chunks rather
+  // than hanging the barrier.
+  const { metas, failed, skippedEmpty, reused, stageTimedOut } = await runMapStage(
     deps,
     recapId,
     ledger,
@@ -1064,6 +1198,7 @@ async function runChunked(
     chunks,
     models.mapModel,
     t,
+    p.reuseMap,
   )
   if (failed === chunks.length) {
     throw new Error(`chunked map stage failed: all ${chunks.length} chunk(s) errored`)
@@ -1077,6 +1212,13 @@ async function runChunked(
   }
   if (skippedEmpty > 0) {
     emit.emit('info', 'render/map-done', `${skippedEmpty}/${chunks.length} chunk(s) skipped (empty -- no content)`)
+  }
+  if (reused > 0) {
+    emit.emit(
+      'info',
+      'render/map-done',
+      `${reused}/${chunks.length} chunk(s) reused from bundle (resume -- not re-paid)`,
+    )
   }
 
   // MERGE -- pure deterministic dedup, no LLM.
