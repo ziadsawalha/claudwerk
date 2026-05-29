@@ -270,6 +270,13 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
             "'agent' (default) -- terse, high-signal orientation brief for a fresh Claude Code " +
             "session. 'human' -- narrative development report.",
         },
+        retrospect: {
+          type: 'boolean',
+          description:
+            'When true, the recap additionally EVALUATES the period (a Retrospective section + ' +
+            'went_well / went_badly / recommendations frontmatter) on top of the chosen audience. ' +
+            'recommendations are actionable feeds for CLAUDE.md / rules / tools. Opt-in; off by default.',
+        },
         inform_on_complete: {
           type: 'boolean',
           description:
@@ -347,6 +354,7 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
       // The caller of an MCP tool is, by definition, an agent -- default the
       // audience to 'agent'. 'human' must be asked for explicitly.
       const audience = raw.audience === 'human' ? 'human' : 'agent'
+      const retrospect = raw.retrospect === true
       const informOnComplete = raw.inform_on_complete === true
 
       try {
@@ -357,6 +365,7 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
             period,
             timeZone,
             audience,
+            ...(retrospect ? { retrospect: true } : {}),
             ...(signals ? { signals } : {}),
             ...(force ? { force: true } : {}),
             ...(raw.tuning && typeof raw.tuning === 'object' ? { tuning: raw.tuning } : {}),

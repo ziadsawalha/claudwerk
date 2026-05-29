@@ -52,6 +52,15 @@ describe('buildSynthesizePrompt', () => {
     const parsed = JSON.parse(user.slice(jsonStart, jsonEnd + 1)) as RecapMetadata
     expect(parsed.features[0].title).toBe('chunked map-reduce')
   })
+
+  it('appends the retrospect spec only when retrospect=true (Pillar F, CHUNKED:Final)', () => {
+    const off = buildSynthesizePrompt(merged(), ctx, 'human', false).system
+    const on = buildSynthesizePrompt(merged(), ctx, 'human', true).system
+    expect(off).not.toContain('went_well')
+    expect(on).toContain('went_well')
+    expect(on).toContain('recommendations')
+    expect(on).toContain('## Retrospective')
+  })
 })
 
 describe('synthesize output contract round-trips parseRecapOutput', () => {

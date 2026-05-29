@@ -31,11 +31,40 @@ export interface BuiltPrompt {
   inputChars: number
 }
 
-export function buildPrompt(inputs: PromptInputs, audience: RecapAudience = 'human'): BuiltPrompt {
-  const system = audience === 'agent' ? agentSystemPrompt(inputs) : humanSystemPrompt(inputs)
+export function buildPrompt(inputs: PromptInputs, audience: RecapAudience = 'human', retrospect = false): BuiltPrompt {
+  const base = audience === 'agent' ? agentSystemPrompt(inputs) : humanSystemPrompt(inputs)
+  // Pillar F: retrospect is ADDITIVE -- append the evaluative frontmatter fields
+  // + body section on top of whichever audience body was chosen.
+  const system = retrospect ? `${base}\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : base
   const user = userPayload(inputs)
   return { system, user, inputChars: system.length + user.length }
 }
+
+/**
+ * Pillar F -- retrospect frontmatter + body. APPENDED to either audience's
+ * prompt when retrospect:true, and reused by the chunked CHUNKED:Final stage.
+ * Emitted ONLY by Opus (oneshot/synthesize), NEVER the cheap map stage. The
+ * three lists are JUDGMENT (evaluation), so they may be inferred -- unlike the
+ * extraction sections, an inferred retrospect item is expected.
+ */
+export const RETRO_FRONTMATTER_SPEC = `ADDITIONAL RETROSPECT FRONTMATTER (this recap is also a RETROSPECTIVE -- EVALUATE the period, don't just report it):
+
+  went_well: [<things that went WELL this period, as {title, detail?, conversations?, commits?}>]
+  went_badly: [<things that went BADLY -- friction, relitigated decisions, recurring dead-ends, wasted effort -- as {title, detail?, conversations?}>]
+  recommendations: [<concrete, ACTIONABLE improvements for the NEXT period, PRIORITISING rules / tools / CLAUDE.md / process changes, as {title, detail (what to change and why), conversations?}>]
+
+These three are your JUDGMENT, grounded in the period's evidence. They MAY be inferred (set inferred: true). Cite conversations/commits where you can. OMIT a list if there is genuinely nothing for it; never pad.`
+
+export const RETRO_BODY_SPEC = `ADDITIONAL RETROSPECT BODY SECTION (append AFTER the sections above):
+
+  ## Retrospective
+  ### What went well
+  The period's wins worth keeping.
+  ### What went badly
+  Friction, relitigation, recurring dead-ends, wasted effort -- be honest and specific.
+  ### Recommendations
+  Concrete changes for next period, most impactful first. Prioritise rules / tools /
+  CLAUDE.md / process -- each one actionable enough to apply directly.`
 
 /**
  * YAML frontmatter contract -- IDENTICAL for both audiences. The frontmatter

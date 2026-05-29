@@ -439,6 +439,7 @@ async function replayStage(
         periodIsoRange: promptInputs.periodIsoRange,
       },
       audience,
+      manifest.retrospect ?? false,
     )
     const content = await runLlmCall(deps, targetId, ledger, 'reduce', {
       model,
@@ -489,6 +490,7 @@ async function runRecap(
       isoRange: period.isoRange,
     },
     audience,
+    ...(args.retrospect ? { retrospect: true } : {}),
     ...(args.batchId ? { batchId: args.batchId } : {}),
     createdAt: startedAt,
     ...(args.createdBy ? { createdBy: args.createdBy } : {}),
@@ -536,7 +538,7 @@ async function runRecap(
   )
   emit.setProgress(35, 'gather/done')
 
-  const built = buildPrompt(promptInputs, audience)
+  const built = buildPrompt(promptInputs, audience, args.retrospect ?? false)
   emit.setStatus('rendering')
   // ONESHOT for small periods (one Opus pass), CHUNKED map-reduce for big ones
   // (parallel cheap extraction -> code merge -> one Opus synthesis). Both feed
@@ -952,6 +954,7 @@ async function runChunked(
       periodIsoRange: promptInputs.periodIsoRange,
     },
     audience,
+    p.args.retrospect ?? false,
   )
   const content = await runLlmCall(deps, recapId, ledger, 'reduce', {
     model: models.reduceModel,

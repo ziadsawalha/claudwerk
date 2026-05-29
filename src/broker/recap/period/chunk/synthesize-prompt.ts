@@ -13,7 +13,13 @@
  */
 
 import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
-import { AGENT_BODY_SPEC, FRONTMATTER_SPEC, HUMAN_BODY_SPEC } from '../llm/prompt-builder'
+import {
+  AGENT_BODY_SPEC,
+  FRONTMATTER_SPEC,
+  HUMAN_BODY_SPEC,
+  RETRO_BODY_SPEC,
+  RETRO_FRONTMATTER_SPEC,
+} from '../llm/prompt-builder'
 
 export interface SynthesizePrompt {
   system: string
@@ -30,8 +36,13 @@ export function buildSynthesizePrompt(
   merged: RecapMetadata,
   ctx: SynthesizeContext,
   audience: RecapAudience = 'human',
+  retrospect = false,
 ): SynthesizePrompt {
-  const bodySpec = audience === 'agent' ? AGENT_BODY_SPEC : HUMAN_BODY_SPEC
+  // Pillar F: retrospect appends the evaluative frontmatter + body section on
+  // top of the audience body. Opus-only (this stage) -- never the map stage.
+  const bodySpec = `${audience === 'agent' ? AGENT_BODY_SPEC : HUMAN_BODY_SPEC}${
+    retrospect ? `\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : ''
+  }`
   const reader =
     audience === 'agent'
       ? 'a fresh Claude Code agent session with zero prior context, about to do real work in this project'

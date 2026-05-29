@@ -38,6 +38,26 @@ describe('buildPrompt', () => {
     expect(out.inputChars).toBeGreaterThan(50_000)
   })
 
+  test('retrospect appends the evaluative frontmatter + body spec (Pillar F)', () => {
+    const inputs = makePromptInputs('small')
+    const off = buildPrompt(inputs, 'human', false)
+    const on = buildPrompt(inputs, 'human', true)
+    expect(off.system).not.toContain('went_well')
+    expect(off.system).not.toContain('## Retrospective')
+    expect(on.system).toContain('went_well')
+    expect(on.system).toContain('went_badly')
+    expect(on.system).toContain('recommendations')
+    expect(on.system).toContain('## Retrospective')
+    expect(on.system.length).toBeGreaterThan(off.system.length)
+  })
+
+  test('retrospect threads through the agent audience too (additive, not a 3rd audience)', () => {
+    const inputs = makePromptInputs('small')
+    const on = buildPrompt(inputs, 'agent', true)
+    expect(on.system).toContain('## Pick up here') // agent body still present
+    expect(on.system).toContain('## Retrospective') // + retro appended
+  })
+
   test('huge fixture is large but stays under the 1M-ctx ceiling (rides Opus)', () => {
     const out = buildPrompt(makePromptInputs('huge'))
     expect(out.inputChars).toBeGreaterThan(600_000)

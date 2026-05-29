@@ -45,6 +45,9 @@ function recapCreate(ctx: HandlerContext, data: MessageData): void {
   // reads each field defensively and persists the resolved recipe to args_json.
   const tuning =
     data.tuning && typeof data.tuning === 'object' ? (data.tuning as RecapCreateMessage['tuning']) : undefined
+  // Pillar F: retrospect is a top-level product mode (NOT benevolent-gated, NOT
+  // in tuning) -- anyone who can create a recap can ask for the retrospective.
+  const retrospect = data.retrospect === true
   // inform_on_complete: the target conversation is the CALLER's own
   // conversation, derived from the WS connection -- never passed by the agent.
   const informOnComplete = data.inform_on_complete === true
@@ -61,6 +64,7 @@ function recapCreate(ctx: HandlerContext, data: MessageData): void {
       signals: data.signals as RecapCreateMessage['signals'],
       force: Boolean(data.force),
       ...(audience ? { audience } : {}),
+      ...(retrospect ? { retrospect: true } : {}),
       ...(tuning ? { tuning } : {}),
       ...(informConversationId ? { informConversationId } : {}),
     })

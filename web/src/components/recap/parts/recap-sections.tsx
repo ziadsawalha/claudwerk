@@ -71,6 +71,29 @@ function OpenQuestions({ questions }: { questions: string[] }) {
   )
 }
 
+/** Pillar F: the retrospective block -- rendered only when the recap was created
+ *  with retrospect:true (the three fields are absent otherwise). */
+function Retrospect({
+  metadata,
+  onOpenConversation,
+}: {
+  metadata: RecapMetadata
+  onOpenConversation?: (id: string) => void
+}) {
+  const well = metadata.went_well ?? []
+  const badly = metadata.went_badly ?? []
+  const recs = metadata.recommendations ?? []
+  if (!well.length && !badly.length && !recs.length) return null
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-accent/40 bg-accent/5 p-3">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Retrospective</div>
+      <Section title="What went well" items={well} onOpenConversation={onOpenConversation} />
+      <Section title="What went badly" items={badly} onOpenConversation={onOpenConversation} />
+      <Section title="Recommendations" items={recs} onOpenConversation={onOpenConversation} />
+    </div>
+  )
+}
+
 export function RecapSections({
   metadata,
   onOpenConversation,
@@ -88,6 +111,7 @@ export function RecapSections({
           onOpenConversation={onOpenConversation}
         />
       ))}
+      <Retrospect metadata={metadata} onOpenConversation={onOpenConversation} />
       <OpenQuestions questions={metadata.open_questions} />
       <div className="flex flex-col gap-1.5">
         <ChipRow label="hashtags" items={metadata.hashtags} tone="accent" />

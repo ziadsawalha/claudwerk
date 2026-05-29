@@ -60,6 +60,37 @@ body`
     expect(out.metadata.decisions).toEqual([])
     expect(out.metadata.dead_ends).toEqual([])
     expect(out.metadata.gotchas).toEqual([])
+    // Pillar F retrospect fields are OPTIONAL -- absent (undefined) on a
+    // non-retrospect recap, never defaulted to [].
+    expect(out.metadata.went_well).toBeUndefined()
+    expect(out.metadata.went_badly).toBeUndefined()
+    expect(out.metadata.recommendations).toBeUndefined()
+  })
+
+  it('parses Pillar F retrospect fields when present', () => {
+    const raw = `---
+subtitle: retro
+went_well:
+  - title: Chunking shipped clean
+    commits: [abc1234]
+went_badly:
+  - title: Relitigated the URI strip twice
+    detail: cost an afternoon
+    inferred: true
+recommendations:
+  - title: Add a lint rule for ccSessionId in broker
+    detail: encode the boundary covenant as a check
+    conversations: [conv_xyz789]
+---
+
+## Retrospective
+body`
+    const out = parseRecapOutput(raw)
+    expect(out.metadata.went_well?.length).toBe(1)
+    expect(out.metadata.went_well?.[0].commits).toContain('abc1234')
+    expect(out.metadata.went_badly?.[0].inferred).toBe(true)
+    expect(out.metadata.recommendations?.[0].title).toContain('lint rule')
+    expect(out.metadata.recommendations?.[0].conversations).toContain('conv_xyz789')
   })
 
   it('parses Recap 2.0 sections: decisions, dead_ends, gotchas with detail + inferred', () => {

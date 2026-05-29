@@ -3518,6 +3518,13 @@ export interface RecapMetadata {
   gotchas: RecapItem[]
   open_questions: string[]
   stakeholders: string[]
+  /** Pillar F (retrospect mode): evaluative judgment emitted ONLY when
+   *  recap_create sets retrospect:true. Opus-derived (ONESHOT / CHUNKED:Final),
+   *  never the map stage. Absent on non-retrospect recaps. */
+  went_well?: RecapItem[]
+  went_badly?: RecapItem[]
+  /** Actionable improvements for next period -- the feed into CLAUDE.md/rules/tools. */
+  recommendations?: RecapItem[]
 }
 
 export interface RecapDigestConversation {
@@ -3680,6 +3687,10 @@ export interface RecapCreateMessage {
   /** Audience the recap is written for. Defaults to 'human' (narrative report).
    *  The MCP entry point defaults it to 'agent'. */
   audience?: RecapAudience
+  /** Pillar F: when true, the Opus synthesis additionally emits an evaluative
+   *  retrospective (went_well/went_badly/recommendations + a body section) on top
+   *  of the chosen audience. Opt-in, NOT benevolent-gated; a product mode. */
+  retrospect?: boolean
   /** When true, the broker records the calling conversation and pushes a
    *  recap-completed channel message to it when the run finishes, instead of
    *  the caller polling recap_get. The conversationId is derived broker-side

@@ -50,7 +50,21 @@ const SIMPLE_LIST_FIELDS = [
   'open_questions',
   'stakeholders',
 ] as const
-const ITEM_LIST_FIELDS = ['features', 'bugs', 'fixes', 'incidents', 'decisions', 'dead_ends', 'gotchas'] as const
+// Pillar F retrospect fields (went_well/went_badly/recommendations) are item
+// lists too, but OPTIONAL -- omitted from makeEmptyMetadata so they're absent on
+// non-retrospect recaps, and only populated here when Opus actually emits them.
+const ITEM_LIST_FIELDS = [
+  'features',
+  'bugs',
+  'fixes',
+  'incidents',
+  'decisions',
+  'dead_ends',
+  'gotchas',
+  'went_well',
+  'went_badly',
+  'recommendations',
+] as const
 
 // fallow-ignore-next-line complexity
 function parseMetadata(yaml: string): RecapMetadata {
