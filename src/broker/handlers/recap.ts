@@ -169,6 +169,7 @@ function recapGet(ctx: HandlerContext, data: MessageData): void {
 function recapSearch(ctx: HandlerContext, data: MessageData): void {
   const fields = requireStrings(ctx, data, ['requestId', 'query'] as const, 'recap_search_request')
   if (!fields) return
+  if (mcpTrustBarred(ctx, 'recap_search_result', fields.requestId)) return
   const orchestrator = getRecapOrchestrator()
   if (!orchestrator) {
     ctx.reply({
@@ -186,9 +187,24 @@ function recapSearch(ctx: HandlerContext, data: MessageData): void {
   ctx.reply({ type: 'recap_search_result', requestId: fields.requestId, ok: true, results })
 }
 
+/** Pillar B trust gate for agent-host MCP read tools. The `recap_mcp_*` /
+ *  `recap_search_request` handlers exist specifically for agent-host callers, so
+ *  agent-host is in their role allowlist -- but, like recap_create/regenerate, an
+ *  agent-host may only read recaps when benevolent. Replies on the matching
+ *  `_result` type (forwarded to broker-rpc) so the MCP call surfaces the error
+ *  instead of hanging to a silent timeout. Returns true when the caller is barred. */
+function mcpTrustBarred(ctx: HandlerContext, resultType: string, requestId: string): boolean {
+  if (detectRole(ctx.ws.data) === 'agent-host' && ctx.callerSettings?.trustLevel !== 'benevolent') {
+    ctx.reply({ type: resultType, requestId, ok: false, error: 'Requires benevolent trust level' })
+    return true
+  }
+  return false
+}
+
 function recapMcpGet(ctx: HandlerContext, data: MessageData): void {
   const fields = requireStrings(ctx, data, ['requestId', 'recapId'] as const, 'recap_mcp_get_request')
   if (!fields) return
+  if (mcpTrustBarred(ctx, 'recap_mcp_get_result', fields.requestId)) return
   const orchestrator = getRecapOrchestrator()
   if (!orchestrator) return
   const result = orchestrator.get(fields.recapId, false)
@@ -202,6 +218,7 @@ function recapMcpGet(ctx: HandlerContext, data: MessageData): void {
 function recapMcpList(ctx: HandlerContext, data: MessageData): void {
   const fields = requireStrings(ctx, data, ['requestId'] as const, 'recap_mcp_list_request')
   if (!fields) return
+  if (mcpTrustBarred(ctx, 'recap_mcp_list_result', fields.requestId)) return
   const orchestrator = getRecapOrchestrator()
   if (!orchestrator) return
   const recaps = orchestrator.list({
@@ -215,15 +232,25 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-// recap_create + recap_regenerate additionally accept benevolent agent-host
-// callers (the eval harness); the trust gate lives in each handler. Every other
-// recap handler stays dashboard-only.
-const RECAP_CREATE_ROLES: WsRole[] = [...DASHBOARD_ROLES, 'agent-host']
+// Recap handlers that additionally accept benevolent agent-host callers (the eval
+// harness + MCP read tools): create/regenerate (write) and the `*_request` MCP read
+// variants (get/list/search). All gate trust INSIDE the handler -- the role allowlist
+// only admits the connection; benevolent trust is then required for agent-host.
+// recap_mcp_*_request / recap_search_request exist SPECIFICALLY for agent-host MCP
+// tools, so excluding agent-host (the old DASHBOARD_ROLES registration) made every
+// agent-host call hang to a silent timeout (Bug 2a).
+const RECAP_AGENT_HOST_ROLES: WsRole[] = [...DASHBOARD_ROLES, 'agent-host']
 
 export function registerRecapHandlers(): void {
   registerHandlers(
-    { recap_create: recapCreate, recap_regenerate: recapRegenerate } satisfies Record<string, MessageHandler>,
-    RECAP_CREATE_ROLES,
+    {
+      recap_create: recapCreate,
+      recap_regenerate: recapRegenerate,
+      recap_search_request: recapSearch,
+      recap_mcp_get_request: recapMcpGet,
+      recap_mcp_list_request: recapMcpList,
+    } satisfies Record<string, MessageHandler>,
+    RECAP_AGENT_HOST_ROLES,
   )
   registerHandlers(
     {
@@ -231,9 +258,6 @@ export function registerRecapHandlers(): void {
       recap_dismiss_failed: recapDismissFailed,
       recap_list: recapList,
       recap_get: recapGet,
-      recap_search_request: recapSearch,
-      recap_mcp_get_request: recapMcpGet,
-      recap_mcp_list_request: recapMcpList,
     } satisfies Record<string, MessageHandler>,
     DASHBOARD_ROLES,
   )

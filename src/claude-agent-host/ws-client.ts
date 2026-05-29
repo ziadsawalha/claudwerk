@@ -525,24 +525,23 @@ export function createWsClient(options: WsClientOptions): WsClient {
           onRendezvousResult?.(message as unknown as Record<string, unknown>)
           break
         }
-        if (
-          msgType === 'recap_search_result' ||
-          msgType === 'recap_mcp_get_result' ||
-          msgType === 'recap_mcp_list_result'
-        ) {
-          onBrokerRpcResponse?.(message as unknown as Record<string, unknown>)
-          break
-        }
-        if (msgType === 'recap_created' || msgType === 'recap_error') {
-          // Only forward recap_created/error to broker-rpc when it carries a
-          // requestId we minted. Plain recap_create from the dashboard does
-          // not carry one and the response goes only to that single client
-          // via ctx.reply(), so this branch is harmless for non-MCP callers.
+        if (msgType?.startsWith('recap_')) {
+          // Forward ANY recap_* reply that carries a requestId we minted into
+          // broker-rpc. This covers every recap RPC: success results
+          // (recap_mcp_get_result / recap_mcp_list_result / recap_search_result /
+          // recap_created / recap_regenerated), error replies (recap_error), AND
+          // router/handler REJECTIONS (e.g. recap_*_request_result with ok:false).
+          // Without the requestId guard a requestId-less broadcast (recap_progress,
+          // recap_complete, dashboard-originated recap_created) would be hijacked;
+          // dispatchBrokerRpcResponse also no-ops on an unmatched requestId, so a
+          // stale/foreign reply is harmless. This is what fixes the silent 15s/30s
+          // MCP timeouts on recap_get/list/regenerate (Bug 2b/3).
           const m = message as unknown as Record<string, unknown>
           if (typeof m.requestId === 'string') {
             onBrokerRpcResponse?.(m)
+            break
           }
-          break
+          // No requestId -> a broadcast; fall through to normal handling below.
         }
         if (msgType?.startsWith('file_') || msgType?.startsWith('project_') || msgType === 'project_quick_add') {
           onFileEditorMessage?.(message as unknown as Record<string, unknown>)
