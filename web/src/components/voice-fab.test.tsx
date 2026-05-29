@@ -13,7 +13,9 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 const resetMock = vi.fn()
+const sendInputMock = vi.fn()
 let voiceState: 'idle' | 'submitting' | 'recording' | 'error' | 'connecting' | 'refining' = 'idle'
+let targetConversationId: string | null = null
 
 vi.mock('@/hooks/use-voice-recording', () => ({
   useVoiceRecording: () => ({
@@ -22,6 +24,7 @@ vi.mock('@/hooks/use-voice-recording', () => ({
     finalText: 'hello world',
     interimText: '',
     errorMsg: '',
+    targetConversationId,
     start: vi.fn(),
     stop: vi.fn(),
     cancel: vi.fn(),
@@ -30,9 +33,10 @@ vi.mock('@/hooks/use-voice-recording', () => ({
 }))
 
 vi.mock('@/hooks/use-conversations', () => ({
-  sendInput: vi.fn(),
+  sendInput: sendInputMock,
   useConversationsStore: Object.assign(() => ({}), {
-    getState: () => ({ selectedConversationId: null }),
+    // The LIVE selection. The bug was submitting here instead of the pinned target.
+    getState: () => ({ selectedConversationId: 'live-other-conversation' }),
   }),
 }))
 
@@ -54,6 +58,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
   voiceState = 'idle'
+  targetConversationId = null
 })
 
 describe('VoiceFab setTimeout cleanup', () => {
@@ -67,5 +72,27 @@ describe('VoiceFab setTimeout cleanup', () => {
     // Advance well past the 300ms timeout; cleanup should have cleared it.
     vi.advanceTimersByTime(1000)
     expect(resetMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('VoiceFab submit target', () => {
+  // Regression: releasing the button then switching conversations during the
+  // refinement delay submitted to the newly-selected conversation. The message
+  // must go to the conversation that was active when recording started.
+  test('submits to the pinned target conversation, not the live selection', async () => {
+    targetConversationId = 'recorded-in-this-conversation'
+    voiceState = 'submitting'
+    const { VoiceFab } = await import('./voice-fab')
+    render(<VoiceFab />)
+    expect(sendInputMock).toHaveBeenCalledTimes(1)
+    expect(sendInputMock).toHaveBeenCalledWith('recorded-in-this-conversation', 'hello world')
+  })
+
+  test('does not submit when no target was pinned', async () => {
+    targetConversationId = null
+    voiceState = 'submitting'
+    const { VoiceFab } = await import('./voice-fab')
+    render(<VoiceFab />)
+    expect(sendInputMock).not.toHaveBeenCalled()
   })
 })

@@ -11,7 +11,9 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 const resetMock = vi.fn()
+const sendInputMock = vi.fn()
 let voiceState: 'idle' | 'submitting' | 'recording' | 'error' | 'connecting' | 'refining' = 'idle'
+let targetConversationId: string | null = null
 
 vi.mock('@/hooks/use-voice-recording', () => ({
   useVoiceRecording: () => ({
@@ -20,6 +22,7 @@ vi.mock('@/hooks/use-voice-recording', () => ({
     finalText: 'hello world',
     interimText: '',
     errorMsg: '',
+    targetConversationId,
     start: vi.fn(),
     stop: vi.fn(),
     cancel: vi.fn(),
@@ -32,14 +35,15 @@ vi.mock('@/hooks/use-voice-recording', () => ({
 }))
 
 vi.mock('@/hooks/use-conversations', () => ({
-  sendInput: vi.fn(),
+  sendInput: sendInputMock,
   useConversationsStore: Object.assign(
     (selector: (s: unknown) => unknown) =>
       selector({
         controlPanelPrefs: { voiceHoldKey: 'Space', keepMicOpen: false },
       }),
     {
-      getState: () => ({ selectedConversationId: null }),
+      // The LIVE selection. The bug was submitting here instead of the pinned target.
+      getState: () => ({ selectedConversationId: 'live-other-conversation' }),
     },
   ),
 }))
@@ -51,6 +55,7 @@ vi.mock('@/lib/utils', async importOriginal => {
 
 beforeEach(() => {
   voiceState = 'idle'
+  targetConversationId = null
 })
 
 afterEach(() => {
@@ -68,5 +73,18 @@ describe('VoiceKey setTimeout cleanup', () => {
     unmount()
     vi.advanceTimersByTime(1000)
     expect(resetMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('VoiceKey submit target', () => {
+  // Regression: submission targeted the live selection, so switching
+  // conversations during the refinement delay misrouted the message.
+  test('submits to the pinned target conversation, not the live selection', async () => {
+    targetConversationId = 'recorded-in-this-conversation'
+    voiceState = 'submitting'
+    const { VoiceKey } = await import('./voice-key')
+    render(<VoiceKey />)
+    expect(sendInputMock).toHaveBeenCalledTimes(1)
+    expect(sendInputMock).toHaveBeenCalledWith('recorded-in-this-conversation', 'hello world')
   })
 })

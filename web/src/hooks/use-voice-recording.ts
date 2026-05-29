@@ -20,6 +20,13 @@ interface UseVoiceRecordingResult {
   finalText: string
   refinedText: string
   errorMsg: string
+  /**
+   * The conversation that was selected when this recording started. Submission
+   * MUST target this, not the live selection -- the user may switch
+   * conversations during the post-release refinement delay, and the message
+   * belongs to the conversation they were recording into. Null when idle.
+   */
+  targetConversationId: string | null
   /** Request mic + start recording + start streaming to Deepgram */
   start: () => Promise<void>
   /** Stop recording, trigger refinement, return final text */
@@ -154,6 +161,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
   const [finalText, setFinalText] = useState('')
   const [refinedText, setRefinedText] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
+  const [targetConversationId, setTargetConversationId] = useState<string | null>(null)
 
   const stateRef = useRef<VoiceState>('idle')
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -268,6 +276,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     setFinalText('')
     setRefinedText('')
     setErrorMsg('')
+    setTargetConversationId(null)
     cancelledRef.current = false
     pendingStopRef.current = false
   }, [])
@@ -276,9 +285,15 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
   const start = useCallback(async () => {
     if (stateRef.current !== 'idle') return
 
+    // Pin the target conversation at button-press time. The live selection can
+    // change before submission (mic acquire + recording + refinement delay),
+    // but this recording belongs to whatever was selected right now.
+    const target = useConversationsStore.getState().selectedConversationId
+    setTargetConversationId(target)
+
     startTsRef.current = performance.now()
     setMicExpired(false)
-    console.log('[voice] start()')
+    console.log(`[voice] start() (target=${target ?? 'none'})`)
 
     cancelledRef.current = false
     pendingStopRef.current = false
@@ -302,8 +317,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
 
       streamRef.current = stream
 
-      const conversationId = useConversationsStore.getState().selectedConversationId
-      sendWs({ type: 'voice_start', conversationId: conversationId })
+      sendWs({ type: 'voice_start', conversationId: target })
       console.log(`[voice] ${elapsed()} voice_start sent`)
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/mp4'
@@ -333,7 +347,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
       setErrorMsg(err instanceof Error ? err.message : 'Mic access denied')
       setState('error')
     }
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [sendWs])
 
   function doStop() {
@@ -387,7 +401,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     } else {
       doStop()
     }
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [sendWs, reset, elapsed])
 
   const cancel = useCallback(() => {
@@ -403,6 +417,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     finalText,
     refinedText,
     errorMsg,
+    targetConversationId,
     start,
     stop,
     cancel,

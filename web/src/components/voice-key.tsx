@@ -69,13 +69,15 @@ export function VoiceKey() {
     if (voice.state !== 'submitting') return
     const text = voice.refinedText || voice.finalText
     if (text.trim()) {
-      const conversationId = useConversationsStore.getState().selectedConversationId
+      // Submit to the conversation that was active when recording started, NOT
+      // the live selection -- the user may have switched during the delay.
+      const conversationId = voice.targetConversationId
       if (conversationId) sendInput(conversationId, text)
       haptic('success')
     }
     const t = setTimeout(() => voice.reset(), 300)
     return () => clearTimeout(t)
-  }, [voice.state, voice.refinedText, voice.finalText, voice.reset])
+  }, [voice.state, voice.refinedText, voice.finalText, voice.targetConversationId, voice.reset])
 
   if (voice.state === 'idle' && !micExpired) return null
 

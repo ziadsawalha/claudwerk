@@ -8,7 +8,7 @@
 
 import { Mic, MicOff, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { sendInput, useConversationsStore } from '@/hooks/use-conversations'
+import { sendInput } from '@/hooks/use-conversations'
 import { useVoiceRecording } from '@/hooks/use-voice-recording'
 import { cn, haptic } from '@/lib/utils'
 
@@ -50,7 +50,9 @@ export function VoiceFab() {
     const text = voice.refinedText || voice.finalText
     haptic('tick')
     if (text.trim()) {
-      const conversationId = useConversationsStore.getState().selectedConversationId
+      // Submit to the conversation that was active when recording started, NOT
+      // the live selection -- the user may have switched during the delay.
+      const conversationId = voice.targetConversationId
       if (conversationId) sendInput(conversationId, text)
       haptic('double')
     }
@@ -61,7 +63,7 @@ export function VoiceFab() {
       pendingStopRef.current = false
     }, 300)
     return () => clearTimeout(t)
-  }, [voice.state, voice.refinedText, voice.finalText, cancelled, voice.reset])
+  }, [voice.state, voice.refinedText, voice.finalText, voice.targetConversationId, cancelled, voice.reset])
 
   // Auto-dismiss errors
   useEffect(() => {
