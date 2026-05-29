@@ -159,36 +159,54 @@ function stableGroupKey(group: DisplayGroup): string {
 
 const EMPTY_STREAMING = ''
 
-/** Isolated streaming text component - subscribes to its own store slice so token updates don't re-render the virtualizer */
-const StreamingBlock = memo(function StreamingBlock({ conversationId }: { conversationId: string | null }) {
-  const showStreaming = useConversationsStore(state => state.controlPanelPrefs.showStreaming !== false)
-  const streamingText = useConversationsStore(
-    state => (conversationId ? state.streamingText[conversationId] : null) || EMPTY_STREAMING,
+/** Thinking block -- renders BEFORE group content (chronological order).
+ *  Persists after thinking ends; never cleared during the conversation. */
+const StreamingThinkingBlock = memo(function StreamingThinkingBlock({
+  conversationId,
+}: {
+  conversationId: string | null
+}) {
+  const isActive = useConversationsStore(state =>
+    conversationId ? state.conversationsById[conversationId]?.status === 'active' : false,
   )
   const streamingThinking = useConversationsStore(
     state => (conversationId ? state.streamingThinking[conversationId] : null) || EMPTY_STREAMING,
   )
-  if (!showStreaming || (!streamingText && !streamingThinking)) return null
+  if (!streamingThinking) return null
   return (
-    <div className="mt-2 pl-4 space-y-2">
-      {streamingThinking && (
-        <div className="border-l-2 border-purple-400/40 pl-3 py-1">
-          <div className="text-[10px] text-purple-400/70 uppercase font-bold tracking-wider mb-1">thinking</div>
-          <div className="text-sm opacity-60 italic">
-            <Markdown>{streamingThinking}</Markdown>
-            <span className="inline-block w-1.5 h-4 bg-purple-500 animate-pulse ml-0.5 align-text-bottom" />
-          </div>
+    <div className="mt-2 pl-4">
+      <div className="border-l-2 border-purple-400/40 pl-3 py-1">
+        <div className="text-[10px] text-purple-400/70 uppercase font-bold tracking-wider mb-1">thinking</div>
+        <div className="text-sm opacity-60 italic">
+          <Markdown>{streamingThinking}</Markdown>
+          {isActive && <span className="inline-block w-1.5 h-4 bg-purple-500 animate-pulse ml-0.5 align-text-bottom" />}
         </div>
-      )}
-      {streamingText && (
-        <div className="border-l-2 border-emerald-400/40 pl-3 py-1">
-          <div className="text-[10px] text-emerald-400/70 uppercase font-bold tracking-wider mb-1">streaming</div>
-          <div className="text-sm opacity-75">
-            <Markdown>{streamingText}</Markdown>
+      </div>
+    </div>
+  )
+})
+
+/** Streaming text -- renders AFTER group content (response being built). */
+const StreamingTextBlock = memo(function StreamingTextBlock({ conversationId }: { conversationId: string | null }) {
+  const showStreaming = useConversationsStore(state => state.controlPanelPrefs.showStreaming !== false)
+  const isActive = useConversationsStore(state =>
+    conversationId ? state.conversationsById[conversationId]?.status === 'active' : false,
+  )
+  const streamingText = useConversationsStore(
+    state => (conversationId ? state.streamingText[conversationId] : null) || EMPTY_STREAMING,
+  )
+  if (!showStreaming || !streamingText) return null
+  return (
+    <div className="mt-2 pl-4">
+      <div className="border-l-2 border-emerald-400/40 pl-3 py-1">
+        <div className="text-[10px] text-emerald-400/70 uppercase font-bold tracking-wider mb-1">streaming</div>
+        <div className="text-sm opacity-75">
+          <Markdown>{streamingText}</Markdown>
+          {isActive && (
             <span className="inline-block w-1.5 h-4 bg-emerald-500 animate-pulse ml-0.5 align-text-bottom" />
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 })
@@ -609,8 +627,8 @@ export const TranscriptView = memo(function TranscriptView({
     },
   })
 
-  // No supplementary pin needed -- streaming, spinners, banners, and queued
-  // messages are now virtualizer items. anchorTo:'end' handles all of them.
+  // No supplementary RO needed -- streaming content is inside the last
+  // virtualizer group. anchorTo:'end' handles height growth natively.
 
   // Track measured sizes: visible items have real DOM measurements from ResizeObserver.
   // Cache these so estimateSize returns accurate heights when items re-enter the viewport.
@@ -706,18 +724,11 @@ export const TranscriptView = memo(function TranscriptView({
       })
   }, [])
 
-  // Scroll handler: auto-load older entries on scroll-up + signal follow state
-  // to the parent (ScrollToBottomButton visibility). The virtualizer's isAtEnd()
-  // is the source of truth for "pinned to bottom".
-  const onUserScrollRef = useRef(onUserScroll)
-  onUserScrollRef.current = onUserScroll
-  const onReachedBottomRef = useRef(onReachedBottom)
-  onReachedBottomRef.current = onReachedBottom
+  // Scroll handler: auto-load older entries on scroll-up.
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
     let lastScrollTop = el.scrollTop
-    let wasAtEnd = true
     function handleScroll() {
       if (!el) return
       const st = el.scrollTop
@@ -733,17 +744,46 @@ export const TranscriptView = memo(function TranscriptView({
       } else if (nearTop && windowStartRef.current === 0 && hasMoreOlderRef.current && !fetchingOlderRef.current) {
         fetchOlder()
       }
-      // Signal follow state to parent (drives ScrollToBottomButton).
-      // Use virtualizer.isAtEnd() -- the docs recommend it for "Jump to latest" UI.
-      // All content is now inside the virtualizer (no tail region).
-      const atEnd = virtualizer.isAtEnd()
-      if (atEnd && !wasAtEnd) onReachedBottomRef.current?.()
-      if (!atEnd && wasAtEnd) onUserScrollRef.current?.()
-      wasAtEnd = atEnd
     }
     el.addEventListener('scroll', handleScroll, { passive: true })
     return () => el.removeEventListener('scroll', handleScroll)
-  }, [loadEarlier, fetchOlder, virtualizer])
+  }, [loadEarlier, fetchOlder])
+
+  // Follow state signaling: only react to REAL user input (wheel/touch),
+  // not programmatic scroll adjustments from the virtualizer's anchor system.
+  // Those adjustments can cause small scrollTop changes that the scroll handler
+  // misreads as "user scrolled away" -- breaking follow unexpectedly.
+  const onUserScrollRef = useRef(onUserScroll)
+  onUserScrollRef.current = onUserScroll
+  const onReachedBottomRef = useRef(onReachedBottom)
+  onReachedBottomRef.current = onReachedBottom
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    let userScrolling = false
+    function onWheelOrTouch() {
+      userScrolling = true
+      requestAnimationFrame(() => {
+        userScrolling = false
+      })
+    }
+    function onScroll() {
+      const drift = el!.scrollHeight - el!.scrollTop - el!.clientHeight
+      if (drift < 40) {
+        onReachedBottomRef.current?.()
+      } else if (userScrolling && drift > 120) {
+        onUserScrollRef.current?.()
+      }
+    }
+    el.addEventListener('wheel', onWheelOrTouch, { passive: true })
+    el.addEventListener('touchstart', onWheelOrTouch, { passive: true })
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheelOrTouch)
+      el.removeEventListener('touchstart', onWheelOrTouch)
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   const isEmpty = mainGroups.length === 0 && queuedGroups.length === 0
 
@@ -782,6 +822,8 @@ export const TranscriptView = memo(function TranscriptView({
                   width: '100%',
                 }}
               >
+                {/* Thinking BEFORE group content (chronological order) */}
+                {isLast && <StreamingThinkingBlock conversationId={selectedConversationId} />}
                 <div
                   className={isEntering ? 'transcript-entry-enter' : undefined}
                   onAnimationEnd={
@@ -821,13 +863,10 @@ export const TranscriptView = memo(function TranscriptView({
                     )
                   })()}
                 </div>
-                {/* Streaming, spinners, banners, queued: rendered INSIDE the last
-                    group's virtualizer item so measureElement tracks their height
-                    and anchorTo:'end' keeps the bottom pinned as they grow. */}
+                {/* Streaming text + spinner AFTER group content (response being built) */}
                 {isLast && (
                   <>
-                    <StreamingBlock conversationId={selectedConversationId} />
-                    <ThinkingPill conversationId={selectedConversationId} />
+                    <StreamingTextBlock conversationId={selectedConversationId} />
                     <ThinkingSpinner conversationId={selectedConversationId} />
                     <div className="mt-2">
                       <LinkRequestBanners />
@@ -857,6 +896,14 @@ export const TranscriptView = memo(function TranscriptView({
           })}
         </MaybeProfiler>
       </div>
+      {isEmpty && (
+        <>
+          <StreamingThinkingBlock conversationId={selectedConversationId} />
+          <StreamingTextBlock conversationId={selectedConversationId} />
+          <ThinkingSpinner conversationId={selectedConversationId} />
+        </>
+      )}
+      <ThinkingPill conversationId={selectedConversationId} />
     </div>
   )
 })

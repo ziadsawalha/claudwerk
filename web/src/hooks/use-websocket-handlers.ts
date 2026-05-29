@@ -496,31 +496,25 @@ function handleStreamDelta(msg: DashboardMessage) {
     // blocks (interleaved with tool_use / thinking) and resetting on each
     // block wipes earlier deltas before message_stop flushes the final
     // assistant entry, making the first block look "missed" to the viewer.
+    // Reset streaming text for the new message. Keep thinking -- it persists
+    // on the transcript (committed entries don't include thinking blocks).
     useConversationsStore.setState(state => {
       const hasText = !!state.streamingText[sid]
-      const hasThinking = !!state.streamingThinking[sid]
-      if (!hasText && !hasThinking) return state
+      if (!hasText) return state
       return {
-        streamingText: hasText ? { ...state.streamingText, [sid]: '' } : state.streamingText,
-        streamingThinking: hasThinking ? { ...state.streamingThinking, [sid]: '' } : state.streamingThinking,
+        streamingText: { ...state.streamingText, [sid]: '' },
       }
     })
   } else if (eventType === 'message_stop') {
-    // Run / turn complete -- clear streaming buffers entirely
+    // Turn complete -- clear streaming TEXT (committed entry replaces it).
+    // Keep streaming THINKING: committed entries don't contain thinking
+    // blocks, so this is the only copy. It persists until message_start
+    // resets it (next turn) or conversation switch clears it.
     useConversationsStore.setState(state => {
       const hasText = !!state.streamingText[sid]
-      const hasThinking = !!state.streamingThinking[sid]
-      if (!hasText && !hasThinking) return state
-      const next: Partial<typeof state> = {}
-      if (hasText) {
-        const { [sid]: _, ...rest } = state.streamingText
-        next.streamingText = rest
-      }
-      if (hasThinking) {
-        const { [sid]: _, ...rest } = state.streamingThinking
-        next.streamingThinking = rest
-      }
-      return next
+      if (!hasText) return state
+      const { [sid]: _, ...rest } = state.streamingText
+      return { streamingText: rest }
     })
   }
 }
