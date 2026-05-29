@@ -8,10 +8,10 @@ import { cwdToProjectUri, extractProjectLabel, isSameProject } from '../../share
 import type { ChannelSendResultEntry, SubscriptionChannel, TerminationSource } from '../../shared/protocol'
 import { slugify } from '../address-book'
 import { getUser } from '../auth'
+import { refreshAliasUse } from '../former-slugs'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
 import { resolvePermissionFlags } from '../permissions'
-import { refreshAliasUse } from '../former-slugs'
 import { computeConversationSlug, computeLocalId, formatAmbiguityError, resolveSendTarget } from './channel-id'
 
 // ─── Dashboard subscription ────────────────────────────────────────

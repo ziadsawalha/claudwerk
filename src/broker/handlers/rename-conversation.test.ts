@@ -22,35 +22,40 @@ interface MockConversation {
   formerSlugs?: Array<{ slug: string; retiredAt: number; lastUsedAt: number }>
 }
 
-// fallow-ignore-next-line complexity
-function makeCtx(
-  conversation: MockConversation | undefined,
-  opts: {
-    wsData?: Partial<WsData>
-    benevolent?: boolean
-    persisted?: string[]
-    updates?: string[]
-    replies?: Record<string, unknown>[]
-    permissionThrows?: boolean
-  } = {},
-): HandlerContext {
-  const persisted = opts.persisted ?? []
-  const updates = opts.updates ?? []
-  const replies = opts.replies ?? []
+interface CtxOpts {
+  wsData: Partial<WsData>
+  benevolent: boolean
+  persisted: string[]
+  updates: string[]
+  replies: Record<string, unknown>[]
+  permissionThrows: boolean
+}
+
+function makeCtx(conversation: MockConversation | undefined, opts: Partial<CtxOpts> = {}): HandlerContext {
+  // Single defaults-spread (no per-field ?? branches) keeps this helper simple.
+  const o: CtxOpts = {
+    wsData: {},
+    benevolent: false,
+    persisted: [],
+    updates: [],
+    replies: [],
+    permissionThrows: false,
+    ...opts,
+  }
   return {
-    ws: { data: opts.wsData ?? {} },
+    ws: { data: o.wsData },
     conversations: {
       getConversation: (id: string) => (conversation && conversation.id === id ? conversation : undefined),
-      persistConversationById: (id: string) => persisted.push(id),
-      broadcastConversationUpdate: (id: string) => updates.push(id),
+      persistConversationById: (id: string) => o.persisted.push(id),
+      broadcastConversationUpdate: (id: string) => o.updates.push(id),
     },
     requireBenevolent: () => {
-      if (!opts.benevolent) throw new GuardError('Requires benevolent trust level')
+      if (!o.benevolent) throw new GuardError('Requires benevolent trust level')
     },
     requirePermission: () => {
-      if (opts.permissionThrows) throw new GuardError('Permission denied')
+      if (o.permissionThrows) throw new GuardError('Permission denied')
     },
-    reply: (msg: Record<string, unknown>) => replies.push(msg),
+    reply: (msg: Record<string, unknown>) => o.replies.push(msg),
     log: { info() {}, error() {}, debug() {} },
   } as unknown as HandlerContext
 }
