@@ -305,6 +305,7 @@ export function RecapViewer() {
                     metadata={recap.metadata}
                     digest={recap.digest}
                     markdown={recap.markdown}
+                    costLedger={recap.costLedger}
                     onOpenConversation={openConversation}
                   />
                 )}

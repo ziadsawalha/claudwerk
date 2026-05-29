@@ -5,10 +5,12 @@
  * page. Degrades to the markdown body when structured data is absent (pre-2.0).
  */
 
-import type { RecapDigest, RecapMetadata } from '@shared/protocol'
+import type { RecapCostLedger, RecapDigest, RecapMetadata } from '@shared/protocol'
 import { Markdown } from '@/components/markdown'
 import { RecapAnalytics } from './parts/recap-analytics'
 import { RecapConversationDrilldown } from './parts/recap-drilldown'
+import { RecapEngineCost } from './parts/recap-engine-cost'
+import { RecapProjectMetrics } from './parts/recap-project-metrics'
 import { RecapScorecard } from './parts/recap-scorecard'
 import { RecapSections } from './parts/recap-sections'
 
@@ -16,6 +18,9 @@ interface RecapReportProps {
   metadata?: RecapMetadata
   digest?: RecapDigest
   markdown?: string
+  /** Pillar E COST 2 -- engine-cost ledger. In-app only (internal ops data);
+   *  the public share omits it. */
+  costLedger?: RecapCostLedger
   /** Provided in-app (opens the conversation); absent on the public share. */
   onOpenConversation?: (id: string) => void
 }
@@ -27,7 +32,7 @@ function extractTldr(md: string): string | null {
   return m ? m[1].trim() : null
 }
 
-export function RecapReport({ metadata, digest, markdown, onOpenConversation }: RecapReportProps) {
+export function RecapReport({ metadata, digest, markdown, costLedger, onOpenConversation }: RecapReportProps) {
   // Pre-2.0 recaps (no structured data) degrade to the markdown body verbatim.
   if (!metadata && !digest) {
     return markdown ? <Markdown copyable>{markdown}</Markdown> : null
@@ -44,10 +49,12 @@ export function RecapReport({ metadata, digest, markdown, onOpenConversation }: 
         </div>
       )}
       <RecapAnalytics digest={digest} />
+      <RecapProjectMetrics digest={digest} />
       {metadata && <RecapSections metadata={metadata} onOpenConversation={onOpenConversation} />}
       {digest && (
         <RecapConversationDrilldown conversations={digest.conversations} onOpenConversation={onOpenConversation} />
       )}
+      <RecapEngineCost ledger={costLedger} />
       {markdown && (
         <details className="rounded-md border border-border">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-muted-foreground">
