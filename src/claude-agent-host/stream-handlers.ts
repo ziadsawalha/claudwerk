@@ -17,6 +17,19 @@ function deterministicUuid(key: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((Number.parseInt(h[16], 16) & 0x3) | 0x8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`
 }
 
+/**
+ * Resolve an inline-agent `parent_tool_use_id` (the Task tool_use id carried by
+ * assistant/user/system subagent entries) to its agent scope (the task id used
+ * as the durable agentId). Falls back to the tool_use id itself when the
+ * task_started mapping is missing -- e.g. after a host reconnect/revival emptied
+ * the map. The fallback guarantees the entry is still agent-scoped (never leaks
+ * to the parent stream, never silently dropped), matching the Checkpoint A
+ * containment contract.
+ */
+function resolveAgentScope(hctx: HandlerContext, parentToolUseId: string): string {
+  return hctx.monitors.agentToolUseToTask.get(parentToolUseId) ?? parentToolUseId
+}
+
 export interface HandlerContext {
   monitors: MonitorTracker
   replay: ReplayBuffer
@@ -132,7 +145,7 @@ function handleSystem(hctx: HandlerContext, msg: Record<string, unknown>) {
 
   const sysParentToolUseId = msg.parent_tool_use_id as string | null
   if (sysParentToolUseId && callbacks.onSubagentEntry) {
-    callbacks.onSubagentEntry(sysParentToolUseId, systemEntry)
+    callbacks.onSubagentEntry(resolveAgentScope(hctx, sysParentToolUseId), systemEntry)
     return
   }
 
@@ -152,7 +165,7 @@ function handleTaskStarted(hctx: HandlerContext, msg: Record<string, unknown>) {
   debug(`task_started: ${taskType} id=${taskId?.slice(0, 8)} ${description.slice(0, 40)}`)
 
   if (taskType === 'local_agent' && taskId && toolUseId) {
-    monitors.agentTaskToToolUse.set(taskId, toolUseId)
+    monitors.agentToolUseToTask.set(toolUseId, taskId)
   } else if (taskId && toolUseId) {
     const cached = monitors.pendingMonitorInputs.get(toolUseId)
     const monitorInfo = {
@@ -250,13 +263,9 @@ function handleTaskNotification(
   const notifStatus = msg.status as string
   debug(`task_notification: task=${notifTaskId} status=${notifStatus}`)
 
-  let routedToSubagent = false
-  const notifToolUseId = monitors.agentTaskToToolUse.get(notifTaskId)
-  if (notifToolUseId && callbacks.onSubagentEntry) {
-    callbacks.onSubagentEntry(notifToolUseId, systemEntry)
-    routedToSubagent = true
-  }
-
+  // A task id is either a Monitor task or an inline-agent task -- never both.
+  // Monitor notifications keep their existing parent-stream behavior; anything
+  // else is agent-scoped (see handleTaskProgress for the containment rationale).
   const notifMonitor = monitors.monitorTasks.get(notifTaskId)
   if (notifMonitor) {
     notifMonitor.eventCount++
@@ -276,8 +285,11 @@ function handleTaskNotification(
       ...notifMonitor,
       status: (terminalStatus as 'completed' | 'failed' | 'timed_out') || 'running',
     })
+    return false
   }
-  return routedToSubagent
+
+  callbacks.onSubagentEntry?.(notifTaskId, systemEntry)
+  return true
 }
 
 function handleTaskProgress(hctx: HandlerContext, msg: Record<string, unknown>, systemEntry: TranscriptEntry): boolean {
@@ -285,18 +297,20 @@ function handleTaskProgress(hctx: HandlerContext, msg: Record<string, unknown>, 
   const progressTaskId = msg.task_id as string
   debug(`task_progress: task=${progressTaskId} tokens=${(msg.usage as Record<string, unknown>)?.total_tokens}`)
 
-  let routedToSubagent = false
-  const progressToolUseId = monitors.agentTaskToToolUse.get(progressTaskId)
-  if (progressToolUseId && callbacks.onSubagentEntry) {
-    callbacks.onSubagentEntry(progressToolUseId, systemEntry)
-    routedToSubagent = true
-  }
-
+  // Monitor progress stays in the parent stream (unchanged). Every other
+  // task_progress is inline-agent chatter: route it to the agent scope keyed by
+  // task_id and return true so handleSystem NEVER falls it through to the parent
+  // -- the containment fix for the 52b5f3ec empty-transcript leak. No agent map
+  // lookup is needed: the task id IS the agent scope, so an emptied map (host
+  // reconnect/revival) can no longer re-leak progress into the parent.
   const progressMonitor = monitors.monitorTasks.get(progressTaskId)
   if (progressMonitor) {
     progressMonitor.eventCount++
+    return false
   }
-  return routedToSubagent
+
+  callbacks.onSubagentEntry?.(progressTaskId, systemEntry)
+  return true
 }
 
 function handleStatusSubtype(hctx: HandlerContext, msg: Record<string, unknown>) {
@@ -321,9 +335,10 @@ function routeEntry(
   msg: Record<string, unknown>,
   parentToolUseId: string | null,
   entry: TranscriptEntry,
+  agentScope: string | null,
 ) {
-  if (parentToolUseId && callbacks.onSubagentEntry) {
-    callbacks.onSubagentEntry(parentToolUseId, entry)
+  if (parentToolUseId && agentScope && callbacks.onSubagentEntry) {
+    callbacks.onSubagentEntry(agentScope, entry)
   } else if (msg.isReplay) {
     if (!replay.done) replay.entries.push(entry)
   } else {
@@ -347,7 +362,8 @@ function handleAssistant(hctx: HandlerContext, msg: Record<string, unknown>) {
     uuid,
   } as TranscriptEntry
 
-  routeEntry(replay, callbacks, msg, parentToolUseId, entry)
+  const agentScope = parentToolUseId ? resolveAgentScope(hctx, parentToolUseId) : null
+  routeEntry(replay, callbacks, msg, parentToolUseId, entry, agentScope)
 }
 
 function cacheMonitorInputs(monitors: MonitorTracker, msg: Record<string, unknown>) {
@@ -418,7 +434,8 @@ function handleUser(hctx: HandlerContext, msg: Record<string, unknown>) {
     ;(entry as Record<string, unknown>).isMeta = true
   }
 
-  routeEntry(replay, callbacks, msg, parentToolUseId, entry)
+  const agentScope = parentToolUseId ? resolveAgentScope(hctx, parentToolUseId) : null
+  routeEntry(replay, callbacks, msg, parentToolUseId, entry, agentScope)
 }
 
 function extractMonitorFromToolResult(

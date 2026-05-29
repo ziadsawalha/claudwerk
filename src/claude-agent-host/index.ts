@@ -127,7 +127,6 @@ async function main() {
 
     pendingEditInputs: new Map(),
     pendingReadPaths: new Map(),
-    agentToolUseMap: new Map(),
     pendingAskRequests: new Map(),
     toolNameByUseId: new Map(),
     outstandingInteractions: new Map(),

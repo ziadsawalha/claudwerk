@@ -2470,7 +2470,10 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
 
   function loadTranscriptFromStore(conversationId: string, limit: number): TranscriptEntry[] | null {
     if (!store) return null
-    const records = store.transcripts.getLatest(conversationId, limit)
+    // Scope to the parent stream (agent_id IS NULL). Once subagent rows are
+    // persisted (Checkpoint B) an unscoped getLatest would surface agent chatter
+    // in the parent transcript; pinning agentId=null keeps the parent clean.
+    const records = store.transcripts.getLatest(conversationId, limit, null)
     if (records.length === 0) return null
     const entries = records.map(r => ({ ...r.content, seq: r.seq }) as TranscriptEntry)
     // Seed the in-memory seq counter so live entries continue from where

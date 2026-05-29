@@ -11,6 +11,7 @@ import type {
   TranscriptUserEntry,
 } from '../../shared/protocol'
 import type { TranscriptEntryInput } from '../store/types'
+import { agentScopeOf } from './agent-scope'
 import { MAX_TRANSCRIPT_ENTRIES } from './constants'
 import { assignTranscriptSeqs, type ConversationStoreContext } from './event-context'
 import { handleAssistantEntry, perMessageTokenSample } from './transcript-handlers/assistant-entry'
@@ -41,9 +42,25 @@ import { handleUserEntry } from './transcript-handlers/user-entry'
 export function addTranscriptEntries(
   ctx: ConversationStoreContext,
   conversationId: string,
-  entries: TranscriptEntry[],
+  incoming: TranscriptEntry[],
   isInitial: boolean,
 ): void {
+  // Scope guard (Checkpoint A): this is the PARENT ingest (`agent_id IS NULL`).
+  // The transcript handler already diverts agent-scoped entries, but any other
+  // caller (or a future code path) that hands us a mixed batch must not pollute
+  // the parent scope. Strip anything carrying an agent discriminant -- it has
+  // already been (or will be) routed to its sub-scope by the diverting handler.
+  const entries = incoming.filter(e => agentScopeOf(e) === null)
+  if (entries.length !== incoming.length) {
+    console.warn(
+      `[transcript-store] scope guard stripped ${incoming.length - entries.length} agent-scoped entr(ies) from the parent ingest of ${conversationId.slice(0, 8)} (stale host re-leak?)`,
+    )
+    // Batch was ENTIRELY agent chatter -- nothing belongs in the parent scope.
+    // (An originally-empty batch still falls through so its isInitial stats
+    // reset is preserved.)
+    if (entries.length === 0) return
+  }
+
   // Stamp seqs BEFORE cache insert and BEFORE any broadcast the caller does.
   // All entries in `entries` are mutated in place with `entry.seq = N`.
   // Callers (handlers/transcript.ts, handlers/boot-lifecycle.ts) then

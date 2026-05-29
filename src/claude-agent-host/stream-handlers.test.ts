@@ -9,7 +9,7 @@ function createTestContext(extraCallbacks: Partial<HandlerContext['callbacks']> 
 } {
   const entries: TranscriptEntry[] = []
   const hctx: HandlerContext = {
-    monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
+    monitors: { pendingMonitorInputs: new Map(), agentToolUseToTask: new Map(), monitorTasks: new Map() },
     replay: createReplayBuffer(),
     pendingControlRequests: new Map(),
     callbacks: {
@@ -115,7 +115,7 @@ describe('stream-handlers UUID synthesis', () => {
     const stash = new Map<string, string>()
     const entries: TranscriptEntry[] = []
     const hctx: HandlerContext = {
-      monitors: { pendingMonitorInputs: new Map(), agentTaskToToolUse: new Map(), monitorTasks: new Map() },
+      monitors: { pendingMonitorInputs: new Map(), agentToolUseToTask: new Map(), monitorTasks: new Map() },
       replay: createReplayBuffer(),
       pendingControlRequests: new Map(),
       syntheticUserUuids: stash,
@@ -180,6 +180,150 @@ describe('stream-handlers UUID synthesis', () => {
     handleMessage(hctx, { type: 'assistant', timestamp: ts, message: { role: 'assistant', content: 'same' } })
     expect(entries).toHaveLength(2)
     expect(entries[0].uuid).not.toBe(entries[1].uuid)
+  })
+})
+
+describe('stream-handlers subagent containment (Checkpoint A)', () => {
+  function createContainmentCtx() {
+    const parent: TranscriptEntry[] = []
+    const subagent: Array<{ agentId: string; entry: TranscriptEntry }> = []
+    const monitorUpdates: Array<{ taskId: string; status: string }> = []
+    const hctx: HandlerContext = {
+      monitors: { pendingMonitorInputs: new Map(), agentToolUseToTask: new Map(), monitorTasks: new Map() },
+      replay: createReplayBuffer(),
+      pendingControlRequests: new Map(),
+      callbacks: {
+        onTranscriptEntries(e) {
+          parent.push(...e)
+        },
+        onSubagentEntry(agentId, entry) {
+          subagent.push({ agentId, entry })
+        },
+        onMonitorUpdate(m) {
+          monitorUpdates.push({ taskId: m.taskId, status: m.status })
+        },
+      },
+    }
+    hctx.replay.done = true
+    return { hctx, parent, subagent, monitorUpdates }
+  }
+
+  function startAgent(hctx: HandlerContext, taskId: string, toolUseId: string) {
+    handleMessage(hctx, {
+      type: 'system',
+      subtype: 'task_started',
+      task_type: 'local_agent',
+      task_id: taskId,
+      tool_use_id: toolUseId,
+    })
+  }
+
+  function startMonitor(hctx: HandlerContext, taskId: string, toolUseId: string) {
+    handleMessage(hctx, {
+      type: 'system',
+      subtype: 'task_started',
+      task_type: 'bash',
+      task_id: taskId,
+      tool_use_id: toolUseId,
+    })
+  }
+
+  test('task_progress with an EMPTY agent map is agent-scoped, never the parent (52b5f3ec leak)', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    // No task_started ran -> maps empty (post-reconnect / revival).
+    handleMessage(hctx, { type: 'system', subtype: 'task_progress', task_id: 'task_x', usage: { total_tokens: 5 } })
+    expect(parent).toHaveLength(0)
+    expect(subagent).toHaveLength(1)
+    expect(subagent[0].agentId).toBe('task_x') // keyed by task_id fallback, no drop
+  })
+
+  test('N task_progress entries with an empty map all divert -- parent stays clean', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    for (let i = 0; i < 48; i++) {
+      handleMessage(hctx, { type: 'system', subtype: 'task_progress', task_id: 'task_y', usage: { total_tokens: i } })
+    }
+    expect(parent).toHaveLength(0)
+    expect(subagent).toHaveLength(48)
+    expect(subagent.every(s => s.agentId === 'task_y')).toBe(true)
+  })
+
+  test('task_notification (non-monitor) is agent-scoped, not parent', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    handleMessage(hctx, { type: 'system', subtype: 'task_notification', task_id: 'task_z', status: 'running' })
+    expect(parent).toHaveLength(0)
+    expect(subagent).toHaveLength(1)
+    expect(subagent[0].agentId).toBe('task_z')
+  })
+
+  test('monitor task_progress stays in the parent stream (NOT diverted)', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    startMonitor(hctx, 'mon_1', 'toolu_m')
+    handleMessage(hctx, { type: 'system', subtype: 'task_progress', task_id: 'mon_1', usage: { total_tokens: 3 } })
+    expect(subagent).toHaveLength(0)
+    expect(parent).toHaveLength(1)
+    expect((parent[0] as { subtype?: string }).subtype).toBe('task_progress')
+  })
+
+  test('monitor task_notification stays in the parent + fires monitor update', () => {
+    const { hctx, parent, subagent, monitorUpdates } = createContainmentCtx()
+    startMonitor(hctx, 'mon_2', 'toolu_m2')
+    handleMessage(hctx, { type: 'system', subtype: 'task_notification', task_id: 'mon_2', status: 'completed' })
+    expect(subagent).toHaveLength(0)
+    expect(parent).toHaveLength(1)
+    // task_started emits a 'running' update; the notification adds 'completed'.
+    expect(monitorUpdates.at(-1)).toEqual({ taskId: 'mon_2', status: 'completed' })
+  })
+
+  test('assistant subagent entry resolves to the task id scope when task_started ran', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    startAgent(hctx, 'task_1', 'toolu_1')
+    handleMessage(hctx, {
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_1',
+      timestamp: '2026-05-29T00:00:00.000Z',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hi from agent' }] },
+    })
+    expect(parent).toHaveLength(0)
+    expect(subagent).toHaveLength(1)
+    expect(subagent[0].agentId).toBe('task_1') // resolved tool_use -> task id
+  })
+
+  test('assistant subagent entry falls back to the tool_use id when the map is empty (no drop, no leak)', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    handleMessage(hctx, {
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_orphan',
+      timestamp: '2026-05-29T00:00:00.000Z',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'orphan agent' }] },
+    })
+    expect(parent).toHaveLength(0)
+    expect(subagent).toHaveLength(1)
+    expect(subagent[0].agentId).toBe('toolu_orphan')
+  })
+
+  test('a plain main-agent assistant entry (no parent_tool_use_id) still goes to the parent', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    handleMessage(hctx, {
+      type: 'assistant',
+      timestamp: '2026-05-29T00:00:00.000Z',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'main reply' }] },
+    })
+    expect(subagent).toHaveLength(0)
+    expect(parent).toHaveLength(1)
+  })
+
+  test('system entry carrying parent_tool_use_id resolves to the agent scope', () => {
+    const { hctx, parent, subagent } = createContainmentCtx()
+    startAgent(hctx, 'task_2', 'toolu_2')
+    handleMessage(hctx, {
+      type: 'system',
+      subtype: 'informational',
+      parent_tool_use_id: 'toolu_2',
+      content: 'agent note',
+    })
+    expect(parent).toHaveLength(0)
+    expect(subagent).toHaveLength(1)
+    expect(subagent[0].agentId).toBe('task_2')
   })
 })
 

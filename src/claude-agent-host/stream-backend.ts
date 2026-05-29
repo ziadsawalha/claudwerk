@@ -74,7 +74,7 @@ export interface StreamBackendOptions {
     raw: Record<string, unknown>
   }) => void
   onTaskStarted?: (task: { taskId: string; toolUseId: string; taskType: string; description: string }) => void
-  onSubagentEntry?: (toolUseId: string, entry: TranscriptEntry) => void
+  onSubagentEntry?: (agentId: string, entry: TranscriptEntry) => void
   onMonitorUpdate?: (monitor: {
     taskId: string
     toolUseId: string

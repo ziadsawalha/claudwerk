@@ -41,8 +41,14 @@ rclaude --headless
 **Streaming:** CC sends `stream_event` with `content_block_delta`/`text_delta`.
 Agent Host unwraps and forwards as `stream_delta` WS messages.
 
-**Subagent routing:** Entries with non-null `parent_tool_use_id` route to subagent
-transcript via `onSubagentEntry`. Agent Host maps `toolUseId -> agentId` from `task_started`.
+**Subagent routing:** Any entry carrying an agent discriminant routes to the subagent
+transcript via `onSubagentEntry(agentId, entry)` and never falls through to the parent
+stream. Assistant/user entries carry `parent_tool_use_id` (resolved to the task id via the
+single `monitors.agentToolUseToTask` map, falling back to the tool_use id itself when the
+`task_started` mapping is missing); system `task_progress`/`task_notification` frames carry
+`task_id` directly (the task id IS the agent scope, so no lookup is needed). Monitor task
+frames are the one exception -- they stay in the parent stream. The broker re-checks the same
+discriminant as a defense-in-depth backstop against stale host binaries.
 
 **Edit diffs:** CC puts `structuredPatch`, `oldString`, `newString` on `tool_use_result`.
 Stream backend copies to camelCase `toolUseResult`. Agent Host's `augmentEditPatches` caches

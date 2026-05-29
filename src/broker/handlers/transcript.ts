@@ -9,6 +9,7 @@ import { formatResetIn } from '../../shared/format-reset-time'
 import { resolveModelFamily } from '../../shared/models'
 import type { AgentHostLaunchStep, TranscriptLaunchEntry, TranscriptSystemEntry } from '../../shared/protocol'
 import { filterDisplayEntries } from '../../shared/transcript-filter'
+import { partitionByAgentScope } from '../conversation-store/agent-scope'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
 import { generateRecapManual } from '../recap/away-summary'
@@ -139,13 +140,40 @@ const diagHandler: MessageHandler = (ctx, data) => {
   }
 }
 
-const transcriptEntries: MessageHandler = (ctx, data) => {
+export const transcriptEntries: MessageHandler = (ctx, data) => {
   const conversationId = (data.conversationId || ctx.ws.data.conversationId) as string
   if (!conversationId) return
   const entries = data.entries || []
-  ctx.conversations.addTranscriptEntries(conversationId, entries, !!data.isInitial)
-  ctx.conversations.broadcastToChannel('conversation:transcript', conversationId, data)
-  console.log(`[transcript] ${conversationId.slice(0, 8)}... ${entries.length} entries (initial: ${data.isInitial})`)
+  const isInitial = !!data.isInitial
+
+  // Defense-in-depth divert (Checkpoint A): a correct host streams agent entries
+  // on the subagent channel, so `entries` should be pure parent. But a stale host
+  // binary can re-leak agent chatter (task_progress carrying task_id) into the
+  // parent stream -- the 52b5f3ec empty-transcript class. Partition by agent
+  // discriminant: parent entries stay parent, agent-scoped entries are routed to
+  // their sub-scope so they never land as `agent_id IS NULL`, and the parent
+  // channel broadcast carries zero agent chatter.
+  const { parent, agents } = partitionByAgentScope(entries)
+
+  if (parent.length > 0 || agents.size === 0) {
+    ctx.conversations.addTranscriptEntries(conversationId, parent, isInitial)
+    ctx.conversations.broadcastToChannel('conversation:transcript', conversationId, { ...data, entries: parent })
+  }
+  for (const [agentId, agentEntries] of agents) {
+    ctx.conversations.addSubagentTranscriptEntries(conversationId, agentId, agentEntries, isInitial)
+    ctx.conversations.broadcastToChannel(
+      'conversation:subagent_transcript',
+      conversationId,
+      { type: 'subagent_transcript', conversationId, agentId, entries: agentEntries, isInitial },
+      agentId,
+    )
+  }
+
+  const divertedNote =
+    agents.size > 0 ? ` (diverted ${entries.length - parent.length} to ${agents.size} agent scope(s))` : ''
+  console.log(
+    `[transcript] ${conversationId.slice(0, 8)}... ${parent.length} entries (initial: ${isInitial})${divertedNote}`,
+  )
 }
 
 const subagentTranscript: MessageHandler = (ctx, data) => {

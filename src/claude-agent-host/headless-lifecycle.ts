@@ -274,8 +274,9 @@ export function buildHeadlessSpawnOptions(deps: HeadlessCallbackDeps): StreamBac
 
     onTaskStarted(task) {
       if (task.taskType === 'local_agent' && task.taskId) {
-        // Map toolUseId -> taskId for routing subagent entries from stdout
-        ctx.agentToolUseMap.set(task.toolUseId, task.taskId)
+        // toolUseId -> taskId routing now lives solely in the stream handler's
+        // monitors.agentToolUseToTask (one source of truth). Here we only need
+        // the backup file watcher for the subagent JSONL.
         if (ctx.parentTranscriptPath) {
           // Also start file watcher for subagent JSONL (backup path)
           const sessionDir = ctx.parentTranscriptPath.replace(/\.jsonl$/, '')
@@ -286,11 +287,12 @@ export function buildHeadlessSpawnOptions(deps: HeadlessCallbackDeps): StreamBac
       }
     },
 
-    onSubagentEntry(toolUseId, entry) {
-      const agentId = ctx.agentToolUseMap.get(toolUseId)
-      if (agentId) {
-        sendTranscriptEntriesChunked(ctx, [entry], false, agentId)
-      }
+    onSubagentEntry(agentId, entry) {
+      // agentId is already resolved by the stream handler (task id, or the
+      // tool_use id fallback when the task_started mapping was missing). The
+      // host no longer does a second map lookup -- that double indirection was
+      // the two-map hazard that silently dropped entries on desync.
+      sendTranscriptEntriesChunked(ctx, [entry], false, agentId)
     },
 
     onMonitorUpdate(monitor) {
@@ -517,7 +519,6 @@ export function buildHeadlessSpawnOptions(deps: HeadlessCallbackDeps): StreamBac
         ctx.parentTranscriptPath = ''
         ctx.pendingEditInputs.clear()
         ctx.pendingReadPaths.clear()
-        ctx.agentToolUseMap.clear()
         ctx.pendingAskRequests.clear()
         ctx.syntheticUserUuids.clear()
         transcriptSendChain = Promise.resolve()

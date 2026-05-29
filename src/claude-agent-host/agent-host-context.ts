@@ -103,7 +103,6 @@ export interface AgentHostContext {
   // Caches
   readonly pendingEditInputs: Map<string, { oldString: string; newString: string }>
   readonly pendingReadPaths: Map<string, string> // tool_use_id -> file_path for image upload
-  readonly agentToolUseMap: Map<string, string>
   readonly pendingAskRequests: Map<
     string,
     { requestId: string; questions: unknown[]; timer?: ReturnType<typeof setTimeout> }
