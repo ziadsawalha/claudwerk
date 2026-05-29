@@ -1,23 +1,10 @@
 import type { StoreDriver, TurnRecord } from '../../../store/types'
+import { loadWindowTurns } from './turns'
 import type { ContextBucket, CostDigest, PeriodScope } from './types'
 
 export function gatherCost(store: StoreDriver, scope: PeriodScope): CostDigest {
-  const turns = collectTurns(store, scope)
+  const turns = loadWindowTurns(store, scope)
   return buildDigest(turns, scope.timeZone)
-}
-
-function collectTurns(store: StoreDriver, scope: PeriodScope): TurnRecord[] {
-  const all: TurnRecord[] = []
-  for (const projectUri of scope.projectUris) {
-    const { rows } = store.costs.queryTurns({
-      from: scope.periodStart,
-      to: scope.periodEnd,
-      projectUri,
-      limit: 100_000,
-    })
-    all.push(...rows)
-  }
-  return all
 }
 
 // fallow-ignore-next-line complexity

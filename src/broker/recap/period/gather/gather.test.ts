@@ -48,6 +48,14 @@ describe('Phase 3 gather modules (integration)', () => {
     expect(out[0].projectUri).toBe(projectUri)
   })
 
+  it('gatherConversations counts turns from the recorded-turn table (regression: was always 0)', () => {
+    // The seed records exactly one turn for conv_seed inside the window. The old
+    // code read a non-existent summary `stats.turns` and reported 0; the count
+    // must now come from the turn table.
+    const out = gatherConversations(store, scope)
+    expect(out[0].turnCount).toBe(1)
+  })
+
   it('gatherTranscripts returns user prompt + assistant final pairs', () => {
     const conversations = gatherConversations(store, scope)
     const out = gatherTranscripts(store, conversations, scope)
