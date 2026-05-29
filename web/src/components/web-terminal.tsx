@@ -8,6 +8,7 @@ import { Settings, WifiOff, X } from 'lucide-react'
 import { type TerminalMessage, useConversationsStore } from '@/hooks/use-conversations'
 import { extractProjectLabel, projectPath } from '@/lib/types'
 import { lastPathSegments } from '@/lib/utils'
+import { TerminalSettingsPanel } from './terminal-settings'
 import {
   getFont,
   getTheme,
@@ -15,7 +16,6 @@ import {
   saveTerminalSettings,
   type TerminalSettings,
 } from './terminal-settings-storage'
-import { TerminalSettingsPanel } from './terminal-settings'
 import { TerminalToolbar } from './terminal-toolbar'
 
 interface WebTerminalProps {

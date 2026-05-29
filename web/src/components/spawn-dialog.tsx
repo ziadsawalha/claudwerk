@@ -34,7 +34,6 @@ import { useKeyLayer } from '@/lib/key-layers'
 import { cwdToProjectUri } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
 import { detectWorktree } from '@/lib/worktree-path'
-import { _spawnDialogBus, type SpawnDialogOptions } from './spawn-dialog-trigger'
 import { LaunchConfigFields, type LaunchFieldsValue } from './launch-config-fields'
 import { LaunchDialogBottom } from './launch-monitor'
 import { putLaunchProfiles } from './launch-profiles/api'
@@ -56,6 +55,7 @@ import {
 import { ProcessModelSegmented } from './spawn-dialog/process-model-segmented'
 import { SentinelProfileRadio } from './spawn-dialog/sentinel-profile-radio'
 import { useSpawnAction } from './spawn-dialog/use-spawn-action'
+import { _spawnDialogBus, type SpawnDialogOptions } from './spawn-dialog-trigger'
 
 /** Mirrors src/broker/backends/opencode.ts deriveOpenCodeSlug -- needed
  *  client-side so the dialog can look up project settings under the same

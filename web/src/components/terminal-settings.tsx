@@ -1,13 +1,7 @@
 import { X } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import {
-  FONT_SIZES,
-  FONTS,
-  saveTerminalSettings,
-  type TerminalSettings,
-  THEMES,
-} from './terminal-settings-storage'
+import { FONT_SIZES, FONTS, saveTerminalSettings, type TerminalSettings, THEMES } from './terminal-settings-storage'
 
 interface TerminalSettingsPanelProps {
   settings: TerminalSettings

@@ -71,7 +71,11 @@ describe('buildStandardSpawnRequest', () => {
 
   it('sets backend + chat fields when backend is chat-api', () => {
     const built = _buildStandardSpawnRequest(
-      makeCtx({ backend: 'chat-api', chatConnectionId: 'cid-1', chatConnections: [{ id: 'cid-1', name: 'My API' } as never] }),
+      makeCtx({
+        backend: 'chat-api',
+        chatConnectionId: 'cid-1',
+        chatConnections: [{ id: 'cid-1', name: 'My API' } as never],
+      }),
       'job-4',
     )
     if ('envError' in built) throw new Error('unexpected envError')
@@ -82,7 +86,11 @@ describe('buildStandardSpawnRequest', () => {
 
   it('sets backend + openCode fields when backend is opencode', () => {
     const built = _buildStandardSpawnRequest(
-      makeCtx({ backend: 'opencode', openCodeModel: '  openrouter/anthropic/claude  ', openCodeToolPermission: 'full' }),
+      makeCtx({
+        backend: 'opencode',
+        openCodeModel: '  openrouter/anthropic/claude  ',
+        openCodeToolPermission: 'full',
+      }),
       'job-5',
     )
     if ('envError' in built) throw new Error('unexpected envError')

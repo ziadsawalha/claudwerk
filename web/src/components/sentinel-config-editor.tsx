@@ -282,11 +282,13 @@ export function SentinelConfigEditor({
             onChange={e => setDraft(d => ({ ...d, defaultPool: e.target.value }))}
             className="px-1 py-0.5 bg-muted border border-border text-foreground rounded text-[10px] lowercase"
           >
-            {Array.from(new Set([...draftPools, draft.defaultPool])).toSorted().map(p => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
+            {Array.from(new Set([...draftPools, draft.defaultPool]))
+              .toSorted()
+              .map(p => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
           </select>
         </label>
         <span className="flex-1" />

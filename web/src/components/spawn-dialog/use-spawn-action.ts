@@ -1,12 +1,13 @@
 import type { ChatApiConnection } from '@shared/chat-api-types'
-import { type OpenCodeToolPermission, type SpawnRequest } from '@shared/spawn-schema'
+import type { OpenCodeToolPermission, SpawnRequest } from '@shared/spawn-schema'
 import { type RefObject, useCallback } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
-import type { useLaunchProgress } from '@/hooks/use-launch-progress'
 import type { DaemonRosterEntry } from '@/hooks/use-daemon-roster'
+import type { useLaunchProgress } from '@/hooks/use-launch-progress'
 import { sendSpawnRequest } from '@/hooks/use-spawn'
 import { parseEnvText } from '@/lib/env-parse'
 import { haptic } from '@/lib/utils'
+import type { BackendKind } from './backend-select'
 import {
   buildDaemonSpawnFields,
   type DaemonMode,
@@ -14,7 +15,6 @@ import {
   validateDaemonAttach,
   validateDaemonModeForm,
 } from './daemon-launch'
-import type { BackendKind } from './backend-select'
 import type { ClaudeTransport } from './process-model'
 
 export interface SpawnActionOptions {
@@ -80,8 +80,17 @@ function buildDaemonSpawnRequest(
   ctx: SpawnActionContext,
   newJobId: string,
 ): { req: SpawnRequest } | { errors: string[] } {
-  const { daemonMode, daemonAttach, daemonForm, effectivePath, state, name, description, sentinelProfile, sentinelPool } =
-    ctx
+  const {
+    daemonMode,
+    daemonAttach,
+    daemonForm,
+    effectivePath,
+    state,
+    name,
+    description,
+    sentinelProfile,
+    sentinelPool,
+  } = ctx
   const daemonValidation =
     daemonMode === 'attach' ? validateDaemonAttach(daemonAttach?.short) : validateDaemonModeForm(daemonMode, daemonForm)
   if (daemonValidation.length) return { errors: daemonValidation }
@@ -166,7 +175,8 @@ function buildStandardSpawnRequest(
       backend: backend !== 'claude' ? backend : undefined,
       transport: backend === 'claude' ? transport : undefined,
       chatConnectionId: backend === 'chat-api' ? chatConnectionId || undefined : undefined,
-      chatConnectionName: backend === 'chat-api' ? chatConnections.find(a => a.id === chatConnectionId)?.name : undefined,
+      chatConnectionName:
+        backend === 'chat-api' ? chatConnections.find(a => a.id === chatConnectionId)?.name : undefined,
       openCodeModel: backend === 'opencode' ? openCodeModel.trim() || undefined : undefined,
       toolPermission: backend === 'opencode' ? openCodeToolPermission : undefined,
       gatewayId: backend === 'hermes' ? hermesGatewayId || undefined : undefined,

@@ -1016,39 +1016,39 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 const custom = prefs.toolDisplay?.[tool]
                 out.push(
                   <div key={tool} className="flex items-center gap-2 text-xs font-mono">
-                  <span className="w-20 text-muted-foreground truncate">{tool}</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const td = { ...prefs.toolDisplay }
-                      td[tool] = { ...td[tool], defaultOpen: !effective.defaultOpen }
-                      updatePrefs({ toolDisplay: td })
-                    }}
-                    className={`px-1.5 py-0.5 text-[9px] border transition-colors ${
-                      effective.defaultOpen
-                        ? 'border-active/50 text-active bg-active/10'
-                        : 'border-border text-muted-foreground'
-                    }`}
-                    title="Default expanded in verbose mode"
-                  >
-                    {effective.defaultOpen ? 'open' : 'closed'}
-                  </button>
-                  <select
-                    value={effective.lineLimit}
-                    onChange={e => {
-                      const td = { ...prefs.toolDisplay }
-                      td[tool] = { ...td[tool], lineLimit: Number(e.target.value) }
-                      updatePrefs({ toolDisplay: td })
-                    }}
-                    className="bg-card border border-border text-foreground text-[10px] px-1 py-0.5"
-                    title="Line truncation limit (0 = no limit)"
-                  >
-                    {[0, 5, 10, 15, 20, 30, 50, 100].map(n => (
-                      <option key={n} value={n}>
-                        {n === 0 ? 'all' : `${n}L`}
-                      </option>
-                    ))}
-                  </select>
+                    <span className="w-20 text-muted-foreground truncate">{tool}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const td = { ...prefs.toolDisplay }
+                        td[tool] = { ...td[tool], defaultOpen: !effective.defaultOpen }
+                        updatePrefs({ toolDisplay: td })
+                      }}
+                      className={`px-1.5 py-0.5 text-[9px] border transition-colors ${
+                        effective.defaultOpen
+                          ? 'border-active/50 text-active bg-active/10'
+                          : 'border-border text-muted-foreground'
+                      }`}
+                      title="Default expanded in verbose mode"
+                    >
+                      {effective.defaultOpen ? 'open' : 'closed'}
+                    </button>
+                    <select
+                      value={effective.lineLimit}
+                      onChange={e => {
+                        const td = { ...prefs.toolDisplay }
+                        td[tool] = { ...td[tool], lineLimit: Number(e.target.value) }
+                        updatePrefs({ toolDisplay: td })
+                      }}
+                      className="bg-card border border-border text-foreground text-[10px] px-1 py-0.5"
+                      title="Line truncation limit (0 = no limit)"
+                    >
+                      {[0, 5, 10, 15, 20, 30, 50, 100].map(n => (
+                        <option key={n} value={n}>
+                          {n === 0 ? 'all' : `${n}L`}
+                        </option>
+                      ))}
+                    </select>
                     {custom && (
                       <button
                         type="button"

@@ -191,16 +191,13 @@ export function useConversationMode(
     mruIndex,
   ])
 
-  const filteredConversations = useMemo(
-    () => {
-      const out: Conversation[] = []
-      for (const i of mergedItems) {
-        if (i.kind === 'conversation') out.push(i.conversation)
-      }
-      return out
-    },
-    [mergedItems],
-  )
+  const filteredConversations = useMemo(() => {
+    const out: Conversation[] = []
+    for (const i of mergedItems) {
+      if (i.kind === 'conversation') out.push(i.conversation)
+    }
+    return out
+  }, [mergedItems])
 
   return { allConversations, mergedItems, filteredConversations }
 }
