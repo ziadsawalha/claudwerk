@@ -400,11 +400,17 @@ function handleTranscriptEntries(msg: DashboardMessage) {
         `[ws] transcript ${sid.slice(0, 8)}: +${newEntries.length} ${initial ? (skipped ? 'INITIAL-SKIP' : 'INITIAL') : 'incremental'} (total=${result.length})`,
       )
     }
-    // Clear streaming THINKING on assistant entry arrival (it's one line,
-    // no height jerk). Keep streaming TEXT alive until message_stop -- its
-    // large height change causes a jerk if cleared atomically with the append.
+    // Clear both streaming buffers when an assistant entry arrives. Now that
+    // streaming renders inside the same virtualizer item as committed entries,
+    // the height change is a single measureElement pass -- no two-region jerk.
     const hasAssistant = newEntries.some(e => e.type === 'assistant')
-    const streamingText = state.streamingText
+    const streamingText =
+      hasAssistant && state.streamingText[sid]
+        ? (() => {
+            const { [sid]: _, ...rest } = state.streamingText
+            return rest
+          })()
+        : state.streamingText
     const streamingThinking =
       hasAssistant && state.streamingThinking[sid]
         ? (() => {
