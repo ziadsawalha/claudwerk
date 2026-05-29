@@ -365,7 +365,6 @@ export const TranscriptView = memo(function TranscriptView({
   cacheKey,
 }: TranscriptViewProps) {
   const parentRef = useRef<HTMLDivElement>(null)
-  const tailRegionRef = useRef<HTMLDivElement>(null)
   // Latest virtualizer scroll-rect callback (set by observeElementRect below).
   // Held so the visibility-restore effect can re-push the LIVE element size --
   // a backgrounded tab can leave the virtualizer's cached scrollRect stale and
@@ -550,12 +549,30 @@ export const TranscriptView = memo(function TranscriptView({
   // captured once on mount).
   const measuredSizes = useMemo(() => getConvSizeCache(cacheKey ?? null), [cacheKey])
 
-  const getItemKey = useCallback((index: number) => stableGroupKey(mainGroups[index]), [mainGroups])
+  // Trailing virtual items: streaming block, thinking pill, verb spinner,
+  // permission banners, and queued messages. These used to live in a "tail
+  // region" outside the virtualizer, causing jerk because anchorTo:'end'
+  // couldn't track their height changes. Now they're virtualizer items so
+  // the anchor system handles all height changes in one measurement pass.
+  const TAIL_KEY_STREAMING = '__streaming__'
+  const TAIL_KEY_THINKING = '__thinking__'
+  const TAIL_KEY_SPINNER = '__spinner__'
+  const TAIL_KEY_BANNERS = '__banners__'
+  const TAIL_KEY_QUEUED = '__queued__'
+  const tailKeys = [TAIL_KEY_STREAMING, TAIL_KEY_THINKING, TAIL_KEY_SPINNER, TAIL_KEY_BANNERS, TAIL_KEY_QUEUED]
+  const totalCount = mainGroups.length + tailKeys.length
+
+  const getItemKey = useCallback(
+    (index: number) =>
+      index < mainGroups.length ? stableGroupKey(mainGroups[index]) : tailKeys[index - mainGroups.length],
+    [mainGroups],
+  )
 
   const virtualizer = useVirtualizer({
-    count: mainGroups.length,
+    count: totalCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: index => estimateGroupSize(mainGroups[index], measuredSizes, getItemKey(index)),
+    estimateSize: index =>
+      index < mainGroups.length ? estimateGroupSize(mainGroups[index], measuredSizes, getItemKey(index)) : 0,
     overscan: 5,
     getItemKey,
     // Chat-mode: end-anchored list with auto-follow. anchorTo:'end' handles
@@ -565,7 +582,7 @@ export const TranscriptView = memo(function TranscriptView({
     // scrolled up = no pull-down). Replaces all manual scroll-to-bottom and
     // prepend-anchor machinery.
     anchorTo: 'end',
-    followOnAppend: true,
+    followOnAppend: 'smooth',
     scrollEndThreshold: 80,
     // Safari fix: ResizeObserver can fire mid-layout before paint completes,
     // causing the virtualizer to read intermediate/partial element heights and
@@ -609,24 +626,8 @@ export const TranscriptView = memo(function TranscriptView({
     },
   })
 
-  // Supplementary pin for the streaming/banner region below the virtualizer.
-  // anchorTo:'end' only tracks virtualizer items; streaming text, thinking
-  // blocks, spinners, permission banners, and queued messages grow outside it.
-  // This RO watches that region and re-pins when it grows while we're near the
-  // actual scroll bottom. Uses a direct scrollHeight check instead of
-  // virtualizer.isAtEnd() because isAtEnd() only knows about the virtualizer's
-  // own content, not the extra height from the tail region.
-  useEffect(() => {
-    const tail = tailRegionRef.current
-    const el = parentRef.current
-    if (!tail || !el) return
-    const ro = new ResizeObserver(() => {
-      const drift = el.scrollHeight - el.scrollTop - el.clientHeight
-      if (drift > 4 && drift < 300) el.scrollTop = el.scrollHeight
-    })
-    ro.observe(tail)
-    return () => ro.disconnect()
-  }, [])
+  // No supplementary pin needed -- streaming, spinners, banners, and queued
+  // messages are now virtualizer items. anchorTo:'end' handles all of them.
 
   // Track measured sizes: visible items have real DOM measurements from ResizeObserver.
   // Cache these so estimateSize returns accurate heights when items re-enter the viewport.
@@ -812,7 +813,7 @@ export const TranscriptView = memo(function TranscriptView({
           })().map(virtualItem => {
             const itemKey = String(virtualItem.key)
             const isEntering = enteringKey === itemKey
-            // if (isEntering) console.debug('[transcript-enter] CLASS-APPLIED', itemKey)
+            const isTailItem = virtualItem.index >= mainGroups.length
             return (
               <div
                 key={virtualItem.key}
@@ -826,92 +827,89 @@ export const TranscriptView = memo(function TranscriptView({
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
-                {/* Enter animation lives on an INNER element: the outer div owns the
-                    virtualizer's positioning transform, and opacity/transform here are
-                    composited so measureElement still reads the final box height. */}
-                <div
-                  className={isEntering ? 'transcript-entry-enter' : undefined}
-                  onAnimationEnd={
-                    isEntering
-                      ? e => {
-                          if (e.animationName === 'transcript-entry-enter') clearEntering()
-                        }
-                      : undefined
-                  }
-                >
-                  {(() => {
-                    const group = mainGroups[virtualItem.index]
-                    if (group.type === 'compacted') return <CompactedDivider />
-                    if (group.type === 'compacting') return <CompactingBanner />
-                    if (group.type === 'skill') {
-                      const entry = group.entries[0] as {
-                        message?: { content?: string | Array<{ type: string; text?: string }> }
-                      }
-                      let content = ''
-                      if (Array.isArray(entry?.message?.content)) {
-                        const parts: string[] = []
-                        for (const b of entry.message.content) {
-                          if (b.type === 'text') parts.push(b.text || '')
-                        }
-                        content = parts.join('')
-                      }
-                      return <SkillDivider name={group.skillName || 'skill'} content={content} />
+                {isTailItem ? (
+                  (() => {
+                    const tailKey = tailKeys[virtualItem.index - mainGroups.length]
+                    if (tailKey === TAIL_KEY_STREAMING)
+                      return <StreamingBlock conversationId={selectedConversationId} />
+                    if (tailKey === TAIL_KEY_THINKING) return <ThinkingPill conversationId={selectedConversationId} />
+                    if (tailKey === TAIL_KEY_SPINNER) return <ThinkingSpinner conversationId={selectedConversationId} />
+                    if (tailKey === TAIL_KEY_BANNERS)
+                      return (
+                        <div className="mt-2">
+                          <LinkRequestBanners />
+                          <PermissionBanners />
+                          <SpawnApprovalBanners />
+                          <AskQuestionBanners />
+                        </div>
+                      )
+                    if (tailKey === TAIL_KEY_QUEUED && queuedGroups.length > 0)
+                      return (
+                        <div className="mt-2 border-t border-dashed border-amber-500/30 pt-2">
+                          <div className="text-[10px] font-mono text-amber-500/60 px-1 mb-1">QUEUED</div>
+                          {queuedGroups.map((group, i) => (
+                            <MemoizedGroupView
+                              // biome-ignore lint/suspicious/noArrayIndexKey: queued groups may share timestamp
+                              key={`queued-${group.timestamp}-${i}`}
+                              group={group}
+                              getResult={getResult}
+                              settings={transcriptSettings}
+                              showThinking={showThinking}
+                            />
+                          ))}
+                        </div>
+                      )
+                    return null
+                  })()
+                ) : (
+                  <div
+                    className={isEntering ? 'transcript-entry-enter' : undefined}
+                    onAnimationEnd={
+                      isEntering
+                        ? e => {
+                            if (e.animationName === 'transcript-entry-enter') clearEntering()
+                          }
+                        : undefined
                     }
-                    return (
-                      <MemoizedGroupView
-                        group={group}
-                        getResult={getResult}
-                        settings={transcriptSettings}
-                        showThinking={showThinking}
-                        planContext={planContext}
-                      />
-                    )
-                  })()}
-                </div>
+                  >
+                    {(() => {
+                      const group = mainGroups[virtualItem.index]
+                      if (group.type === 'compacted') return <CompactedDivider />
+                      if (group.type === 'compacting') return <CompactingBanner />
+                      if (group.type === 'skill') {
+                        const entry = group.entries[0] as {
+                          message?: { content?: string | Array<{ type: string; text?: string }> }
+                        }
+                        let content = ''
+                        if (Array.isArray(entry?.message?.content)) {
+                          const parts: string[] = []
+                          for (const b of entry.message.content) {
+                            if (b.type === 'text') parts.push(b.text || '')
+                          }
+                          content = parts.join('')
+                        }
+                        return <SkillDivider name={group.skillName || 'skill'} content={content} />
+                      }
+                      return (
+                        <MemoizedGroupView
+                          group={group}
+                          getResult={getResult}
+                          settings={transcriptSettings}
+                          showThinking={showThinking}
+                          planContext={planContext}
+                        />
+                      )
+                    })()}
+                  </div>
+                )}
               </div>
             )
           })}
         </MaybeProfiler>
       </div>
-      {/* Streaming/queued region: watched by tailRegionRef ResizeObserver so
-          anchorTo:'end' (which only tracks virtualizer items) also pins when
-          streaming text, spinners, or banners grow this region. */}
-      <div ref={tailRegionRef}>
-        <MaybeProfiler enabled={perfEnabled} id="TranscriptStreaming">
-          {/* Headless streaming text - isolated component so token updates don't re-render the virtualizer */}
-          <StreamingBlock conversationId={selectedConversationId} />
-          {/* Live thinking-token pill: ephemeral, renders only while pings arrive.
-            Sits ABOVE the verb spinner so the thinking phase reads top-to-bottom. */}
-          <ThinkingPill conversationId={selectedConversationId} />
-          {/* Fun verb spinner while conversation is working */}
-          <ThinkingSpinner conversationId={selectedConversationId} />
-          {/* Pending permission + link requests: rendered inline at the bottom as
-            blocking UI gates. Both follow the same pattern -- structured wire
-            message -> store -> inline banner -> user response over WS. */}
-          <div className="mt-2">
-            <LinkRequestBanners />
-            <PermissionBanners />
-            <SpawnApprovalBanners />
-            <AskQuestionBanners />
-          </div>
-          {/* Queued messages: rendered inline at the bottom of the transcript */}
-          {queuedGroups.length > 0 && (
-            <div className="mt-2 border-t border-dashed border-amber-500/30 pt-2">
-              <div className="text-[10px] font-mono text-amber-500/60 px-1 mb-1">QUEUED</div>
-              {queuedGroups.map((group, i) => (
-                <MemoizedGroupView
-                  // biome-ignore lint/suspicious/noArrayIndexKey: queued groups may share timestamp, index disambiguates
-                  key={`queued-${group.timestamp}-${i}`}
-                  group={group}
-                  getResult={getResult}
-                  settings={transcriptSettings}
-                  showThinking={showThinking}
-                />
-              ))}
-            </div>
-          )}
-        </MaybeProfiler>
-      </div>
+      {/* Streaming, spinners, banners, and queued messages are now virtualizer
+          items (trailing after mainGroups) so anchorTo:'end' handles their
+          height changes natively. No tail region needed. */}
     </div>
   )
 })
