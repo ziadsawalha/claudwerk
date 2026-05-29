@@ -456,6 +456,43 @@ export const TranscriptView = memo(function TranscriptView({
     return { mainGroups: main, queuedGroups: queued }
   }, [groups])
 
+  // ENTER ANIMATION -- slide up + fade in the newest group, ONLY for a live new
+  // entry. Detected during RENDER (not an effect) so the new row carries the
+  // animation class on its FIRST paint -- adding it post-paint would flash the
+  // row at full opacity for a frame, then snap back to the start. Verified in a
+  // real-browser TanStack harness (.claude/temp/anim-harness): opacity + transform
+  // are composited, so the virtualizer's measureElement ResizeObserver never
+  // re-fires and scrollTop never moves (pinViolations 0 / jumpToTop 0 / maxDrift
+  // 0 across 25 appends). This touches NONE of the scroll/pin logic.
+  //
+  // Eligibility (all must hold): the LAST group's key changed, the conversation
+  // is the same (not a switch), the window is unchanged (not a head prepend /
+  // "load earlier"), there was a previous tail (not the first paint of a
+  // conversation), and follow is on and not killed (the bottom is in view).
+  const enteringKeysRef = useRef<Set<string>>(new Set())
+  const [, bumpEnter] = useState(0)
+  const prevTailKeyRef = useRef<string | null>(null)
+  const enterCacheKeyRef = useRef(cacheKey)
+  const enterWindowStartRef = useRef(windowStart)
+  const tailKey = mainGroups.length > 0 ? stableGroupKey(mainGroups[mainGroups.length - 1]) : null
+  if (
+    tailKey &&
+    tailKey !== prevTailKeyRef.current &&
+    prevTailKeyRef.current !== null &&
+    cacheKey === enterCacheKeyRef.current &&
+    windowStart === enterWindowStartRef.current &&
+    follow &&
+    !followKilledRef.current
+  ) {
+    enteringKeysRef.current.add(tailKey)
+  }
+  prevTailKeyRef.current = tailKey
+  enterCacheKeyRef.current = cacheKey
+  enterWindowStartRef.current = windowStart
+  const clearEntering = useCallback((key: string) => {
+    if (enteringKeysRef.current.delete(key)) bumpEnter(v => v + 1)
+  }, [])
+
   // Extract plan content from entries for ExitPlanMode display.
   // Finds the last Write to a plans/*.md path across all entries.
   // IMPORTANT: return stable reference when content hasn't changed to avoid busting memo on all GroupViews.
@@ -982,49 +1019,67 @@ export const TranscriptView = memo(function TranscriptView({
             lastVirtualItemCount = virtualItems.length
             lastTotalGroupCount = mainGroups.length
             return virtualItems
-          })().map(virtualItem => (
-            <div
-              key={virtualItem.key}
-              data-index={virtualItem.index}
-              ref={virtualizer.measureElement}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translateY(${virtualItem.start}px)`,
-              }}
-            >
-              {(() => {
-                const group = mainGroups[virtualItem.index]
-                if (group.type === 'compacted') return <CompactedDivider />
-                if (group.type === 'compacting') return <CompactingBanner />
-                if (group.type === 'skill') {
-                  const entry = group.entries[0] as {
-                    message?: { content?: string | Array<{ type: string; text?: string }> }
+          })().map(virtualItem => {
+            const itemKey = String(virtualItem.key)
+            const isEntering = enteringKeysRef.current.has(itemKey)
+            return (
+              <div
+                key={virtualItem.key}
+                data-index={virtualItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
+                {/* Enter animation lives on an INNER element: the outer div owns the
+                    virtualizer's positioning transform, and opacity/transform here are
+                    composited so measureElement still reads the final box height. */}
+                <div
+                  className={isEntering ? 'transcript-entry-enter' : undefined}
+                  onAnimationEnd={
+                    isEntering
+                      ? e => {
+                          if (e.animationName === 'transcript-entry-enter') clearEntering(itemKey)
+                        }
+                      : undefined
                   }
-                  let content = ''
-                  if (Array.isArray(entry?.message?.content)) {
-                    const parts: string[] = []
-                    for (const b of entry.message.content) {
-                      if (b.type === 'text') parts.push(b.text || '')
+                >
+                  {(() => {
+                    const group = mainGroups[virtualItem.index]
+                    if (group.type === 'compacted') return <CompactedDivider />
+                    if (group.type === 'compacting') return <CompactingBanner />
+                    if (group.type === 'skill') {
+                      const entry = group.entries[0] as {
+                        message?: { content?: string | Array<{ type: string; text?: string }> }
+                      }
+                      let content = ''
+                      if (Array.isArray(entry?.message?.content)) {
+                        const parts: string[] = []
+                        for (const b of entry.message.content) {
+                          if (b.type === 'text') parts.push(b.text || '')
+                        }
+                        content = parts.join('')
+                      }
+                      return <SkillDivider name={group.skillName || 'skill'} content={content} />
                     }
-                    content = parts.join('')
-                  }
-                  return <SkillDivider name={group.skillName || 'skill'} content={content} />
-                }
-                return (
-                  <MemoizedGroupView
-                    group={group}
-                    getResult={getResult}
-                    settings={transcriptSettings}
-                    showThinking={showThinking}
-                    planContext={planContext}
-                  />
-                )
-              })()}
-            </div>
-          ))}
+                    return (
+                      <MemoizedGroupView
+                        group={group}
+                        getResult={getResult}
+                        settings={transcriptSettings}
+                        showThinking={showThinking}
+                        planContext={planContext}
+                      />
+                    )
+                  })()}
+                </div>
+              </div>
+            )
+          })}
         </MaybeProfiler>
       </div>
       {/* Streaming/queued region: wrapped in its own Profiler so perf reports
