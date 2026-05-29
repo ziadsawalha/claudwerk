@@ -90,7 +90,9 @@ export const useRecapJobsStore = create<RecapJobsState>((set, get) => ({
       progress: msg.progress,
       phase: msg.phase,
     }
-    if (msg.status === 'done' || msg.status === 'failed' || msg.status === 'cancelled') {
+    // Any non-active terminal-ish status (done/failed/cancelled/interrupted/
+    // partial) stamps a finish time -- it drives sort + the visibility window.
+    if (!isActive(msg.status)) {
       merged.finishedAtLocal = Date.now()
     }
     set({ jobs: { ...get().jobs, [msg.recapId]: merged } })
@@ -193,6 +195,12 @@ export function selectVisibleJobs(state: RecapJobsState): RecapJob[] {
       return j.finishedAtLocal != null && now - j.finishedAtLocal < FLASH_MS
     }
     if (j.status === 'failed') {
+      if (j.dismissedAtLocal) return false
+      return j.finishedAtLocal != null && now - j.finishedAtLocal < FAILED_VISIBLE_MS
+    }
+    // interrupted (resumable) + partial (dropped chunks) stay visible like failed
+    // so the user can act (Resume) -- dismissable, same time window.
+    if (j.status === 'interrupted' || j.status === 'partial') {
       if (j.dismissedAtLocal) return false
       return j.finishedAtLocal != null && now - j.finishedAtLocal < FAILED_VISIBLE_MS
     }

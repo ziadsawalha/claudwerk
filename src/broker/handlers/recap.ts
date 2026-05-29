@@ -136,6 +136,30 @@ function recapDismissFailed(ctx: HandlerContext, data: MessageData): void {
   ctx.reply({ type: 'recap_dismissed', recapId: fields.recapId })
 }
 
+function recapResume(ctx: HandlerContext, data: MessageData): void {
+  const fields = requireStrings(ctx, data, ['recapId'] as const, 'recap_resume')
+  if (!fields) return
+  const orchestrator = getRecapOrchestrator()
+  if (!orchestrator) {
+    ctx.reply({ type: 'recap_error', error: 'recap orchestrator not initialised' })
+    return
+  }
+  try {
+    const result = orchestrator.resume(fields.recapId)
+    ctx.reply({
+      type: 'recap_resumed',
+      recapId: result.recapId,
+      resumeCount: result.resumeCount,
+      reusableChunks: result.reusableChunks,
+      totalChunks: result.totalChunks,
+    })
+  } catch (err) {
+    // Guard failures (not chunked / in-flight / cap hit / no bundle) surface
+    // synchronously rather than as a silent no-op.
+    ctx.reply({ type: 'recap_error', error: describe(err) })
+  }
+}
+
 function recapList(ctx: HandlerContext, data: MessageData): void {
   const orchestrator = getRecapOrchestrator()
   if (!orchestrator) {
@@ -256,6 +280,7 @@ export function registerRecapHandlers(): void {
     {
       recap_cancel: recapCancel,
       recap_dismiss_failed: recapDismissFailed,
+      recap_resume: recapResume,
       recap_list: recapList,
       recap_get: recapGet,
     } satisfies Record<string, MessageHandler>,

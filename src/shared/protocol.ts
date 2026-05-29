@@ -3802,6 +3802,19 @@ export interface RecapCancelMessage {
   type: 'recap_cancel'
   recapId: string
 }
+/** G3: resume an interrupted/partial/failed chunked recap (reuse paid chunks). */
+export interface RecapResumeMessage {
+  type: 'recap_resume'
+  recapId: string
+}
+/** Reply to recap_resume. resumeCount is the post-increment attempt number. */
+export interface RecapResumedMessage {
+  type: 'recap_resumed'
+  recapId: string
+  resumeCount: number
+  reusableChunks: number
+  totalChunks: number
+}
 export interface RecapDismissFailedMessage {
   type: 'recap_dismiss_failed'
   recapId: string

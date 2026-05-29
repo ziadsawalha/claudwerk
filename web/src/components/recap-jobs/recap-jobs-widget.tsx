@@ -53,7 +53,13 @@ function ProgressBar({ value, status }: { value: number; status: RecapJob['statu
 function JobCard({ job, onOpen }: { job: RecapJob; onOpen: (id: string) => void }) {
   const isFailed = job.status === 'failed'
   const isDone = job.status === 'done'
-  const isActive = !isFailed && !isDone && job.status !== 'cancelled'
+  const isInterrupted = job.status === 'interrupted'
+  const isPartial = job.status === 'partial'
+  const isActive = job.status === 'queued' || job.status === 'gathering' || job.status === 'rendering'
+  // Resume reuses already-paid chunks: an interrupted run (broker restart) or a
+  // partial one (dropped chunks to backfill). The broker validates; a
+  // non-chunked recap replies recap_error, harmless here.
+  const canResume = isInterrupted || isPartial
 
   function dismissOrCancel(e: React.MouseEvent) {
     e.stopPropagation()
@@ -68,6 +74,12 @@ function JobCard({ job, onOpen }: { job: RecapJob; onOpen: (id: string) => void 
     }
   }
 
+  function resume(e: React.MouseEvent) {
+    e.stopPropagation()
+    haptic('tap')
+    wsSend('recap_resume', { recapId: job.recapId })
+  }
+
   return (
     <button
       type="button"
@@ -79,6 +91,7 @@ function JobCard({ job, onOpen }: { job: RecapJob; onOpen: (id: string) => void 
         'w-full text-left rounded-md border px-2 py-1.5 text-xs transition-colors',
         isFailed && 'border-red-500/50 bg-red-500/5 hover:bg-red-500/10',
         isDone && 'border-green-500/50 bg-green-500/5',
+        (isInterrupted || isPartial) && 'border-amber-500/50 bg-amber-500/5 hover:bg-amber-500/10',
         isActive && 'border-border bg-card hover:bg-muted/50',
       )}
     >
@@ -89,6 +102,11 @@ function JobCard({ job, onOpen }: { job: RecapJob; onOpen: (id: string) => void 
             <div className="text-red-400 mt-0.5 truncate" title={job.error}>
               {job.error || 'failed'}
             </div>
+          ) : isInterrupted || isPartial ? (
+            <div className="text-amber-500 mt-0.5 truncate" title={job.error}>
+              {isInterrupted ? 'interrupted' : 'partial'}
+              {job.error ? ` - ${job.error}` : ''}
+            </div>
           ) : (
             <div className="text-muted-foreground mt-0.5 truncate">
               {isActive ? formatPhase(job.phase) : isDone ? 'done' : job.status}
@@ -96,15 +114,28 @@ function JobCard({ job, onOpen }: { job: RecapJob; onOpen: (id: string) => void 
             </div>
           )}
         </div>
-        {/* react-doctor-disable-next-line react-doctor/html-no-nested-interactive */}
-        <button
-          type="button"
-          onClick={dismissOrCancel}
-          className="text-muted-foreground hover:text-foreground shrink-0 px-1"
-          title={isActive ? 'Cancel' : isFailed ? 'Dismiss' : 'Hide'}
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {canResume && (
+            // react-doctor-disable-next-line react-doctor/html-no-nested-interactive
+            <button
+              type="button"
+              onClick={resume}
+              className="text-amber-500 hover:text-amber-400 px-1 font-medium"
+              title="Resume (reuse paid chunks, re-run only what's missing)"
+            >
+              Resume
+            </button>
+          )}
+          {/* react-doctor-disable-next-line react-doctor/html-no-nested-interactive */}
+          <button
+            type="button"
+            onClick={dismissOrCancel}
+            className="text-muted-foreground hover:text-foreground px-1"
+            title={isActive ? 'Cancel' : isFailed ? 'Dismiss' : 'Hide'}
+          >
+            ✕
+          </button>
+        </div>
       </div>
       {isActive && (
         <div className="mt-1.5">
