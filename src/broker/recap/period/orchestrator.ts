@@ -9,6 +9,7 @@ import type {
 import type { StoreDriver } from '../../store/types'
 import { type ChatRequest, chat } from '../shared/openrouter-client'
 import type { NormalizedUsage } from '../shared/pricing'
+import type { RecapBundleCallPrompt, RecapBundleWriter } from './bundle'
 import { buildMapPrompt, MapParseError, parseMapOutput } from './chunk/map-prompt'
 import { makeEmptyMetadata, mergeMetadata } from './chunk/merge'
 import {
@@ -73,6 +74,9 @@ export interface OrchestratorDeps {
   /** Deliver a recap-completed system channel message into a conversation.
    *  Provided by the broker (inform_on_complete). No-op if absent. */
   informConversation?: (conversationId: string, msg: { recapId: string; text: string }) => void
+  /** Pillar C+: on-disk run-artifact bundle writer (incremental, best-effort).
+   *  Absent in tests -> the run proceeds without a bundle. */
+  bundle?: RecapBundleWriter
 }
 
 export interface StartArgs extends RecapCreateMessage {
@@ -150,6 +154,14 @@ function scheduleRun(
         outputTokens: built.summary.totalOutputTokens,
         llmCostUsd: built.summary.totalCostUsd,
       })
+      // Pillar C+: record the failure on the bundle too (no-op if the run died
+      // before begin() ever created the dir).
+      deps.bundle?.updateManifest(recapId, {
+        status: 'failed',
+        error: describe(err),
+        completedAt: Date.now(),
+        cost: built.summary,
+      })
       deps.broadcaster.broadcast({
         type: 'recap_progress',
         recapId,
@@ -179,15 +191,34 @@ async function runRecap(
   timeZone: string,
   ledger: RecapLedger,
 ): Promise<void> {
-  const emit = createProgressEmitter({ recapId, store: deps.store, broadcaster: deps.broadcaster })
+  const startedAt = Date.now()
+  const audience: RecapAudience = args.audience ?? 'human'
+  // Pillar C+: open the on-disk bundle BEFORE the first progress line so the
+  // partial trail captures the whole run (incl. an early gather crash).
+  deps.bundle?.begin(recapId, {
+    projectUri: args.projectUri,
+    period: {
+      label: args.period.label,
+      start: period.start,
+      end: period.end,
+      human: period.human,
+      isoRange: period.isoRange,
+    },
+    audience,
+    ...(args.batchId ? { batchId: args.batchId } : {}),
+    createdAt: startedAt,
+    ...(args.createdBy ? { createdBy: args.createdBy } : {}),
+  })
+
+  const emit = createProgressEmitter({ recapId, store: deps.store, broadcaster: deps.broadcaster, bundle: deps.bundle })
   emit.setStatus('gathering')
   emit.setProgress(2, 'gather/begin')
-  deps.store.update(recapId, { startedAt: Date.now() })
+  deps.store.update(recapId, { startedAt })
+  deps.bundle?.updateManifest(recapId, { startedAt })
 
   const projectUris = (deps.expandProjectScope ?? defaultExpand)(args.projectUri)
   const scope: PeriodScope = { projectUris, periodStart: period.start, periodEnd: period.end, timeZone }
 
-  const audience: RecapAudience = args.audience ?? 'human'
   const includeInternals = resolveSignals(args, audience).includes('turn_internals')
   const { promptInputs, inputChars } = collectSignals(
     deps,
@@ -243,6 +274,7 @@ async function runRecap(
     cost: promptInputs.cost,
     body: parsed.body,
   })
+  deps.bundle?.recordFinalMarkdown(recapId, finalMarkdown)
 
   const digest = buildRecapDigest({
     cost: promptInputs.cost,
@@ -361,10 +393,23 @@ async function runLlmCall(
 ): Promise<string> {
   const t0 = Date.now()
   const idx = chunkIndex !== undefined ? { chunkIndex } : {}
+  // Pillar C+: capture the assembled prompt (secret-free by construction --
+  // bundlePrompt has no apiKey field) BEFORE the call, so a crash mid-call still
+  // leaves the prompt on disk. Pair the response/error by the returned seq.
+  const bundlePrompt = toBundlePrompt(stage, req, chunkIndex)
+  const seq = deps.bundle?.recordCallPrompt(recapId, bundlePrompt)
   try {
     const res = await chat(req)
     ledger.addCall({ stage, model: req.model, usage: res.usage, ms: Date.now() - t0, ...idx })
     flushLedger(deps, recapId, ledger)
+    if (seq !== undefined) {
+      deps.bundle?.recordCallResponse(recapId, seq, bundlePrompt, {
+        ok: true,
+        ms: Date.now() - t0,
+        content: res.content,
+        raw: res.raw,
+      })
+    }
     return res.content
   } catch (err) {
     ledger.addCall({
@@ -377,7 +422,34 @@ async function runLlmCall(
       ...idx,
     })
     flushLedger(deps, recapId, ledger)
+    if (seq !== undefined) {
+      deps.bundle?.recordCallResponse(recapId, seq, bundlePrompt, {
+        ok: false,
+        ms: Date.now() - t0,
+        error: describe(err),
+      })
+    }
     throw err
+  }
+}
+
+/** Project a ChatRequest to the bundle's secret-free prompt shape. NOTE: the
+ *  apiKey/fetcher fields are deliberately NOT copied -- the bundle must never see
+ *  a credential (the bearer key only ever lives in the HTTP header). */
+function toBundlePrompt(stage: RecapLedgerStage, req: ChatRequest, chunkIndex?: number): RecapBundleCallPrompt {
+  return {
+    stage,
+    ...(chunkIndex !== undefined ? { chunkIndex } : {}),
+    model: req.model,
+    params: {
+      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),
+      ...(req.responseFormat !== undefined ? { responseFormat: req.responseFormat } : {}),
+      ...(req.retries !== undefined ? { retries: req.retries } : {}),
+    },
+    ...(req.system !== undefined ? { system: req.system } : {}),
+    ...(req.user !== undefined ? { user: req.user } : {}),
+    ...(req.messages !== undefined ? { messages: req.messages } : {}),
   }
 }
 
@@ -558,7 +630,11 @@ async function runChunked(
       return makeEmptyMetadata()
     }
     try {
-      return parseMapOutput(content)
+      const parsedChunk = parseMapOutput(content)
+      // Pillar C+: persist the per-chunk extraction so a resume can re-merge
+      // without re-paying the (expensive) map stage.
+      deps.bundle?.recordMapParsed(recapId, chunk.index, parsedChunk)
+      return parsedChunk
     } catch (err) {
       if (!(err instanceof MapParseError)) throw err
       failed++
@@ -576,6 +652,7 @@ async function runChunked(
   // MERGE -- pure deterministic dedup, no LLM.
   emit.setProgress(72, 'render/merge')
   const merged = mergeMetadata(metas)
+  deps.bundle?.recordMerged(recapId, merged)
   emit.emit('info', 'render/merge', `merged ${chunks.length} chunk(s) -> ${countItems(merged)} item(s) after dedup`)
 
   // REDUCE -- one synthesis pass on the small merged JSON (not the raw bulk).
@@ -659,6 +736,18 @@ function persistRecipe(
     ...extra,
   }
   deps.store.update(recapId, { argsJson: JSON.stringify(recipe) })
+  // Pillar C+: mirror the RESOLVED recipe + per-stage models into the manifest so
+  // recap_regenerate (C++) knows the mode + models without re-deriving them.
+  const mapModel = typeof extra?.mapModel === 'string' ? extra.mapModel : undefined
+  const chunkCount = typeof extra?.chunkCount === 'number' ? extra.chunkCount : undefined
+  const models =
+    mode === 'chunked' ? { ...(mapModel ? { map: mapModel } : {}), reduce: primaryModel } : { oneshot: primaryModel }
+  deps.bundle?.updateManifest(recapId, {
+    mode,
+    models,
+    recipe,
+    ...(chunkCount !== undefined ? { chunkCount } : {}),
+  })
 }
 
 interface FinalizeArgs {
@@ -675,10 +764,11 @@ function finalize(deps: OrchestratorDeps, recapId: string, ledger: RecapLedger, 
   // Aggregate token/cost columns + the full ledger now derive from COST 2
   // (every call this run), so they include the retry call the old code dropped.
   const built = ledger.build()
+  const completedAt = Date.now()
   deps.store.update(recapId, {
     status: 'done',
     progress: 100,
-    completedAt: Date.now(),
+    completedAt,
     title: args.title,
     subtitle: args.subtitle ?? null,
     markdown: args.markdown,
@@ -689,6 +779,8 @@ function finalize(deps: OrchestratorDeps, recapId: string, ledger: RecapLedger, 
     llmCostUsd: built.summary.totalCostUsd,
     ledgerJson: JSON.stringify(built),
   })
+  // Pillar C+: seal the bundle manifest with the final status + cost summary.
+  deps.bundle?.updateManifest(recapId, { status: 'done', completedAt, cost: built.summary })
   const tags = denormalizeTags(recapId, args.metadata)
   deps.store.setTags(recapId, tags)
   deps.store.upsertFts(recapId, buildFtsFields(args.metadata, args.body, args.projectUri, args.title))

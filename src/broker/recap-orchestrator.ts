@@ -8,6 +8,7 @@ import type {
   RecapStatus,
   RecapSummary,
 } from '../shared/protocol'
+import { createRecapBundleWriter } from './recap/period/bundle'
 import type { CommitDigest, PeriodScope } from './recap/period/gather/types'
 import { type StartArgs, type StartResult, startRecap } from './recap/period/orchestrator'
 import type { ProgressBroadcaster } from './recap/period/progress'
@@ -41,6 +42,9 @@ export interface InitOptions {
 
 export function initRecapOrchestrator(opts: InitOptions): RecapOrchestrator {
   const store = createPeriodRecapStore(opts.cacheDir)
+  // Pillar C+: run-artifact bundles live next to store.db under the same
+  // persisted cacheDir volume (<cacheDir>/recaps/<recapId>/).
+  const bundle = createRecapBundleWriter(opts.cacheDir)
   singleton = {
     start: args =>
       startRecap(
@@ -50,6 +54,7 @@ export function initRecapOrchestrator(opts: InitOptions): RecapOrchestrator {
           broadcaster: opts.broadcaster,
           informConversation: opts.informConversation,
           gatherCommits: opts.gatherCommits,
+          bundle,
         },
         args,
       ),

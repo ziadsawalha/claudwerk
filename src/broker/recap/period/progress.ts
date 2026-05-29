@@ -1,3 +1,4 @@
+import type { RecapBundleWriter } from './bundle'
 import type { PeriodRecapStore, RecapLogLevel, RecapStatus } from './store'
 
 export interface ProgressBroadcaster {
@@ -31,6 +32,8 @@ export interface ProgressEmitterOptions {
   recapId: string
   store: PeriodRecapStore
   broadcaster: ProgressBroadcaster
+  /** Pillar C+: mirror every progress/log line into the bundle's NDJSON trail. */
+  bundle?: RecapBundleWriter
 }
 
 export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmitter {
@@ -58,17 +61,32 @@ export function createProgressEmitter(opts: ProgressEmitterOptions): ProgressEmi
       const ts = Date.now()
       opts.store.appendLog({ recapId: opts.recapId, timestamp: ts, level, phase, message, data })
       lastPhase = phase
+      opts.bundle?.appendProgress(opts.recapId, {
+        kind: 'log',
+        ts,
+        level,
+        phase,
+        message,
+        ...(data !== undefined ? { data } : {}),
+      })
       broadcast({ level, message, ts, data })
     },
     setProgress(progress, phase) {
       lastProgress = clampProgress(progress)
       lastPhase = phase
       persist({ progress: lastProgress, phase: lastPhase })
+      opts.bundle?.appendProgress(opts.recapId, {
+        kind: 'progress',
+        ts: Date.now(),
+        progress: lastProgress,
+        phase: lastPhase,
+      })
       broadcast()
     },
     setStatus(status) {
       lastStatus = status
       persist({ status })
+      opts.bundle?.appendProgress(opts.recapId, { kind: 'status', ts: Date.now(), status })
       broadcast()
     },
   }
