@@ -7,6 +7,7 @@ import { cn, contextWindowSize, formatModel, haptic } from '@/lib/utils'
 import { ProjectIcon } from '../project-icons'
 import { openReviveDialog } from '../revive-dialog-trigger'
 import { openSpawnDialog } from '../spawn-dialog-trigger'
+import { ProjectRecapsSection } from './project-recaps-section'
 
 function matchesFilter(conversation: Conversation, query: string): boolean {
   const q = query.toLowerCase()
@@ -261,6 +262,9 @@ export function ProjectActionPanel({ projectUri }: { projectUri: string }) {
             LAUNCH
           </button>
         </div>
+
+        {/* Recent recaps (last 3 days, finished only) */}
+        <ProjectRecapsSection projectUri={projectUri} />
 
         {/* Search filter */}
         {hasAny && (
