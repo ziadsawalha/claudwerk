@@ -304,32 +304,66 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
   )
 }
 
-/** Small share indicator for the conversation list sidebar */
+/**
+ * Prominent "shared" pill for the conversation list. Mirrors the share-panel
+ * collapsed bar (SHARED (n) + viewing count) so a shared conversation is
+ * obvious at a glance from the list, not just inside the detail view.
+ *
+ * `compact` renders the lean text idiom used by the compact card's title row
+ * (matches NATIVE/COMPACT); default renders the bordered pill used by the full
+ * card (matches native/plan/team badges).
+ */
 export function ShareIndicator({
   conversationProject,
   conversationId,
+  compact = false,
 }: {
   conversationProject: string
   conversationId: string
+  compact?: boolean
 }) {
-  const count = useConversationsStore(
-    s =>
-      s.shares.filter(
-        sh =>
-          sh.project === conversationProject &&
-          sh.expiresAt > Date.now() &&
-          (!sh.conversationId || sh.conversationId === conversationId),
-      ).length,
-  )
+  // Two primitive selectors -- never return an object literal from a Zustand
+  // selector (React #185 infinite render).
+  const matches = (sh: { project: string; expiresAt: number; conversationId?: string }) =>
+    sh.project === conversationProject &&
+    sh.expiresAt > Date.now() &&
+    (!sh.conversationId || sh.conversationId === conversationId)
+  const count = useConversationsStore(s => s.shares.filter(matches).length)
+  const viewers = useConversationsStore(s => s.shares.filter(matches).reduce((n, sh) => n + sh.viewerCount, 0))
 
   if (count === 0) return null
 
+  const label = `SHARED${count > 1 ? ` (${count})` : ''}`
+  const title = `${count} active share${count > 1 ? 's' : ''}${viewers > 0 ? ` · ${viewers} viewing` : ''}`
+
+  if (compact) {
+    return (
+      <span className="flex items-center gap-0.5 text-[9px] font-bold text-teal-400" title={title}>
+        <Link2 className="size-2.5" />
+        {label}
+        {viewers > 0 && (
+          <span className="flex items-center gap-0.5 text-teal-400/70">
+            <Eye className="size-2.5" />
+            {viewers}
+          </span>
+        )}
+      </span>
+    )
+  }
+
   return (
     <span
-      className="px-1 py-0.5 text-[8px] font-bold bg-teal-500/20 text-teal-400 rounded"
-      title={`${count} active share${count > 1 ? 's' : ''}`}
+      className="px-1.5 py-0.5 flex items-center gap-1 text-[10px] uppercase font-bold bg-teal-500/20 text-teal-400 border border-teal-500/50"
+      title={title}
     >
-      <Link2 className="size-2 inline" />
+      <Link2 className="size-2.5" />
+      {label}
+      {viewers > 0 && (
+        <span className="flex items-center gap-0.5 text-teal-400/70">
+          <Eye className="size-2.5" />
+          {viewers}
+        </span>
+      )}
     </span>
   )
 }

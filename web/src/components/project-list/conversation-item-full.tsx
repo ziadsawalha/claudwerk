@@ -124,9 +124,9 @@ export const ConversationItemFull = memo(function ConversationItemFull({
             <Clock size={12} />
           </span>
         )}
+        <ShareIndicator conversationProject={conversation.project} conversationId={conversation.id} />
         <ConversationAttentionBadges conversation={conversation} />
         <ConversationInfoButton conversation={conversation} visible={isSelected} />
-        <ShareIndicator conversationProject={conversation.project} conversationId={conversation.id} />
         {conversation.resultText && conversation.capabilities?.includes('ad-hoc') && (
           <ResultTextModal conversation={conversation} />
         )}

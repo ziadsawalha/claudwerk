@@ -8,6 +8,7 @@ import { formatCost, getCacheTimerInfo, getConversationCost, getCostBgColor } fr
 import type { Conversation } from '@/lib/types'
 import { cn, contextWindowSize, formatPermissionMode, haptic } from '@/lib/utils'
 import { useIsMobile } from '../input-editor/shell/use-is-mobile'
+import { ShareIndicator } from '../share-panel'
 import { BackendIcon } from './backend-icon'
 import { ConversationInfoButton } from './conversation-info-dialog'
 import {
@@ -160,6 +161,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
             <Clock size={11} className="text-amber-400" />
           </span>
         )}
+        <ShareIndicator conversationProject={conversation.project} conversationId={conversation.id} compact />
         <ConversationAttentionBadges conversation={conversation} />
         {/* Context % -- mobile-only on title row (desktop docks it at the bar's right edge) */}
         {isMobile && ctx && (
