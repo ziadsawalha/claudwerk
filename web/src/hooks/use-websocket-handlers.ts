@@ -20,6 +20,7 @@ import type {
   RecapErrorMessage,
   RecapPeriodLabel,
   RecapProgressMessage,
+  RecapRegeneratedMessage,
   RecapSummary,
 } from '@shared/protocol'
 import { handleLaunchProfilesUpdatedMessage } from '@/components/launch-profiles/use-launch-profiles'
@@ -1117,6 +1118,18 @@ function handleRecapCreated(msg: DashboardMessage) {
   )
 }
 
+function handleRecapRegenerated(msg: DashboardMessage) {
+  // Reply to a dashboard-triggered recap_regenerate. Surface the new fork's id
+  // so the open viewer can switch to / group the variant. The viewer polls the
+  // fork over HTTP for progress; this event only carries lineage.
+  const m = msg as unknown as RecapRegeneratedMessage
+  window.dispatchEvent(
+    new CustomEvent('rclaude-recap-forked', {
+      detail: { recapId: m.recapId, sourceRecapId: m.sourceRecapId, mode: m.mode },
+    }),
+  )
+}
+
 function handleRecapError(msg: DashboardMessage) {
   // The broker echoes recap_error with optional requestId; the dashboard's
   // create flow stamps a recapId on its outbound recap_create when it knows
@@ -1359,6 +1372,7 @@ export const handlers: Record<string, MessageHandler> = {
   recap_progress: handleRecapProgress,
   recap_complete: handleRecapComplete,
   recap_created: handleRecapCreated,
+  recap_regenerated: handleRecapRegenerated,
   recap_error: handleRecapError,
   recap_list_result: handleRecapListResult,
 }

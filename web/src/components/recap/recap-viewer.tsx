@@ -11,16 +11,18 @@
  * (the widget already subscribes to recap_progress / recap_complete).
  */
 
-import type { PeriodRecapDoc } from '@shared/protocol'
+import type { PeriodRecapDoc, RecapSummary } from '@shared/protocol'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Markdown } from '@/components/markdown'
+import { regenerateRecap } from '@/components/recap-jobs/recap-wire'
 import { Kbd } from '@/components/ui/kbd'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { useRecapJobsStore } from '@/hooks/use-recap-jobs'
 import { appendShareParam } from '@/lib/share-mode'
 import { cn, haptic } from '@/lib/utils'
+import { fetchRecapList, modelLabel, selectSiblings } from './recap-forks'
 import { RecapReport } from './recap-report'
+import { RecapWriteupTab } from './recap-writeup-tab'
 
 const POLL_MS = 2000
 
@@ -247,18 +249,29 @@ function StreamingState({ recap }: { recap: PeriodRecapDoc | null }) {
   )
 }
 
+function toast(title: string, body: string, variant?: string) {
+  window.dispatchEvent(new CustomEvent('rclaude-toast', { detail: { title, body, ...(variant ? { variant } : {}) } }))
+}
+
 export function RecapViewer() {
   const [recapId, setRecapId] = useState<string | null>(null)
   const [recap, setRecap] = useState<PeriodRecapDoc | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('report')
+  const [siblings, setSiblings] = useState<RecapSummary[]>([])
+  const [regenerating, setRegenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Stable read of the open recap id for the cross-render forked-event listener.
+  const recapIdRef = useRef<string | null>(null)
+  recapIdRef.current = recapId
 
   const close = useCallback(() => {
     setRecapId(null)
     setRecap(null)
     setError(null)
     setMode('report')
+    setSiblings([])
+    setRegenerating(false)
     if (pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
@@ -283,6 +296,46 @@ export function RecapViewer() {
     setRecap(doc)
     setError(null)
   }, [])
+
+  // Load a sibling fork in place WITHOUT resetting the active tab -- the user
+  // stays on Write-up while flipping between variants. (rclaude-recap-open, by
+  // contrast, snaps back to Report; that's for external opens.)
+  const loadFork = useCallback(
+    (id: string) => {
+      setRecapId(id)
+      setRecap(null)
+      setError(null)
+      void refresh(id)
+    },
+    [refresh],
+  )
+
+  const refreshSiblings = useCallback(async (anchor: PeriodRecapDoc) => {
+    const list = await fetchRecapList(anchor.projectUri)
+    setSiblings(
+      selectSiblings(list, {
+        recapId: anchor.recapId,
+        projectUri: anchor.projectUri,
+        periodStart: anchor.periodStart,
+        periodEnd: anchor.periodEnd,
+      }),
+    )
+  }, [])
+
+  const handleRegenerate = useCallback(
+    (model: string) => {
+      const cur = recap
+      if (!cur) return
+      const ok = regenerateRecap({ recapId: cur.recapId, model })
+      if (!ok) {
+        toast('Not connected', 'Cannot regenerate: WebSocket is offline.', 'warning')
+        return
+      }
+      setRegenerating(true)
+      toast('Generating variant', `Re-running the write-up with ${modelLabel(model)}…`)
+    },
+    [recap],
+  )
 
   useEffect(() => {
     function onOpen(e: Event) {
@@ -313,6 +366,30 @@ export function RecapViewer() {
     }
   }, [recapId, recap, refresh])
 
+  // Keep the fork switcher's sibling set fresh: on first load, on variant
+  // switch, and whenever the recap reaches a terminal state (so a just-finished
+  // fork's cost/label settle). Keyed on id+status to avoid refetch churn.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshSiblings reads recap fields by value; id+status are the triggers.
+  useEffect(() => {
+    if (!recap) return
+    void refreshSiblings(recap)
+  }, [recap?.recapId, recap?.status, refreshSiblings])
+
+  // A dashboard-triggered regenerate replied with a new fork id. If it descends
+  // from the recap we're viewing, hop to it (keeping the Write-up tab) so the
+  // user watches the variant generate, then render.
+  useEffect(() => {
+    function onForked(e: Event) {
+      const detail = (e as CustomEvent).detail as { recapId?: string; sourceRecapId?: string } | undefined
+      if (!detail?.recapId) return
+      if (detail.sourceRecapId && detail.sourceRecapId !== recapIdRef.current) return
+      setRegenerating(false)
+      loadFork(detail.recapId)
+    }
+    window.addEventListener('rclaude-recap-forked', onForked)
+    return () => window.removeEventListener('rclaude-recap-forked', onForked)
+  }, [loadFork])
+
   return (
     <DialogPrimitive.Root open={recapId != null} onOpenChange={open => !open && close()}>
       <DialogPrimitive.Portal>
@@ -333,11 +410,13 @@ export function RecapViewer() {
                     {recap.markdown}
                   </pre>
                 ) : mode === 'writeup' ? (
-                  recap.markdown ? (
-                    <Markdown copyable>{recap.markdown}</Markdown>
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No write-up for this recap.</div>
-                  )
+                  <RecapWriteupTab
+                    recap={recap}
+                    siblings={siblings}
+                    regenerating={regenerating}
+                    onSelectFork={loadFork}
+                    onRegenerate={handleRegenerate}
+                  />
                 ) : (
                   <RecapReport
                     metadata={recap.metadata}

@@ -9,15 +9,11 @@ import type { RecapSummary } from '@shared/protocol'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useCallback, useEffect, useState } from 'react'
 import { Kbd } from '@/components/ui/kbd'
-import { appendShareParam } from '@/lib/share-mode'
 import { haptic } from '@/lib/utils'
+import { fetchRecapList } from './recap-forks'
 
 interface OpenDetail {
   projectUri?: string
-}
-
-interface ListResponse {
-  recaps?: RecapSummary[]
 }
 
 function statusBadge(status: RecapSummary['status']): string {
@@ -25,16 +21,6 @@ function statusBadge(status: RecapSummary['status']): string {
   if (status === 'failed') return 'text-red-400'
   if (status === 'cancelled') return 'text-zinc-400'
   return 'text-cyan-400'
-}
-
-async function fetchList(projectUri?: string): Promise<RecapSummary[]> {
-  const url = new URL('/api/recaps', window.location.origin)
-  if (projectUri) url.searchParams.set('projectUri', projectUri)
-  url.searchParams.set('limit', '100')
-  const res = await fetch(appendShareParam(url.pathname + url.search))
-  if (!res.ok) return []
-  const body = (await res.json()) as ListResponse
-  return body.recaps ?? []
 }
 
 function formatRange(s: RecapSummary): string {
@@ -57,7 +43,7 @@ export function RecapHistoryModal() {
   const load = useCallback(async (proj?: string) => {
     setLoading(true)
     try {
-      const items = await fetchList(proj)
+      const items = await fetchRecapList(proj)
       setRecaps(items)
     } finally {
       setLoading(false)

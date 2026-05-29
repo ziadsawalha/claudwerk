@@ -3760,6 +3760,17 @@ export interface RecapRegenerateMessage {
   /** Echoed on recap_regenerated/recap_error so MCP broker-rpc can correlate. */
   requestId?: string
 }
+/** Reply to recap_regenerate. The broker mints `recapId` (a new fork in
+ *  mode:fork, the same id in-place) and echoes the lineage so callers can
+ *  switch to / group the variant. Sent back over the originating connection. */
+export interface RecapRegeneratedMessage {
+  type: 'recap_regenerated'
+  recapId: string
+  sourceRecapId?: string
+  mode: 'fork' | 'in-place'
+  from: 'synthesize' | 'render' | 'html'
+  requestId?: string
+}
 export interface RecapCancelMessage {
   type: 'recap_cancel'
   recapId: string

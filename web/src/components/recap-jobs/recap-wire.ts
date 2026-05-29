@@ -43,3 +43,25 @@ export function createRecap(opts: CreateRecapOptions): boolean {
     ...(opts.force ? { force: true } : {}),
   })
 }
+
+export interface RegenerateRecapOptions {
+  recapId: string
+  /** Synthesize-stage model override (OpenRouter slug). The eval lever. */
+  model?: string
+  /** synthesize re-runs the single reduce call; render/html are zero-LLM. */
+  from?: 'synthesize' | 'render' | 'html'
+  /** fork (default) mints a new recapId so the source survives for comparison. */
+  mode?: 'fork' | 'in-place'
+}
+
+/** Send recap_regenerate over the dashboard WS. The broker replies
+ *  recap_regenerated with the new fork's recapId. Returns whether the send was
+ *  attempted (false only when the WS is not OPEN). */
+export function regenerateRecap(opts: RegenerateRecapOptions): boolean {
+  return wsSend('recap_regenerate', {
+    recapId: opts.recapId,
+    from: opts.from ?? 'synthesize',
+    mode: opts.mode ?? 'fork',
+    ...(opts.model ? { model: opts.model } : {}),
+  })
+}
