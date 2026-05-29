@@ -88,6 +88,7 @@ export default function CodeMirrorBackendInner(props: InputEditorProps) {
         // project tasks + conversation id without rebuilding extensions.
         getSubCommandContext: () => subCmdCtxRef.current,
       }),
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
     [],
   )
 
@@ -304,6 +305,7 @@ export default function CodeMirrorBackendInner(props: InputEditorProps) {
     wasExpandedRef.current = expanded
   }, [expanded])
   const rafCancelRef = useRef<number | null>(null)
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   useEffect(() => {
     return () => {
       if (rafCancelRef.current != null) cancelAnimationFrame(rafCancelRef.current)

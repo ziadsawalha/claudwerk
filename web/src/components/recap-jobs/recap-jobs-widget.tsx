@@ -121,6 +121,7 @@ export function RecapJobsWidget() {
   // check and triggers React error #185 (infinite re-render).
   const jobsMap = useRecapJobsStore(state => state.jobs)
   const [tick, setTick] = useState(0)
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   const jobs = useMemo(() => selectVisibleJobs({ jobs: jobsMap } as RecapJobsState), [jobsMap, tick])
 
   // Tick once a second so done-flash and failed-visible windows close on time

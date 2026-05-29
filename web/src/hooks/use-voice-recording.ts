@@ -333,6 +333,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
       setErrorMsg(err instanceof Error ? err.message : 'Mic access denied')
       setState('error')
     }
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [sendWs])
 
   function doStop() {
@@ -386,6 +387,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     } else {
       doStop()
     }
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [sendWs, reset, elapsed])
 
   const cancel = useCallback(() => {

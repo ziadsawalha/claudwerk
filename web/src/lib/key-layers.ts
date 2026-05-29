@@ -418,6 +418,7 @@ export function useKeyLayer(bindings: KeyBindings, options: KeyLayerOptions = {}
       proxyBindings[key] = (e: KeyboardEvent) => bindingsRef.current[key]?.(e)
     }
     layerRef.current.bindings = proxyBindings
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [Object.keys(bindings).sort().join(',')])
 }
 

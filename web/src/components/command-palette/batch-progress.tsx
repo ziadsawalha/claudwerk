@@ -87,6 +87,7 @@ export function BatchProgress({ action, conversationIds, batchId, input, onRetry
     })
     // We intentionally start once per mount; action/ids/batchId are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [])
 
   const settled = Array.from(rows.values()).filter(r => r.settledAt)

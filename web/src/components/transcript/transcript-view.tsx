@@ -258,6 +258,7 @@ const ThinkingSpinner = memo(function ThinkingSpinner({ conversationId }: { conv
   // biome-ignore lint/correctness/useExhaustiveDependencies: totalOutput intentionally omitted - only capture baseline on status transition, not every token update
   useEffect(() => {
     if (isActive) baselineRef.current = totalOutput
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [isActive]) // only on status transition, not on every token update
 
   const turnTokens = isActive ? Math.max(0, totalOutput - baselineRef.current) : 0
@@ -275,6 +276,7 @@ const ThinkingSpinner = memo(function ThinkingSpinner({ conversationId }: { conv
       clearInterval(verbInterval)
       clearInterval(dotInterval)
     }
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [isActive])
 
   if (!isActive) return null
@@ -607,6 +609,7 @@ export const TranscriptView = memo(function TranscriptView({
     if (!el) return
     if (follow) el.scrollTop = el.scrollHeight
     else el.scrollTop = 0
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [cacheKey])
 
   // Pin-to-bottom on dynamic measurement. When the virtualizer re-measures rows

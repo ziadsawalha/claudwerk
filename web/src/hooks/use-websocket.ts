@@ -509,6 +509,7 @@ export function useWebSocket() {
   }, [])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional - runs once on mount, send is a module-scope function
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   useEffect(() => {
     connect()
 

@@ -111,6 +111,7 @@ export const InputBar = memo(function InputBar({ conversationId }: { conversatio
   }, [conversationId])
 
   // Save draft on unmount
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   useEffect(() => {
     return () => {
       useConversationsStore.getState().setInputDraft(conversationRef.current, inputRef.current)

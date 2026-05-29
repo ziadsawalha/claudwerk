@@ -51,5 +51,6 @@ export function useSwitchDiagnostics(selectedConversationId: string | null) {
       cancelAnimationFrame(raf1)
       if (raf2) cancelAnimationFrame(raf2)
     }
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [selectedConversationId])
 }

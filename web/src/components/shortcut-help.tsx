@@ -36,6 +36,7 @@ export function ShortcutHelp() {
       else byLabel.set(c.label, [keys])
     }
     return Array.from(byLabel.entries()).map(([action, keys]) => ({ action, keys }))
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [_gen])
 
   return (

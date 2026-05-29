@@ -24,6 +24,7 @@ export function VoiceOverlay({ onResult, onClose, holdMode = false, onMicGranted
   const startedRef = useRef(false)
 
   // Auto-start recording on mount
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   useEffect(() => {
     if (!startedRef.current) {
       startedRef.current = true

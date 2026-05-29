@@ -282,6 +282,7 @@ export function useFileEditor(conversationId: string | null) {
 
   // Cleanup on conversation change
   // biome-ignore lint/correctness/useExhaustiveDependencies: conversationId is intentionally used as cleanup trigger even though not read in the effect body
+  // react-doctor-disable-next-line react-doctor/exhaustive-deps
   useEffect(() => {
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
