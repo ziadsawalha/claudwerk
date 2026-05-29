@@ -80,7 +80,7 @@ export function PublicRecapView({ token }: { token: string }) {
   }
   const r = state.recap
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="h-full overflow-y-auto bg-background text-foreground">
       <div className="max-w-3xl mx-auto px-6 py-10">
         <header className="mb-6 pb-4 border-b border-border">
           <h1 className="text-2xl font-semibold">{r.title || `Recap ${r.recapId.slice(0, 12)}`}</h1>
