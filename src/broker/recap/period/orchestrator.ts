@@ -686,6 +686,7 @@ async function runRecap(
     audience,
     cost: promptInputs.cost,
     body: parsed.body,
+    partialNote: partialReason,
   })
   deps.bundle?.recordFinalMarkdown(recapId, finalMarkdown)
 

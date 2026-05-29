@@ -14,6 +14,10 @@ export interface FinalDocumentInputs {
   audience: RecapAudience
   cost: CostDigest
   body: string
+  /** Set when the recap is PARTIAL (some chunks were dropped). Renders a banner
+   *  at the top of the doc so the reader knows the recap is missing input --
+   *  never a silent omission. */
+  partialNote?: string
 }
 
 export function renderFinalMarkdown(inputs: FinalDocumentInputs): string {
@@ -23,7 +27,10 @@ export function renderFinalMarkdown(inputs: FinalDocumentInputs): string {
   const isAgent = inputs.audience === 'agent'
   const subtitleLine = !isAgent && inputs.subtitle ? `_${inputs.subtitle}_\n\n` : ''
   const costTable = isAgent ? '' : renderCostTable(inputs.cost)
-  return `${[header, `# ${inputs.title}`, '', subtitleLine, costTable, '', inputs.body].join('\n').trimEnd()}\n`
+  // The banner is shown to BOTH audiences -- a machine reader must also know its
+  // input was incomplete before it acts on the brief.
+  const banner = inputs.partialNote ? `> [!] **Partial recap** -- ${inputs.partialNote}\n` : ''
+  return `${[header, `# ${inputs.title}`, '', banner, subtitleLine, costTable, '', inputs.body].join('\n').trimEnd()}\n`
 }
 
 function renderHeader(inputs: FinalDocumentInputs): string {
