@@ -8,6 +8,7 @@ import type {
   RecapStatus,
   RecapSummary,
 } from '../shared/protocol'
+import { isRecapTerminal } from '../shared/protocol'
 import { createRecapBundleWriter } from './recap/period/bundle'
 import type { CommitDigest, PeriodScope } from './recap/period/gather/types'
 import {
@@ -81,7 +82,10 @@ export function initRecapOrchestrator(opts: InitOptions): RecapOrchestrator {
       ),
     cancel(recapId: string) {
       const row = store.get(recapId)
-      if (!row || row.status === 'done' || row.status === 'failed') return
+      // Already finished (done/partial/failed/cancelled) -> nothing to cancel.
+      // An 'interrupted' recap is NOT terminal: it can still be cancelled
+      // (give up on the resume) -- isRecapTerminal lets that through.
+      if (!row || isRecapTerminal(row.status)) return
       store.update(recapId, { status: 'cancelled' })
       opts.broadcaster.broadcast({
         type: 'recap_progress',

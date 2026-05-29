@@ -1,8 +1,10 @@
 import { Database } from 'bun:sqlite'
 import { join } from 'node:path'
-import type { RecapAudience, RecapCostLedger, RecapMeta } from '../../../shared/protocol'
+import type { RecapAudience, RecapCostLedger, RecapMeta, RecapStatus } from '../../../shared/protocol'
 
-export type RecapStatus = 'queued' | 'gathering' | 'rendering' | 'done' | 'failed' | 'cancelled'
+// RecapStatus is owned by src/shared/protocol.ts -- re-exported here so the many
+// store-layer importers keep their `from './store'` path. Single source of truth.
+export type { RecapStatus }
 export type RecapPeriodLabel = 'today' | 'yesterday' | 'last_7' | 'last_30' | 'this_week' | 'this_month' | 'custom'
 export type RecapLogLevel = 'info' | 'warn' | 'error' | 'debug'
 

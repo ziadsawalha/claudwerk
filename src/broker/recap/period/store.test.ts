@@ -74,6 +74,18 @@ describe('PeriodRecapStore', () => {
     expect(after?.phase).toBe('render/llm')
   })
 
+  it('round-trips the resilience statuses (partial / interrupted) + filters by them', () => {
+    makeRecap({ id: 'recap_partial' })
+    makeRecap({ id: 'recap_interrupted' })
+    store.update('recap_partial', { status: 'partial', error: '2 of 6 chunks failed', completedAt: Date.now() })
+    store.update('recap_interrupted', { status: 'interrupted' })
+    expect(store.get('recap_partial')?.status).toBe('partial')
+    expect(store.get('recap_partial')?.error).toBe('2 of 6 chunks failed')
+    expect(store.get('recap_interrupted')?.status).toBe('interrupted')
+    expect(store.list({ status: ['partial'] }).map(r => r.id)).toEqual(['recap_partial'])
+    expect(store.list({ status: ['interrupted'] }).map(r => r.id)).toEqual(['recap_interrupted'])
+  })
+
   it('appendLog + getLogs preserves chronological order', () => {
     makeRecap()
     store.appendLog({ recapId: 'recap_test_1', timestamp: 100, level: 'info', phase: 'gather', message: 'one' })

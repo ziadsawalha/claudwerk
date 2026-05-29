@@ -1062,6 +1062,13 @@ interface FinalizeArgs {
   digestJson: string
   body: string
   projectUri: string
+  /** Terminal status for a completed document. 'done' = all input rendered;
+   *  'partial' = the doc rendered but some map chunks were dropped (timeout /
+   *  truncation / stage deadline). Defaults to 'done'. */
+  status?: 'done' | 'partial'
+  /** Human note for a partial recap (e.g. "2 of 6 chunks failed"). Stored in
+   *  the `error` column so the existing UI surfaces it; null on a clean 'done'. */
+  partialReason?: string
 }
 
 function finalize(deps: OrchestratorDeps, recapId: string, ledger: RecapLedger, args: FinalizeArgs): void {
@@ -1069,8 +1076,10 @@ function finalize(deps: OrchestratorDeps, recapId: string, ledger: RecapLedger, 
   // (every call this run), so they include the retry call the old code dropped.
   const built = ledger.build()
   const completedAt = Date.now()
+  const status = args.status ?? 'done'
+  const partialReason = status === 'partial' ? (args.partialReason ?? 'some chunks were dropped') : null
   deps.store.update(recapId, {
-    status: 'done',
+    status,
     progress: 100,
     completedAt,
     title: args.title,
@@ -1078,13 +1087,14 @@ function finalize(deps: OrchestratorDeps, recapId: string, ledger: RecapLedger, 
     markdown: args.markdown,
     metadataJson: JSON.stringify(args.metadata),
     digestJson: args.digestJson,
+    error: partialReason,
     inputTokens: built.summary.totalInputTokens,
     outputTokens: built.summary.totalOutputTokens,
     llmCostUsd: built.summary.totalCostUsd,
     ledgerJson: JSON.stringify(built),
   })
   // Pillar C+: seal the bundle manifest with the final status + cost summary.
-  deps.bundle?.updateManifest(recapId, { status: 'done', completedAt, cost: built.summary })
+  deps.bundle?.updateManifest(recapId, { status, completedAt, cost: built.summary })
   const tags = denormalizeTags(recapId, args.metadata)
   deps.store.setTags(recapId, tags)
   deps.store.upsertFts(recapId, buildFtsFields(args.metadata, args.body, args.projectUri, args.title))

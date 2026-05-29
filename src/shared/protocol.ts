@@ -3429,7 +3429,34 @@ export interface ConnectionInfo {
 
 export type RecapPeriodLabel = 'today' | 'yesterday' | 'last_7' | 'last_30' | 'this_week' | 'this_month' | 'custom'
 
-export type RecapStatus = 'queued' | 'gathering' | 'rendering' | 'done' | 'failed' | 'cancelled'
+// 'partial'     -- completed, but at least one map chunk was dropped (timeout /
+//                  truncation / deadline). The document rendered; it is just
+//                  missing some input. Surfaced with a banner, NOT a silent 'done'.
+// 'interrupted' -- an in-flight run was orphaned (broker restart killed the async).
+//                  Resumable from its on-disk bundle; NEVER auto-resumed.
+export type RecapStatus =
+  | 'queued'
+  | 'gathering'
+  | 'rendering'
+  | 'done'
+  | 'partial'
+  | 'failed'
+  | 'interrupted'
+  | 'cancelled'
+// Truly finished -- nothing left to run, no resume. (interrupted is NOT here: it
+// is paused/resumable. Use isRecapResumable for that.)
+export const RECAP_TERMINAL_STATUSES = ['done', 'partial', 'failed', 'cancelled'] as const
+export function isRecapTerminal(status: RecapStatus): boolean {
+  return (RECAP_TERMINAL_STATUSES as readonly string[]).includes(status)
+}
+/** A run currently executing (an async owns it). Boot-sweep targets these. */
+export function isRecapInFlight(status: RecapStatus): boolean {
+  return status === 'queued' || status === 'gathering' || status === 'rendering'
+}
+/** Has a resumable on-disk bundle and is not actively running. */
+export function isRecapResumable(status: RecapStatus): boolean {
+  return status === 'interrupted'
+}
 export type RecapLogLevel = 'info' | 'warn' | 'error' | 'debug'
 export type RecapSignal =
   | 'user_prompts'

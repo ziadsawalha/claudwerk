@@ -19,7 +19,7 @@ import { type Context, Hono } from 'hono'
 import { marked } from 'marked'
 import { getAuthenticatedUser } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
-import type { RecapRow } from '../recap/period/store'
+import type { RecapRow, RecapStatus } from '../recap/period/store'
 import { getRecapOrchestrator, type RecapOrchestrator } from '../recap-orchestrator'
 import { createShare, validateShare } from '../shares'
 import type { RouteHelpers } from './shared'
@@ -172,9 +172,7 @@ export function createRecapsRouter(_conversationStore: ConversationStore, helper
 
     const url = new URL(c.req.url)
     const projectUri = url.searchParams.get('projectUri') || undefined
-    const status = url.searchParams.getAll('status').filter(Boolean) as Array<
-      'queued' | 'gathering' | 'rendering' | 'done' | 'failed' | 'cancelled'
-    >
+    const status = url.searchParams.getAll('status').filter(Boolean) as RecapStatus[]
     const limitRaw = url.searchParams.get('limit')
     const limit = limitRaw ? Math.max(1, Math.min(200, Number.parseInt(limitRaw, 10) || 50)) : 50
 
