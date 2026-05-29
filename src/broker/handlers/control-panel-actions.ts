@@ -10,8 +10,10 @@ import type { ServerWebSocket } from 'bun'
 import { generateConversationName } from '../../shared/conversation-names'
 import { extractProjectLabel } from '../../shared/project-uri'
 import type { SendInput, SubscriptionChannel } from '../../shared/protocol'
+import { slugify } from '../address-book'
 import { resolveBackend } from '../backends'
 import { buildReviveMessage } from '../build-revive'
+import { recordRetiredSlug } from '../former-slugs'
 import { getGlobalSettings, updateGlobalSettings } from '../global-settings'
 import { GuardError, type HandlerContext, type MessageHandler, type WsData } from '../handler-context'
 import { DASHBOARD_ROLES, detectRole, registerHandlers } from '../message-router'
@@ -356,6 +358,13 @@ function applyRename(
   name: string | undefined,
   description: string | undefined,
 ): void {
+  // Capture the slug the conversation answered to BEFORE mutating the title, so
+  // we can retire it for the rename-alias decay window. Only a CUSTOM old title
+  // is worth retaining: if the old title was empty, the addressable slug was the
+  // id-slice fallback, which the stable-id resolver still resolves -- no alias
+  // needed. (plan-conversation-rename Phase 2b)
+  const oldSlug = conversation.title ? slugify(conversation.title) : ''
+
   if (name) {
     conversation.title = name
     conversation.titleUserSet = true
@@ -366,6 +375,12 @@ function applyRename(
   if (description !== undefined) {
     conversation.description = description || undefined
   }
+
+  const newSlug = slugify(conversation.title || conversation.id.slice(0, 8))
+  if (oldSlug !== newSlug) {
+    conversation.formerSlugs = recordRetiredSlug(conversation.formerSlugs, oldSlug, newSlug, Date.now())
+  }
+
   ctx.conversations.persistConversationById(conversationId)
   ctx.conversations.broadcastConversationUpdate(conversationId)
 }

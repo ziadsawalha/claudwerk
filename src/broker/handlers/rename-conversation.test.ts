@@ -19,6 +19,7 @@ interface MockConversation {
   title?: string
   titleUserSet?: boolean
   description?: string
+  formerSlugs?: Array<{ slug: string; retiredAt: number; lastUsedAt: number }>
 }
 
 // fallow-ignore-next-line complexity
@@ -123,6 +124,37 @@ describe('rename_conversation authz', () => {
     renameConversation(ctx, { conversationId: 'conv_self', name: 'n', description: 'doing the thing' })
     expect(conv.title).toBe('n')
     expect(conv.description).toBe('doing the thing')
+  })
+
+  it('retires the old custom slug into formerSlugs on rename', () => {
+    const conv: MockConversation = { id: 'conv_self', project: 'claude:///x', title: 'old-name', titleUserSet: true }
+    const ctx = makeCtx(conv, { wsData: { conversationId: 'conv_self' } })
+    renameConversation(ctx, { conversationId: 'conv_self', name: 'new-name' })
+    expect(conv.title).toBe('new-name')
+    expect(conv.formerSlugs?.map(e => e.slug)).toEqual(['old-name'])
+  })
+
+  it('does NOT retire an alias when the old title was auto (no custom name)', () => {
+    const conv: MockConversation = { id: 'conv_self', project: 'claude:///x' }
+    const ctx = makeCtx(conv, { wsData: { conversationId: 'conv_self' } })
+    renameConversation(ctx, { conversationId: 'conv_self', name: 'first-name' })
+    expect(conv.formerSlugs ?? []).toEqual([])
+  })
+
+  it('renaming back to a former name drops it from formerSlugs', () => {
+    const conv: MockConversation = {
+      id: 'conv_self',
+      project: 'claude:///x',
+      title: 'current',
+      titleUserSet: true,
+      formerSlugs: [{ slug: 'was-this', retiredAt: 1, lastUsedAt: 2 }],
+    }
+    const ctx = makeCtx(conv, { wsData: { conversationId: 'conv_self' } })
+    renameConversation(ctx, { conversationId: 'conv_self', name: 'was-this' })
+    expect(conv.title).toBe('was-this')
+    expect(conv.formerSlugs?.find(e => e.slug === 'was-this')).toBeUndefined()
+    // the previously-current "current" slug is now retired
+    expect(conv.formerSlugs?.find(e => e.slug === 'current')).toBeDefined()
   })
 
   it('throws when conversationId is missing', () => {
