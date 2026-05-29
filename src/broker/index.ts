@@ -429,7 +429,7 @@ async function main() {
     process.exit(0)
   }
 
-  initRecapOrchestrator({
+  const recapOrch = initRecapOrchestrator({
     cacheDir: cacheDir ?? '.',
     brokerStore: store,
     broadcaster: {
@@ -460,6 +460,23 @@ async function main() {
       console.log(`[recap] inform delivered -> conversation ${conversationId.slice(0, 8)} (recap=${msg.recapId})`)
     },
   })
+
+  // G2 boot sweep: a recap whose async run was mid-flight when this broker last
+  // stopped is now orphaned (the process took the run with it). Reclaim every
+  // such row to 'interrupted' (resumable, manual-only) so it can't sit forever
+  // as a zombie 'rendering'. Logged with full context (LOG EVERYTHING covenant).
+  try {
+    const swept = recapOrch.sweepInterrupted()
+    if (swept.length > 0) {
+      console.log(
+        `[recap] boot sweep: reclaimed ${swept.length} orphaned recap(s) -> interrupted: ${swept
+          .map(s => `${s.id}(${s.prevStatus}@${s.progress}%)`)
+          .join(', ')}`,
+      )
+    }
+  } catch (err) {
+    console.error('[recap] boot sweep failed:', err)
+  }
 
   // External status polling (clanker.watch health + usage.report efficiency)
   startExternalStatusPolling({

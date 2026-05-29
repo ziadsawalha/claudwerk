@@ -34,6 +34,9 @@ export interface RecapOrchestrator {
   /** G3: resume an interrupted/partial/failed chunked recap, reusing persisted
    *  chunks and re-running only the missing ones. */
   resume(recapId: string): ResumeResult
+  /** G2: on broker boot, reclaim recaps stuck in-flight (their async died with the
+   *  process) -> 'interrupted' (resumable, never auto-resumed). Returns what it swept. */
+  sweepInterrupted(): Array<{ id: string; prevStatus: RecapStatus; progress: number }>
   cancel(recapId: string): void
   dismiss(recapId: string): void
   list(filter: { projectUri?: string; status?: RecapStatus[]; limit?: number }): RecapSummary[]
@@ -97,6 +100,28 @@ export function initRecapOrchestrator(opts: InitOptions): RecapOrchestrator {
         },
         recapId,
       ),
+    sweepInterrupted() {
+      // No async run can survive a broker restart, so EVERY in-flight row is
+      // orphaned. Flip each to 'interrupted' (resumable) + emit a structured
+      // message; NEVER auto-resume (interrupted_manual -- no surprise spend).
+      const orphaned = store.list({ status: ['queued', 'gathering', 'rendering'] })
+      const swept: Array<{ id: string; prevStatus: RecapStatus; progress: number }> = []
+      for (const row of orphaned) {
+        const note = `interrupted by broker restart (was ${row.status} at ${row.progress}%; resumable)`
+        store.update(row.id, { status: 'interrupted', error: note })
+        bundle.updateManifest(row.id, { status: 'interrupted', error: note })
+        opts.broadcaster.broadcast({
+          type: 'recap_progress',
+          recapId: row.id,
+          status: 'interrupted',
+          progress: row.progress,
+          phase: 'interrupted',
+          log: { level: 'warn', message: note, ts: Date.now() },
+        })
+        swept.push({ id: row.id, prevStatus: row.status, progress: row.progress })
+      }
+      return swept
+    },
     cancel(recapId: string) {
       const row = store.get(recapId)
       // Already finished (done/partial/failed/cancelled) -> nothing to cancel.
