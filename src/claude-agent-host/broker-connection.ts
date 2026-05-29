@@ -77,12 +77,14 @@ let pendingSendResult:
       conversationId?: string
       targetConversationId?: string
       status?: 'delivered' | 'queued'
+      canonicalAddress?: string
       results?: Array<{
         to: string
         ok: boolean
         status?: 'delivered' | 'queued'
         targetConversationId?: string
         error?: string
+        canonicalAddress?: string
       }>
     }) => void)
   | null = null

@@ -59,3 +59,22 @@ export function recordRetiredSlug(
   }
   return next
 }
+
+/**
+ * Bump `lastUsedAt` on the entry matching `slug` (the sliding-window reset that
+ * keeps an actively-used old name alive). Returns a new array; if no entry
+ * matches, returns the input unchanged (referentially) so callers can skip a
+ * needless persist.
+ */
+export function refreshAliasUse(former: FormerSlug[] | undefined, slug: string, now: number): FormerSlug[] {
+  if (!former?.length) return former ?? []
+  let changed = false
+  const next = former.map(e => {
+    if (e.slug === slug) {
+      changed = true
+      return { ...e, lastUsedAt: now }
+    }
+    return e
+  })
+  return changed ? next : former
+}

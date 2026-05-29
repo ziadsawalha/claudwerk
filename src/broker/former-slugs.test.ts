@@ -10,6 +10,7 @@ import {
   pruneExpiredAliases,
   RENAME_ALIAS_TTL_MS,
   recordRetiredSlug,
+  refreshAliasUse,
 } from './former-slugs'
 
 const NOW = 1_000_000_000
@@ -82,5 +83,27 @@ describe('recordRetiredSlug', () => {
     // The oldest (s0) should have been evicted; brand-new (lastUsedAt=NOW) kept.
     expect(out.find(e => e.slug === 's0')).toBeUndefined()
     expect(out.find(e => e.slug === 'brand-new')).toBeDefined()
+  })
+})
+
+describe('refreshAliasUse', () => {
+  it('bumps lastUsedAt on the matching slug', () => {
+    const former = [
+      { slug: 'a', retiredAt: 1, lastUsedAt: 2 },
+      { slug: 'b', retiredAt: 3, lastUsedAt: 4 },
+    ]
+    const out = refreshAliasUse(former, 'a', NOW)
+    expect(out.find(e => e.slug === 'a')?.lastUsedAt).toBe(NOW)
+    expect(out.find(e => e.slug === 'b')?.lastUsedAt).toBe(4) // untouched
+  })
+
+  it('returns the SAME reference when no slug matches (no needless persist)', () => {
+    const former = [{ slug: 'a', retiredAt: 1, lastUsedAt: 2 }]
+    expect(refreshAliasUse(former, 'nope', NOW)).toBe(former)
+  })
+
+  it('handles undefined/empty', () => {
+    expect(refreshAliasUse(undefined, 'a', NOW)).toEqual([])
+    expect(refreshAliasUse([], 'a', NOW)).toEqual([])
   })
 })

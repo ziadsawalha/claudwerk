@@ -196,7 +196,9 @@ export function registerConversationTools(ctx: McpToolContext): Record<string, T
               : r.targetConversationId
                 ? ` (target_conversation_id: ${r.targetConversationId})`
                 : ''
-            lines.push(`  - ${r.to}: ${label}${detail}`)
+            // The `to` was an OLD name -- tell the caller the current address.
+            const renamed = r.canonicalAddress ? ` [renamed -> ${r.canonicalAddress}; update your address]` : ''
+            lines.push(`  - ${r.to}: ${label}${detail}${renamed}`)
           }
           debug(
             `[channel] send_message multicast to ${result.results.length}: ${delivered.length}/${queued.length}/${failed.length} (delivered/queued/failed)`,
@@ -218,6 +220,14 @@ export function registerConversationTools(ctx: McpToolContext): Record<string, T
         const parts = [statusLabel]
         if (result.conversationId) parts.push(`conversation_id: ${result.conversationId}`)
         if (result.targetConversationId) parts.push(`target_conversation_id: ${result.targetConversationId}`)
+        if (result.canonicalAddress) {
+          // The `to` resolved via an OLD name the target shed in a rename. Names
+          // decay; surface the current address + nudge to cache the stable id.
+          parts.push(
+            `NOTE: "${targets[0]}" is a former name -- current address is "${result.canonicalAddress}". ` +
+              `Use target_conversation_id for durable references.`,
+          )
+        }
         return { content: [{ type: 'text', text: parts.join('. ') }] }
       },
     },

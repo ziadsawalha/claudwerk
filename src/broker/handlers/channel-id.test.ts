@@ -215,3 +215,81 @@ describe('formatAmbiguityError', () => {
     expect(msg).toContain('arr:rebel-bbbbbb')
   })
 })
+
+// ─── former-slug alias tier (rename-alias retention, Phase 2c) ────────
+describe('resolveSendTarget former-slug aliases', () => {
+  const NOW = 1_000_000_000
+  const within = NOW - 1000 // lastUsedAt inside the 24h window
+  const expired = NOW - 25 * 60 * 60 * 1000 // outside the window
+
+  function withFormer(
+    id: string,
+    title: string,
+    former: Array<{ slug: string; retiredAt: number; lastUsedAt: number }>,
+  ): ConversationLike {
+    return { id, title, project: 'claude:///projects/arr', formerSlugs: former }
+  }
+
+  it('resolves a conversation by an in-window former slug', () => {
+    const a = withFormer('aaaaaaaa', 'new-name', [{ slug: 'old-name', retiredAt: within, lastUsedAt: within }])
+    const r = resolveSendTarget({
+      projectSlug: 'arr',
+      conversationSlug: 'old-name',
+      conversationsAtProject: [a],
+      canonicalProject: 'arr',
+      isLive: allLive,
+      now: NOW,
+    })
+    expect(r.kind).toBe('resolved')
+    if (r.kind === 'resolved') {
+      expect(r.conversation).toBe(a)
+      expect(r.viaAlias).toBe('old-name')
+    }
+  })
+
+  it('does NOT resolve an expired former slug', () => {
+    const a = withFormer('aaaaaaaa', 'new-name', [{ slug: 'old-name', retiredAt: expired, lastUsedAt: expired }])
+    const r = resolveSendTarget({
+      projectSlug: 'arr',
+      conversationSlug: 'old-name',
+      conversationsAtProject: [a],
+      canonicalProject: 'arr',
+      isLive: allLive,
+      now: NOW,
+    })
+    expect(r.kind).toBe('not_found')
+  })
+
+  it('a live CURRENT slug always beats a former-slug alias on another conversation', () => {
+    // b currently answers to "shared"; a shed "shared" as a former slug.
+    const a = withFormer('aaaaaaaa', 'a-now', [{ slug: 'shared', retiredAt: within, lastUsedAt: within }])
+    const b = s('bbbbbbbb', 'shared')
+    const r = resolveSendTarget({
+      projectSlug: 'arr',
+      conversationSlug: 'shared',
+      conversationsAtProject: [a, b],
+      canonicalProject: 'arr',
+      isLive: allLive,
+      now: NOW,
+    })
+    expect(r.kind).toBe('resolved')
+    if (r.kind === 'resolved') {
+      expect(r.conversation).toBe(b) // current wins
+      expect(r.viaAlias).toBeUndefined()
+    }
+  })
+
+  it('two conversations sharing an in-window former slug is ambiguous', () => {
+    const a = withFormer('aaaaaaaa', 'a-now', [{ slug: 'shared', retiredAt: within, lastUsedAt: within }])
+    const b = withFormer('bbbbbbbb', 'b-now', [{ slug: 'shared', retiredAt: within, lastUsedAt: within }])
+    const r = resolveSendTarget({
+      projectSlug: 'arr',
+      conversationSlug: 'shared',
+      conversationsAtProject: [a, b],
+      canonicalProject: 'arr',
+      isLive: allLive,
+      now: NOW,
+    })
+    expect(r.kind).toBe('ambiguous')
+  })
+})

@@ -948,6 +948,11 @@ export interface ChannelSendResultEntry {
   status?: 'delivered' | 'queued'
   targetConversationId?: string
   error?: string
+  /** Set when delivery resolved via a RETIRED (former) slug -- the `to` used an
+   *  old name the target shed in a rename. Carries the canonical CURRENT address
+   *  (`project:new-slug`) so the sender can update its cached `to`. Old names
+   *  decay; store targetConversationId for durable references. */
+  canonicalAddress?: string
 }
 
 export interface ChannelSendResult {

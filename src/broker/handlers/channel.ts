@@ -11,7 +11,8 @@ import { getUser } from '../auth'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
 import { resolvePermissionFlags } from '../permissions'
-import { computeLocalId, formatAmbiguityError, resolveSendTarget } from './channel-id'
+import { refreshAliasUse } from '../former-slugs'
+import { computeConversationSlug, computeLocalId, formatAmbiguityError, resolveSendTarget } from './channel-id'
 
 // ─── Dashboard subscription ────────────────────────────────────────
 
@@ -604,6 +605,11 @@ function deliverToOne(
   }
 
   let toConv: ReturnType<typeof ctx.conversations.getConversation> | undefined
+  // Set when delivery resolves via a retired (former) slug -- the caller used a
+  // name this conversation shed in a rename. We refresh the alias decay clock
+  // and surface the canonical current address back to the sender so it can learn
+  // the rename and update its cached `to` (names decay; ids are forever).
+  let canonicalAddress: string | undefined
   if (targetProject) {
     const conversationsAtProject = Array.from(ctx.conversations.getAllConversations()).filter(s =>
       isSameProject(s.project, targetProject),
@@ -626,6 +632,20 @@ function deliverToOne(
     }
     if (resolved.kind === 'resolved') {
       toConv = ctx.conversations.getConversation(resolved.conversation.id)
+      if (resolved.viaAlias && toConv) {
+        // Sliding-window reset: this old name is still in active use, so keep it
+        // alive. Persist so the refreshed lastUsedAt survives a broker restart.
+        const refreshed = refreshAliasUse(toConv.formerSlugs, resolved.viaAlias, Date.now())
+        if (refreshed !== toConv.formerSlugs) {
+          toConv.formerSlugs = refreshed
+          ctx.conversations.persistConversationById(toConv.id)
+        }
+        canonicalAddress = `${projectSlug}:${computeConversationSlug(toConv, conversationsAtProject)}`
+        ctx.log.debug(
+          `[inter-conversation] ${toTarget} resolved via former slug "${resolved.viaAlias}" -> ${toConv.id.slice(0, 8)} ` +
+            `(alias refreshed; canonical=${canonicalAddress})`,
+        )
+      }
     }
   } else {
     toConv = ctx.conversations.findConversationByConversationId(toTarget) || ctx.conversations.getConversation(toTarget)
@@ -759,7 +779,13 @@ function deliverToOne(
       ctx.log.debug(
         `[inter-conversation] ${fromConversation.slice(0, 8)} -> ${toConversation.slice(0, 8)}: ${data.intent} (${linkStatus})`,
       )
-      return { to: toTarget, ok: true, status: 'delivered', targetConversationId: toConversation }
+      return {
+        to: toTarget,
+        ok: true,
+        status: 'delivered',
+        targetConversationId: toConversation,
+        ...(canonicalAddress ? { canonicalAddress } : {}),
+      }
     }
     return {
       to: toTarget,
@@ -853,6 +879,7 @@ const channelSend: MessageHandler = (ctx, data) => {
     conversationId,
     ...(r.status ? { status: r.status } : {}),
     ...(r.targetConversationId ? { targetConversationId: r.targetConversationId } : {}),
+    ...(r.canonicalAddress ? { canonicalAddress: r.canonicalAddress } : {}),
     ...(r.error ? { error: r.error } : {}),
   })
 }

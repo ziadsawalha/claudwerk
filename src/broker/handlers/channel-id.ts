@@ -20,11 +20,15 @@
 
 import { extractProjectLabel, isSameProject } from '../../shared/project-uri'
 import { slugify } from '../address-book'
+import { isAliasLive } from '../former-slugs'
+import type { FormerSlug } from '../store/types'
 
 export interface ConversationLike {
   id: string
   project: string
   title?: string
+  /** Retired addressable slugs with decay bookkeeping (rename-alias retention). */
+  formerSlugs?: FormerSlug[]
 }
 
 /**
@@ -57,7 +61,7 @@ export function computeLocalId(
 // ─── Send target resolution ─────────────────────────────────────────
 
 export type ResolveSendTarget =
-  | { kind: 'resolved'; conversation: ConversationLike }
+  | { kind: 'resolved'; conversation: ConversationLike; viaAlias?: string }
   | { kind: 'not_found' }
   | { kind: 'ambiguous'; canonicalProject: string; candidates: ConversationLike[] }
 
@@ -72,6 +76,8 @@ export interface ResolveSendInput {
   canonicalProject: string
   /** Predicate -- "is this conversation currently online?". Live count drives ambiguity. */
   isLive: (s: ConversationLike) => boolean
+  /** Epoch ms for the in-window check on former-slug aliases. Defaults to Date.now(). */
+  now?: number
 }
 
 /**
@@ -87,12 +93,26 @@ export interface ResolveSendInput {
  */
 export function resolveSendTarget(input: ResolveSendInput): ResolveSendTarget {
   const { projectSlug, conversationSlug, conversationsAtProject, isLive } = input
+  const now = input.now ?? Date.now()
 
   if (conversationSlug !== undefined) {
     const exact = conversationsAtProject.find(s => slugify(s.title || s.id.slice(0, 8)) === conversationSlug)
     if (exact) return { kind: 'resolved', conversation: exact }
     const prefix = conversationsAtProject.find(s => slugify(s.title || s.id.slice(0, 8)).startsWith(conversationSlug))
     if (prefix) return { kind: 'resolved', conversation: prefix }
+    // Former-slug alias tier (LOWEST priority -- a live current-slug match above
+    // always wins). A conversation that shed `conversationSlug` via rename still
+    // answers to it for the decay window, so peers that cached the old name keep
+    // routing. Two conversations holding the same in-window alias = ambiguous
+    // (never a silent guess). On a unique hit, `viaAlias` tells the caller to
+    // refresh lastUsedAt + surface the canonical current address.
+    const aliasHits = conversationsAtProject.filter(s =>
+      (s.formerSlugs ?? []).some(f => f.slug === conversationSlug && isAliasLive(f, now)),
+    )
+    if (aliasHits.length === 1) return { kind: 'resolved', conversation: aliasHits[0], viaAlias: conversationSlug }
+    if (aliasHits.length > 1) {
+      return { kind: 'ambiguous', canonicalProject: input.canonicalProject, candidates: aliasHits }
+    }
     return { kind: 'not_found' }
   }
 
@@ -128,7 +148,7 @@ export function formatAmbiguityError(canonicalProject: string, candidates: Conve
 // ─── Shared target resolution ──────────────────────────────────────
 
 export type ResolveConversationResult =
-  | { kind: 'resolved'; conversation: ConversationLike }
+  | { kind: 'resolved'; conversation: ConversationLike; viaAlias?: string }
   | { kind: 'not_found'; error: string }
   | { kind: 'ambiguous'; error: string }
 
@@ -187,7 +207,7 @@ export function resolveConversationTarget(targetId: string, deps: ResolveConvers
       return { kind: 'ambiguous', error: formatAmbiguityError(resolved.canonicalProject, resolved.candidates) }
     }
     if (resolved.kind === 'resolved') {
-      return { kind: 'resolved', conversation: resolved.conversation }
+      return { kind: 'resolved', conversation: resolved.conversation, viaAlias: resolved.viaAlias }
     }
     return { kind: 'not_found', error: `Conversation not found at project "${canonicalProject}"` }
   }
