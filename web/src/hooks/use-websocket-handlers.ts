@@ -400,9 +400,10 @@ function handleTranscriptEntries(msg: DashboardMessage) {
         `[ws] transcript ${sid.slice(0, 8)}: +${newEntries.length} ${initial ? (skipped ? 'INITIAL-SKIP' : 'INITIAL') : 'incremental'} (total=${result.length})`,
       )
     }
-    // Clear both streaming buffers when an assistant entry arrives. Now that
-    // streaming renders inside the same virtualizer item as committed entries,
-    // the height change is a single measureElement pass -- no two-region jerk.
+    // Clear streaming TEXT on assistant entry arrival (the committed entry
+    // replaces it). Keep streaming THINKING alive -- committed entries don't
+    // contain thinking blocks, so clearing here makes the thinking text vanish
+    // permanently. Thinking clears on message_stop or status-change-to-idle.
     const hasAssistant = newEntries.some(e => e.type === 'assistant')
     const streamingText =
       hasAssistant && state.streamingText[sid]
@@ -411,13 +412,7 @@ function handleTranscriptEntries(msg: DashboardMessage) {
             return rest
           })()
         : state.streamingText
-    const streamingThinking =
-      hasAssistant && state.streamingThinking[sid]
-        ? (() => {
-            const { [sid]: _, ...rest } = state.streamingThinking
-            return rest
-          })()
-        : state.streamingThinking
+    const streamingThinking = state.streamingThinking
     // Update lastAppliedTranscriptSeq. For isInitial, ALWAYS take the snapshot's
     // max seq (even when skipped) so a broker restart that resets the counter
     // doesn't leave a stale high-water mark that filters all future entries.

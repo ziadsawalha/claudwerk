@@ -162,14 +162,12 @@ const EMPTY_STREAMING = ''
 /** Isolated streaming text component - subscribes to its own store slice so token updates don't re-render the virtualizer */
 const StreamingBlock = memo(function StreamingBlock({ conversationId }: { conversationId: string | null }) {
   const showStreaming = useConversationsStore(state => state.controlPanelPrefs.showStreaming !== false)
-  const showThinkingPref = useConversationsStore(state => state.controlPanelPrefs.showThinking)
   const streamingText = useConversationsStore(
     state => (conversationId ? state.streamingText[conversationId] : null) || EMPTY_STREAMING,
   )
-  const rawThinking = useConversationsStore(
+  const streamingThinking = useConversationsStore(
     state => (conversationId ? state.streamingThinking[conversationId] : null) || EMPTY_STREAMING,
   )
-  const streamingThinking = showThinkingPref ? rawThinking : EMPTY_STREAMING
   if (!showStreaming || (!streamingText && !streamingThinking)) return null
   return (
     <div className="mt-2 pl-4 space-y-2">
