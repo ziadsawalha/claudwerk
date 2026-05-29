@@ -14,9 +14,13 @@
 
 import type { TranscriptDigest } from '../gather/types'
 
-/** Default ~150k chars/chunk: headroom for any map model's context + output.
- *  Per-call overridable (Pillar D); env tunes the global default. */
-export const DEFAULT_CHUNK_SIZE_CHARS = Number(process.env.CLAUDWERK_RECAP_CHUNK_SIZE_CHARS) || 150_000
+/** Default ~90k chars/chunk. Lowered from 150k after the recap-resilience
+ *  incident: a 121k-char chunk drove the map model to its 32k-token OUTPUT cap
+ *  (finish_reason=length), truncating the JSON so it failed to parse and the
+ *  chunk was dropped. Output size tracks input density, so a smaller chunk keeps
+ *  extraction comfortably under the cap. Trade-off: ~1.6x more (cheap, fast) map
+ *  calls. Per-call overridable (Pillar D); env tunes the global default. */
+export const DEFAULT_CHUNK_SIZE_CHARS = Number(process.env.CLAUDWERK_RECAP_CHUNK_SIZE_CHARS) || 90_000
 
 /** Chunk-mode gate: trip when the assembled prompt is big OR there are many
  *  conversations. Either condition is enough -- a 40-conversation week is worth

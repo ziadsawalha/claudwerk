@@ -86,6 +86,27 @@ describe('runMapStage', () => {
     expect(result.metas[1].keywords).toEqual(['k']) // chunk 1 -- the good one parsed
   })
 
+  it('labels a truncated (over-cap) map output as truncation, not a generic parse error', async () => {
+    // finish_reason=length -> a huge unparseable blob. Normal output is <20k chars.
+    const truncated = `{"keywords":["${'x'.repeat(60_000)}` // no closing -> unparseable + >50k chars
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: truncated } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch
+    const warns: string[] = []
+    const emit: ProgressEmitter = {
+      emit: (level, _phase, message) => {
+        if (level === 'warn') warns.push(message)
+      },
+      setProgress: () => {},
+      setStatus: () => {},
+    }
+    const result = await runMapStage(makeDeps(), 'recap_t', new RecapLedger(), emit, [chunk(0, 'BIG')], 'm', {})
+    expect(result.failed).toBe(1)
+    expect(warns.some(w => w.includes('truncated at the token cap'))).toBe(true)
+  })
+
   it('does not count empty chunks as failures', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ choices: [{ message: { content: '{"keywords":[],"features":[]}' } }] }), {

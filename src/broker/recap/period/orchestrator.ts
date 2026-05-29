@@ -678,6 +678,11 @@ function mapCallTimeoutMs(): number {
   const override = Number(process.env.CLAUDWERK_RECAP_MAP_TIMEOUT_MS)
   return Number.isFinite(override) && override > 0 ? override : RECAP_MAP_TIMEOUT_MS
 }
+// A map extraction that came back this large almost certainly hit the output
+// token cap (finish_reason=length) and is truncated mid-JSON -- a normal map
+// output is well under 20k chars. Used only to LABEL the failure actionably;
+// the authoritative finish_reason is in the bundle's raw response.
+const TRUNCATION_HINT_CHARS = 50_000
 // A hung call must not draw the full rate-limit retry budget (240s x 3 = 12min of
 // dead air). One timeout retry, then degrade -- the stage deadline backstops it.
 const RECAP_TIMEOUT_RETRIES = 1
@@ -951,7 +956,14 @@ export async function runMapStage(
     } catch (err) {
       if (!(err instanceof MapParseError)) throw err
       state.failed++
-      emit.emit('warn', phase, `chunk ${chunk.index + 1} map JSON unparseable: ${describe(err)}`)
+      // finish_reason=length truncates the JSON mid-structure -> unparseable. A
+      // huge response is the tell. Label it so the fix is obvious (shrink
+      // CLAUDWERK_RECAP_CHUNK_SIZE_CHARS) rather than a generic parse error.
+      const detail =
+        content.length > TRUNCATION_HINT_CHARS
+          ? `map output truncated at the token cap (${content.length} chars) -- chunk too large, reduce chunk size`
+          : `map JSON unparseable: ${describe(err)}`
+      emit.emit('warn', phase, `chunk ${chunk.index + 1} ${detail}`)
       return makeEmptyMetadata()
     }
   })
