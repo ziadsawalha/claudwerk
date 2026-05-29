@@ -68,7 +68,10 @@ export function ConversationRow({
                   : undefined
               }
             >
-              <ProjectIcon iconId={projectSettings[projectIdentityKey(conversation.project)]?.icon || ''} className="size-3 inline" />
+              <ProjectIcon
+                iconId={projectSettings[projectIdentityKey(conversation.project)]?.icon || ''}
+                className="size-3 inline"
+              />
             </span>
           )}
           <span

@@ -263,7 +263,7 @@ export function ProjectList() {
     scrollSelectedIntoView()
     if (useConversationsStore.getState().lastSelectReason !== 'click') pulseSelected()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [selectedConversationId])
 
   // External callers (locate button, CMD+P locate, mobile sheet open) always scroll + pulse.
@@ -277,7 +277,7 @@ export function ProjectList() {
     window.addEventListener('locate-conversation', handleLocate)
     return () => window.removeEventListener('locate-conversation', handleLocate)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [selectedConversationId])
 
   // Rename group

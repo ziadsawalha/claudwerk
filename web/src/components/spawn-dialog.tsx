@@ -340,7 +340,7 @@ export function SpawnDialog() {
     }
     setState({ open: false, options: null })
     setJobId(null)
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [progress.launch.conversationId, progress.spawnedConversation?.id, progress.spawnedConversation?.status])
 
   // Auto-redirect when countdown reaches 0
@@ -348,7 +348,7 @@ export function SpawnDialog() {
     if (progress.viewCountdown !== 0) return
     handleClose()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once when countdown hits 0, not on every handleClose recreation
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [progress.viewCountdown])
 
   /** Explicitly navigate to the spawned conversation and close. */

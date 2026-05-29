@@ -104,8 +104,8 @@ export function MediaLightbox() {
               />
             )}
             {open && kind === 'video' && (
-              // biome-ignore lint/a11y/useMediaCaption: user-supplied media, captions not available
               // react-doctor-disable-next-line react-doctor/media-has-caption, react-doctor/no-pure-black-background
+              // biome-ignore lint/a11y/useMediaCaption: user-supplied media, captions not available
               <video
                 aria-label={displayLabel}
                 src={src}

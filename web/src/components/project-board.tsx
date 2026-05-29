@@ -1006,6 +1006,7 @@ function ProjectCard({
       {showActions && (
         <div
           role="toolbar"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: roving-tabindex toolbar, focus is intentional
           tabIndex={0}
           className="flex items-center gap-0.5 mt-2 pt-2 border-t border-primary/8"
           onClick={e => e.stopPropagation()}

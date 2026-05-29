@@ -321,7 +321,7 @@ export function Collapsible({
   // biome-ignore lint/correctness/useExhaustiveDependencies: onExpand and open intentionally omitted - only fire callback when expandAll toggles on, not on every re-render
   useEffect(() => {
     if (expandAll && !open && onExpand) onExpand()
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [expandAll]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle() {

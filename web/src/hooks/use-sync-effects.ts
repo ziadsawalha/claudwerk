@@ -110,7 +110,7 @@ function useVisibilitySync(fetchSidebarMetadata: () => Promise<void>) {
     }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [])
 }
 
@@ -138,7 +138,7 @@ function useConnectSeqSync(
     fetchSidebarMetadata()
     resetFetchedAt()
     if (sid) fetchConversationData(sid, 'reconnect')
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [connectSeq, fetchConversationData, fetchSidebarMetadata]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { isConnected }
@@ -159,7 +159,7 @@ function useConversationSwitchFetch(
     // of bug as d059a9a0; the 2s debounce in fetchConversationData + setTranscript's
     // no-shrink guard make the per-switch HTTP roundtrip safe and cheap.
     fetchConversationData(selectedConversationId, 'conversation-switch')
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [selectedConversationId]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 

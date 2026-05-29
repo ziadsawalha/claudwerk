@@ -36,6 +36,6 @@ export function useEventsFetch(conversationId: string | null, activeTab: string)
     return () => {
       cancelled = true
     }
-  // react-doctor-disable-next-line react-doctor/exhaustive-deps
+    // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [conversationId, needsEvents, connectSeq])
 }

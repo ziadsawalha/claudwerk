@@ -153,7 +153,9 @@ const ProjectConversationGroup = memo(
               className="flex items-center gap-1.5 p-3 pb-1 cursor-pointer hover:bg-accent/10 transition-colors"
             >
               {ps?.icon && (
-                <span style={displayColor ? { color: displayColor } : undefined}><ProjectIcon iconId={ps.icon} /></span>
+                <span style={displayColor ? { color: displayColor } : undefined}>
+                  <ProjectIcon iconId={ps.icon} />
+                </span>
               )}
               <span
                 className="font-bold text-sm flex-1 truncate text-primary"

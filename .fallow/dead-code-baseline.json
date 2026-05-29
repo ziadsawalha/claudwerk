@@ -131,9 +131,7 @@
   ],
   "unused_optional_dependencies": [],
   "unused_enum_members": [],
-  "unused_class_members": [
-    "src/claude-agent-host/file-editor.ts:FileEditor.unwatchFile"
-  ],
+  "unused_class_members": ["src/claude-agent-host/file-editor.ts:FileEditor.unwatchFile"],
   "unresolved_imports": [
     "scripts/lint-inline-import-type.ts:...",
     "scripts/lint-inline-import-type.ts:...",

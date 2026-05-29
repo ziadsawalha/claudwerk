@@ -65,7 +65,9 @@ export function renderLineageTree(rows: LineageRow[]): string {
     lines.push(`${prefix}${branch}${row.conversationId}  [${tags}]  ${title}${extra}`)
     const kids = sortRows(childrenOf.get(row.conversationId) ?? [])
     const nextPrefix = isRoot ? prefix : prefix + (isLast ? '    ' : '│   ')
-    kids.forEach((kid, i) => emit(kid, nextPrefix, i === kids.length - 1, false))
+    kids.forEach((kid, i) => {
+      emit(kid, nextPrefix, i === kids.length - 1, false)
+    })
   }
   const sortedRoots = sortRows(roots)
   sortedRoots.forEach((root, i) => {
