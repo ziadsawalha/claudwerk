@@ -21,7 +21,16 @@ const SIMPLE_LIST_FIELDS = [
   'open_questions',
   'stakeholders',
 ] as const
-const ITEM_LIST_FIELDS = ['features', 'bugs', 'fixes', 'incidents', 'decisions', 'dead_ends', 'gotchas'] as const
+const ITEM_LIST_FIELDS = [
+  'features',
+  'bugs',
+  'fixes',
+  'incidents',
+  'decisions',
+  'dead_ends',
+  'gotchas',
+  'frustrations',
+] as const
 
 export function makeEmptyMetadata(): RecapMetadata {
   return {
@@ -37,6 +46,7 @@ export function makeEmptyMetadata(): RecapMetadata {
     decisions: [],
     dead_ends: [],
     gotchas: [],
+    frustrations: [],
     open_questions: [],
     stakeholders: [],
   }

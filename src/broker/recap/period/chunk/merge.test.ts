@@ -84,6 +84,16 @@ describe('mergeMetadata', () => {
     expect(merged.features[0].detail).toBe('more')
   })
 
+  it('dedups frustrations across parts like the other item lists', () => {
+    const merged = mergeMetadata([
+      meta({ frustrations: [{ title: 'page not scrollable', conversations: ['conv_aaa'] }] }),
+      meta({ frustrations: [{ title: 'Page Not Scrollable', conversations: ['conv_bbb'], detail: 'twice' }] }),
+    ])
+    expect(merged.frustrations).toHaveLength(1)
+    expect(merged.frustrations[0].detail).toBe('twice')
+    expect(merged.frustrations[0].conversations).toEqual(['conv_aaa', 'conv_bbb'])
+  })
+
   it('keeps the first non-empty subtitle as a fallback', () => {
     const merged = mergeMetadata([meta({ subtitle: '' }), meta({ subtitle: 'the theme' }), meta({ subtitle: 'other' })])
     expect(merged.subtitle).toBe('the theme')

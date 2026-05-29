@@ -88,6 +88,7 @@ export const FRONTMATTER_SPEC = `REQUIRED YAML FRONTMATTER (extract from the inp
   decisions: [<non-obvious decisions made + WHY, as {title, detail (the reasoning a diff cannot show), conversations?}>]
   dead_ends: [<approaches tried then ABANDONED, as {title, detail (why it failed), conversations?, commits?}>]
   gotchas:  [<constraints/landmines discovered (tool/env quirks, surprising failures), as {title, detail?, conversations?}>]
+  frustrations: [<0-8 moments the USER voiced frustration/friction this period -- repeated failures, "still broken", going in circles, wasted time, a tool fighting back -- as {title (their words where possible), detail (the trigger), conversations?}. OBSERVED from what the user said, never inferred; never invented>]
   open_questions: [<unresolved questions the assistant left for the user; PRIORITISE the OPEN_QUESTIONS section in the input>]
   stakeholders: [<0-5 people involved or mentioned by name>]
 
@@ -127,6 +128,12 @@ export const HUMAN_BODY_SPEC = `MARKDOWN BODY (after the closing --- of frontmat
   ## Gotchas
   Constraints or landmines discovered: a tool that misbehaves, an environment
   quirk, a surprising failure mode. Omit the section if none.
+
+  ## Frustrations
+  Where the user hit friction and said so: things that broke repeatedly, time
+  sunk fighting tooling, decisions relitigated, "why is this still happening".
+  Quote or closely paraphrase the user and cite the conversation. This is the
+  pain signal that feeds process fixes -- be honest, do not sanitise. Omit if none.
 
   ## Incidents / errors
   (omit section if none)

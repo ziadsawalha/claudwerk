@@ -24,6 +24,8 @@ export function RecapScorecard({ metadata, digest }: { metadata?: RecapMetadata;
     if (metadata.decisions.length) stats.push({ value: metadata.decisions.length, label: 'decisions' })
     if (metadata.dead_ends.length)
       stats.push({ value: metadata.dead_ends.length, label: 'dead ends', tone: 'text-warning' })
+    if (metadata.frustrations.length)
+      stats.push({ value: metadata.frustrations.length, label: 'frustrations', tone: 'text-warning' })
   }
   if (digest) {
     if (digest.cost.totalCostUsd) stats.push({ value: fmtUsd(digest.cost.totalCostUsd), label: 'project cost' })

@@ -39,10 +39,16 @@ describe('parseMapOutput', () => {
       decisions: [{ title: 'JSON for map stage', inferred: true }],
       dead_ends: [],
       gotchas: [],
+      frustrations: [
+        { title: 'page still not scrollable', detail: 'reported twice', conversations: ['conv_bbbbbbbb'] },
+      ],
     })
     const meta = parseMapOutput(raw)
     expect(meta.keywords).toEqual(['orchestrator.ts', 'ledger'])
     expect(meta.stakeholders).toEqual(['Jonas'])
+    expect(meta.frustrations).toEqual([
+      { title: 'page still not scrollable', detail: 'reported twice', conversations: ['conv_bbbbbbbb'] },
+    ])
     expect(meta.features).toHaveLength(1)
     expect(meta.features[0]).toEqual({
       title: 'chunked map-reduce',
@@ -66,6 +72,7 @@ describe('parseMapOutput', () => {
     expect(meta.features).toEqual([])
     expect(meta.bugs).toEqual([])
     expect(meta.open_questions).toEqual([])
+    expect(meta.frustrations).toEqual([])
   })
 
   it('drops items without a title and trims string lists', () => {

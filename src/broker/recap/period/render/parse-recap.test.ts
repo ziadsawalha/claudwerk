@@ -187,6 +187,10 @@ gotchas:
   - "[inferred] Bun fs.watch is unreliable on macOS"
   - title: docker cp corrupts WAL
     inferred: true
+frustrations:
+  - title: "page still not scrollable"
+    detail: reported twice in one session
+    conversations: [conv_bbb222]
 ---
 
 ## TL;DR
@@ -204,5 +208,9 @@ body`
     expect(out.metadata.gotchas[0].inferred).toBe(true)
     // explicit `inferred: true` sub-key also flags.
     expect(out.metadata.gotchas[1].inferred).toBe(true)
+    expect(out.metadata.frustrations.length).toBe(1)
+    expect(out.metadata.frustrations[0].title).toBe('page still not scrollable')
+    expect(out.metadata.frustrations[0].detail).toBe('reported twice in one session')
+    expect(out.metadata.frustrations[0].conversations).toContain('conv_bbb222')
   })
 })

@@ -61,7 +61,10 @@ Output ONLY a single JSON object (no markdown fence, no commentary) with these k
     "incidents": Item[],   // production/dev incidents
     "decisions": Item[],   // non-obvious decisions + WHY (reasoning a diff cannot show)
     "dead_ends": Item[],   // approaches tried then ABANDONED + why they failed
-    "gotchas":   Item[]    // constraints/landmines discovered (tool/env quirks, surprising failures)
+    "gotchas":   Item[],   // constraints/landmines discovered (tool/env quirks, surprising failures)
+    "frustrations": Item[] // moments the USER voiced frustration/friction: repeated failures, "still broken",
+                           // going in circles, wasted time, a tool/env fighting back. title = what frustrated
+                           // them (their words where possible); detail = the trigger
   }
 
 Item = {
@@ -77,6 +80,9 @@ RULES:
     the input shows for it. An item with no citation and no "inferred": true is noise -- drop it.
   - FACT vs INFERENCE. Backed by a commit/task = FACT (inferred omitted or false).
     Concluded from transcript text only = set "inferred": true. Never dress inference as fact.
+  - FRUSTRATIONS ARE OBSERVED, NOT INFERRED. Pull them from what the user actually said/did
+    (like open_questions). Quote or closely paraphrase; cite the conversation. Do NOT invent
+    frustration the user never voiced, and do NOT mark frustrations "inferred".
   - EXTRACT, do not invent. If the chunk shows nothing for a key, return [] -- never pad to fill a quota.
   - This chunk may be PARTIAL (only some turns of a long conversation). Extract only what you see;
     do not speculate about the rest of that conversation.
@@ -124,6 +130,7 @@ export function parseMapOutput(raw: string): RecapMetadata {
   out.decisions = itemArray(obj.decisions)
   out.dead_ends = itemArray(obj.dead_ends)
   out.gotchas = itemArray(obj.gotchas)
+  out.frustrations = itemArray(obj.frustrations)
   return out
 }
 

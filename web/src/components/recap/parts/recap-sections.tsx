@@ -1,5 +1,6 @@
-/** Typed section cards (features/bugs/fixes/decisions/dead-ends/gotchas/incidents)
- *  rendered from the structured frontmatter, plus open-questions + meta chips. */
+/** Typed section cards (features/bugs/fixes/decisions/dead-ends/gotchas/
+ *  frustrations/incidents) rendered from the structured frontmatter, plus
+ *  open-questions + meta chips. */
 
 import type { RecapItem, RecapMetadata } from '@shared/protocol'
 import { ChipRow, Citations, MetaList } from './recap-bits'
@@ -11,6 +12,7 @@ const SECTIONS: Array<{ key: keyof RecapMetadata; title: string }> = [
   { key: 'decisions', title: 'Decisions' },
   { key: 'dead_ends', title: 'Dead ends -- do NOT retry' },
   { key: 'gotchas', title: 'Gotchas' },
+  { key: 'frustrations', title: 'Frustrations' },
   { key: 'incidents', title: 'Incidents' },
 ]
 

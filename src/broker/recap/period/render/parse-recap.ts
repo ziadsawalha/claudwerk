@@ -61,6 +61,7 @@ const ITEM_LIST_FIELDS = [
   'decisions',
   'dead_ends',
   'gotchas',
+  'frustrations',
   'went_well',
   'went_badly',
   'recommendations',
@@ -101,6 +102,7 @@ function makeEmptyMetadata(): RecapMetadata {
     decisions: [],
     dead_ends: [],
     gotchas: [],
+    frustrations: [],
     open_questions: [],
     stakeholders: [],
   }

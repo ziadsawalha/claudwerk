@@ -3571,6 +3571,11 @@ export interface RecapMetadata {
   dead_ends: RecapItem[]
   /** Constraints/landmines discovered: tool quirks, env quirks, failure modes. */
   gotchas: RecapItem[]
+  /** Moments the USER voiced frustration/friction (repeated failures, "still
+   *  broken", going in circles, wasted time, a tool fighting back). Observed
+   *  from the user's own words, NOT inferred -- map-stage extraction. Distinct
+   *  from went_badly (Opus's retrospective judgment of what was inefficient). */
+  frustrations: RecapItem[]
   open_questions: string[]
   stakeholders: string[]
   /** Pillar F (retrospect mode): evaluative judgment emitted ONLY when

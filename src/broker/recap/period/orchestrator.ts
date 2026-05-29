@@ -1285,7 +1285,8 @@ function countItems(m: RecapMetadata): number {
     m.incidents.length +
     m.decisions.length +
     m.dead_ends.length +
-    m.gotchas.length
+    m.gotchas.length +
+    m.frustrations.length
   )
 }
 
