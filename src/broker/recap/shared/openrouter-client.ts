@@ -92,6 +92,12 @@ function buildBody(req: ChatRequest): Record<string, unknown> {
   return {
     model: req.model,
     messages,
+    // Opt into OpenRouter's real billed cost + token accounting. Without this
+    // the response carries no `usage.cost` and normalizeUsage falls back to a
+    // LiteLLM price-table ESTIMATE (costSource='litellm'). With it we get the
+    // actual charged amount (costSource='openrouter'). Verified live: the
+    // response then includes `usage.cost` and a `cost_details` breakdown.
+    usage: { include: true },
     ...(req.maxTokens != null && { max_tokens: req.maxTokens }),
     ...(req.temperature != null && { temperature: req.temperature }),
     ...(req.responseFormat && { response_format: req.responseFormat }),
