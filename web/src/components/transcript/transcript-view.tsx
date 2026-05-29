@@ -745,11 +745,7 @@ export const TranscriptView = memo(function TranscriptView({
     return () => el.removeEventListener('scroll', handleScroll)
   }, [loadEarlier, fetchOlder, virtualizer])
 
-  if (mainGroups.length === 0 && queuedGroups.length === 0) {
-    // Ghost (unattached daemon worker) -> live peek + attach. Else NO TRANSCRIPT.
-    // cacheKey is the conversationId for the main transcript view.
-    return <TranscriptEmptyState conversationId={cacheKey} />
-  }
+  const isEmpty = mainGroups.length === 0 && queuedGroups.length === 0
 
   return (
     <div
@@ -758,9 +754,7 @@ export const TranscriptView = memo(function TranscriptView({
       className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4"
       style={{ overscrollBehavior: 'contain', touchAction: 'pan-y' }}
     >
-      {/* Infinite scrollback (Phase 1b): older entries auto-prepend on scroll-up
-          (see the scroll handler) -- no button. The synchronous scroll-anchor
-          keeps the viewport pinned across the prepend. */}
+      {isEmpty && <TranscriptEmptyState conversationId={cacheKey} />}
       <div
         style={{
           height: `${totalSize}px`,
