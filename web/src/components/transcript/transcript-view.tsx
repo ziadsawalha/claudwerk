@@ -673,33 +673,26 @@ export const TranscriptView = memo(function TranscriptView({
     virtualizer.measure()
   }, [transcriptRemeasureSeq])
 
-  // scrollToEnd: snap the scroll container to its actual bottom (scrollHeight),
-  // which includes both the virtualizer spacer AND the tail region (streaming,
-  // spinners, banners). virtualizer.scrollToEnd() only knows its own spacer.
-  const scrollToEnd = useCallback(() => {
-    const el = parentRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [])
-
-  // Conversation switch: ALWAYS snap to the bottom. The user expects to see
-  // the latest content when entering a conversation, regardless of whether
-  // follow was killed in a previous conversation. Also re-enable follow in
-  // the parent so the ScrollToBottomButton hides and new content pins.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scrollToEnd + onReachedBottom are stable callbacks
+  // Start at the latest message (docs pattern). virtualizer.scrollToEnd()
+  // sets the virtualizer's internal "at end" state so followOnAppend knows
+  // to pin. el.scrollTop = el.scrollHeight does NOT do this.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizer is stable
   useLayoutEffect(() => {
-    scrollToEnd()
+    virtualizer.scrollToEnd()
+  }, [virtualizer])
+
+  // Conversation switch: scroll to end + re-enable follow in the parent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizer is stable, onReachedBottom is stable
+  useLayoutEffect(() => {
+    virtualizer.scrollToEnd()
     onReachedBottom?.()
   }, [cacheKey])
 
-  // anchorTo:'end' + followOnAppend handle all pinning natively:
-  //   - New items appended (count increases) → followOnAppend scrolls to end
-  //   - Existing items grow (streaming, tool entries) → anchor adjusts by size delta
-  //   - Prepends (history load) → anchor keeps visible item stable
-  // No manual transcript-ref subscription needed. The only manual scrollToEnd()
-  // is the cacheKey effect above (conversation switch) and the follow toggle below.
+  // Re-pin when follow is toggled on (ScrollToBottomButton click).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizer is stable
   useLayoutEffect(() => {
-    if (follow) scrollToEnd()
-  }, [follow, scrollToEnd])
+    if (follow) virtualizer.scrollToEnd()
+  }, [follow])
 
   // Re-entrancy guard for the scroll-up auto-trigger.
   const loadingEarlierRef = useRef(false)
@@ -758,10 +751,9 @@ export const TranscriptView = memo(function TranscriptView({
         fetchOlder()
       }
       // Signal follow state to parent (drives ScrollToBottomButton).
-      // Use direct scroll math, not virtualizer.isAtEnd() -- the tail region
-      // (streaming, spinners, banners) sits outside the virtualizer.
-      const drift = el.scrollHeight - el.scrollTop - el.clientHeight
-      const atEnd = drift < 80
+      // Use virtualizer.isAtEnd() -- the docs recommend it for "Jump to latest" UI.
+      // All content is now inside the virtualizer (no tail region).
+      const atEnd = virtualizer.isAtEnd()
       if (atEnd && !wasAtEnd) onReachedBottomRef.current?.()
       if (!atEnd && wasAtEnd) onUserScrollRef.current?.()
       wasAtEnd = atEnd
