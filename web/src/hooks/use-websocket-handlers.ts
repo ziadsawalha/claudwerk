@@ -400,24 +400,15 @@ function handleTranscriptEntries(msg: DashboardMessage) {
         `[ws] transcript ${sid.slice(0, 8)}: +${newEntries.length} ${initial ? (skipped ? 'INITIAL-SKIP' : 'INITIAL') : 'incremental'} (total=${result.length})`,
       )
     }
-    // Clear streaming buffers when an assistant entry arrives (defensive
-    // cleanup in case message_stop was lost or arrived after the transcript
-    // entry).
-    const hasAssistant = newEntries.some(e => e.type === 'assistant')
-    const streamingText =
-      hasAssistant && state.streamingText[sid]
-        ? (() => {
-            const { [sid]: _, ...rest } = state.streamingText
-            return rest
-          })()
-        : state.streamingText
-    const streamingThinking =
-      hasAssistant && state.streamingThinking[sid]
-        ? (() => {
-            const { [sid]: _, ...rest } = state.streamingThinking
-            return rest
-          })()
-        : state.streamingThinking
+    // DON'T clear streaming buffers here. Clearing streaming text atomically
+    // with the transcript append causes a jerk: the tail region (streaming)
+    // shrinks while the virtualizer group grows at an estimated height that
+    // settles a frame later. Letting the streaming block persist until
+    // message_stop or status-change-to-idle clears it means the height
+    // transition is smooth -- the virtualizer measures the committed entry
+    // first, THEN the streaming block disappears against a stable layout.
+    const streamingText = state.streamingText
+    const streamingThinking = state.streamingThinking
     // Update lastAppliedTranscriptSeq. For isInitial, ALWAYS take the snapshot's
     // max seq (even when skipped) so a broker restart that resets the counter
     // doesn't leave a stale high-water mark that filters all future entries.
