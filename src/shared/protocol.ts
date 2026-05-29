@@ -2139,6 +2139,10 @@ export interface Conversation {
   summary?: string // AI-generated conversation summary
   title?: string // custom conversation title (from /rename or auto-generated)
   titleUserSet?: boolean // true if title was explicitly set by user (spawn dialog) -- prevents auto-name overwrite
+  /** Addressable slugs this conversation shed via rename, with decay bookkeeping.
+   *  Lets peers that cached an OLD name keep routing for a window. Broker-owned
+   *  (dedicated former_slugs column, NOT agentHostMeta). See plan-conversation-rename. */
+  formerSlugs?: Array<{ slug: string; retiredAt: number; lastUsedAt: number }>
   description?: string // short user-provided line describing what this conversation is working on
   agentName?: string // agent/skill name (for --agent conversations)
   prLinks?: Array<{ prNumber: number; prUrl: string; prRepository: string; timestamp: string }>

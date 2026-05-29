@@ -977,6 +977,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           resolvedProfile: fullMeta.resolvedProfile as string | undefined,
           title: rec.title || (fullMeta.title as string | undefined),
           titleUserSet: fullMeta.titleUserSet as boolean | undefined,
+          formerSlugs: full?.formerSlugs as Conversation['formerSlugs'],
           description: fullMeta.description as string | undefined,
           summary: (full as unknown as { summary?: string })?.summary || (fullMeta.summary as string | undefined),
           agentName: fullMeta.agentName as string | undefined,
@@ -1101,6 +1102,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           model: conv.model,
           meta,
           createdAt: conv.startedAt,
+          formerSlugs: conv.formerSlugs,
           // Lineage is set ONCE on INSERT. The update branch below intentionally
           // omits these fields -- a revive/restart must never overwrite the
           // parent/root captured at first persistence (plan § 3 Phase 2 #7).
@@ -1115,6 +1117,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           summary: conv.summary,
           lastActivity: conv.lastActivity,
           endedAt: conv.status === 'ended' ? conv.lastActivity : undefined,
+          formerSlugs: conv.formerSlugs,
           meta,
           stats: conv.stats as unknown as ConversationStats,
         })

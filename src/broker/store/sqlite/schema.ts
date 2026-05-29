@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { migrateFormerSlugs } from './migrate-former-slugs'
 import { migrateParentColumns } from './migrate-parent-columns'
 import { createRecapSchema } from './recap-schema'
 
@@ -149,6 +150,10 @@ export function createSchema(db: Database) {
   // Phase 2 spawn-parent-tracking: add parent_conversation_id +
   // root_conversation_id (NULL = unrooted / human-started). Idempotent.
   migrateParentColumns(db)
+
+  // conversation-rename Phase 2: add former_slugs (JSON alias-decay history).
+  // Idempotent.
+  migrateFormerSlugs(db)
 
   db.run(`
     CREATE TABLE IF NOT EXISTS transcript_entries (

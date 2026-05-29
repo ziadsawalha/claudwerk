@@ -33,8 +33,19 @@ export interface ConversationRecord {
   /** Topmost ancestor. NULL = self-rooted. Set once at first persistence; never overwritten. */
   rootConversationId?: string
 
+  /** Addressable slugs this conversation has shed via rename, kept for a decay
+   *  window so peers that cached an old name keep routing. JSON column. */
+  formerSlugs?: FormerSlug[]
+
   meta?: Record<string, unknown>
   stats?: ConversationStats
+}
+
+/** One retired addressable slug + decay bookkeeping (epoch ms). */
+export interface FormerSlug {
+  slug: string
+  retiredAt: number
+  lastUsedAt: number
 }
 
 export interface ConversationStats {
@@ -62,6 +73,7 @@ export interface ConversationCreate {
   parentConversationId?: string
   /** Topmost ancestor in the spawn chain. Set ONCE on first persistence. */
   rootConversationId?: string
+  formerSlugs?: FormerSlug[]
 }
 
 export interface ConversationPatch {
@@ -74,6 +86,7 @@ export interface ConversationPatch {
   color?: string
   endedAt?: number
   lastActivity?: number
+  formerSlugs?: FormerSlug[]
   meta?: Record<string, unknown>
   stats?: ConversationStats
 }

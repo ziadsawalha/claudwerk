@@ -30,6 +30,7 @@ function rowToRecord(row: Params): ConversationRecord {
     lastActivity: (row.last_activity as number) ?? undefined,
     parentConversationId: (row.parent_conversation_id as string) ?? undefined,
     rootConversationId: (row.root_conversation_id as string) ?? undefined,
+    formerSlugs: row.former_slugs ? JSON.parse(row.former_slugs as string) : undefined,
     meta: row.meta ? JSON.parse(row.meta as string) : undefined,
     stats: row.stats ? JSON.parse(row.stats as string) : undefined,
   }
@@ -59,11 +60,11 @@ export function createSqliteConversationStore(db: Database): ConversationStore {
   const stmtInsert = db.prepare(`
     INSERT INTO conversations (
       id, scope, agent_type, agent_version, title, model, status, created_at, meta,
-      parent_conversation_id, root_conversation_id
+      parent_conversation_id, root_conversation_id, former_slugs
     )
     VALUES (
       $id, $scope, $agentType, $agentVersion, $title, $model, $status, $createdAt, $meta,
-      $parentConversationId, $rootConversationId
+      $parentConversationId, $rootConversationId, $formerSlugs
     )
   `)
   const stmtDelete = db.prepare('DELETE FROM conversations WHERE id = $id')
@@ -91,6 +92,7 @@ export function createSqliteConversationStore(db: Database): ConversationStore {
         meta: input.meta ? JSON.stringify(input.meta) : null,
         parentConversationId: input.parentConversationId ?? null,
         rootConversationId: input.rootConversationId ?? null,
+        formerSlugs: input.formerSlugs ? JSON.stringify(input.formerSlugs) : null,
       })
       return {
         id: input.id,
@@ -104,6 +106,7 @@ export function createSqliteConversationStore(db: Database): ConversationStore {
         meta: input.meta,
         parentConversationId: input.parentConversationId,
         rootConversationId: input.rootConversationId,
+        formerSlugs: input.formerSlugs,
       }
     },
 
@@ -157,6 +160,10 @@ export function createSqliteConversationStore(db: Database): ConversationStore {
       if (patch.stats !== undefined) {
         sets.push('stats = $stats')
         params.stats = JSON.stringify(patch.stats)
+      }
+      if (patch.formerSlugs !== undefined) {
+        sets.push('former_slugs = $formerSlugs')
+        params.formerSlugs = JSON.stringify(patch.formerSlugs)
       }
 
       if (sets.length > 0) {
