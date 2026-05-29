@@ -412,6 +412,7 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
           {!currentPage?.body.some(c => c.type === 'TextInput') && (
             <div className="pt-1">
               <textarea
+                aria-label="Additional notes"
                 placeholder="Anything to add..."
                 value={(values[`_page_notes_${activePage}`] as string) || ''}
                 onChange={e => {

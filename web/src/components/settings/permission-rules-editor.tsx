@@ -182,6 +182,7 @@ function ToolSection({
       {/* Add input */}
       <div className="flex gap-1 mt-1">
         <input
+          aria-label={`Add ${tool} permission rule`}
           type="text"
           value={inputValue}
           onChange={e => onInputChange(tool, e.target.value)}

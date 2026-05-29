@@ -556,7 +556,7 @@ export function BatchModeModal({ open, onClose }: BatchModeModalProps) {
               <table className="w-full text-[11px] font-mono">
                 <thead className="sticky top-0 bg-surface-inset border-b border-border/40 text-[10px] text-muted-foreground uppercase z-10">
                   <tr>
-                    <th className="w-8 text-left px-2 py-1"> </th>
+                    <th className="w-8 text-left px-2 py-1" aria-label="Selection"> </th>
                     <th className="text-left px-2 py-1">title</th>
                     {!groupByProject && <th className="text-left px-2 py-1">project</th>}
                     {showHostCol && <th className="text-left px-2 py-1">host</th>}

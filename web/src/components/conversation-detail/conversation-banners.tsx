@@ -577,6 +577,7 @@ function AskQuestionCard({
             })}
           </div>
           <input
+            aria-label={`Other answer for: ${q.question}`}
             type="text"
             placeholder="Other (type your answer)"
             value={notes[q.question] || ''}

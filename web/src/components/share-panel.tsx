@@ -217,6 +217,7 @@ export function ShareBanner({ conversationProject, conversationId }: SharePanelP
           <div className="space-y-1.5 pt-1">
             <div className="flex items-center gap-2">
               <input
+                aria-label="Share link label"
                 type="text"
                 placeholder="Label (optional)"
                 value={newLabel}

@@ -31,6 +31,7 @@ export function HeaderDescription({ conversation }: { conversation: Conversation
     return (
       <input
         ref={inputRef}
+        aria-label="Edit conversation description"
         value={value}
         onChange={e => setValue(e.target.value)}
         onKeyDown={e => {

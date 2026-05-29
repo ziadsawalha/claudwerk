@@ -429,6 +429,7 @@ function SentinelList() {
         <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wider mb-2">Create Sentinel</div>
         <div className="flex items-center gap-2">
           <input
+            aria-label="New sentinel alias"
             type="text"
             value={newAlias}
             onChange={e => setNewAlias(e.target.value)}

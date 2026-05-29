@@ -106,6 +106,7 @@ export function MediaLightbox() {
             {open && kind === 'video' && (
               // biome-ignore lint/a11y/useMediaCaption: user-supplied media, captions not available
               <video
+                aria-label={displayLabel}
                 src={src}
                 controls
                 autoPlay

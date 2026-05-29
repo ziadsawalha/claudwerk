@@ -265,6 +265,7 @@ export function ProjectActionPanel({ projectUri }: { projectUri: string }) {
         {/* Search filter */}
         {hasAny && (
           <input
+            aria-label="Filter recent conversations"
             type="text"
             value={filter}
             onChange={e => {

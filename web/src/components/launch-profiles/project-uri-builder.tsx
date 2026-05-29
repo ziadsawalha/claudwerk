@@ -120,6 +120,7 @@ function DirBrowser({
     <div className="space-y-1">
       <div className="text-[9px] uppercase tracking-wide text-comment">Working directory</div>
       <input
+        aria-label="Working directory path"
         type="text"
         value={path}
         onChange={e => onPathChange(e.target.value)}

@@ -376,6 +376,7 @@ export function TranscriptSearch() {
           )}
           <input
             ref={inputRef}
+            aria-label="Search transcripts"
             type="text"
             value={query}
             onChange={e => handleQueryChange(e.target.value)}

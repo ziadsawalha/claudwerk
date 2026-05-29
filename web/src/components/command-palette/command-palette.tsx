@@ -53,6 +53,7 @@ export function CommandPalette({ onSelect, onFileSelect, onClose }: CommandPalet
           {palette.mode === 'file' && <FileText className="size-4 text-primary shrink-0" />}
           <input
             ref={palette.inputRef}
+            aria-label="Command palette filter"
             type="text"
             value={palette.filter}
             onChange={e => {

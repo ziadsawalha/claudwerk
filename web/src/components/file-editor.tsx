@@ -263,6 +263,7 @@ export const FileEditor = memo(function FileEditor({ conversationId }: { convers
       {/* react-doctor-disable-next-line react-doctor/prefer-tag-over-role */}
       <div
         role="separator"
+        aria-label="Resize sidebar"
         tabIndex={0}
         aria-valuenow={sidebarWidth}
         className="w-1 shrink-0 cursor-col-resize hover:bg-accent/30 active:bg-accent/50 transition-colors"

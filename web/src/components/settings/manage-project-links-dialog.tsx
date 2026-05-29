@@ -255,6 +255,7 @@ export function ManageProjectLinksDialog() {
               )}
 
               <input
+                aria-label="Filter projects"
                 type="text"
                 placeholder="Filter projects..."
                 value={filter}

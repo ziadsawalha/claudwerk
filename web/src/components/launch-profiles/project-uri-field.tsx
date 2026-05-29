@@ -24,6 +24,7 @@ export function ProjectUriField({ value, onChange }: Props) {
       <LabeledRow label="Project URI" subtitle="Type a URI, or Build one from a sentinel + directory">
         <div className="flex items-center gap-1.5" style={{ maxWidth: 360, flex: 1 }}>
           <input
+            aria-label="Project URI"
             type="text"
             value={value}
             onChange={e => onChange(e.target.value)}

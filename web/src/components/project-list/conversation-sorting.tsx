@@ -92,6 +92,7 @@ export function GroupNode({
         {editing ? (
           <input
             ref={inputRef}
+            aria-label="Rename group"
             type="text"
             defaultValue={group.name}
             autoComplete="off"

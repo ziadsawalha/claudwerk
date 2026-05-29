@@ -44,6 +44,7 @@ export function ModelPicker({ value, onChange, url, apiKey }: ModelPickerProps) 
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-mono text-muted-foreground w-12 shrink-0 text-right">Model</span>
         <input
+          aria-label="Model name"
           type="text"
           value={value}
           onChange={e => {

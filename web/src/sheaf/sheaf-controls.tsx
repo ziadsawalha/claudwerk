@@ -25,6 +25,7 @@ function FilterBox({
       <Search className="absolute left-2 size-3.5 text-muted-foreground/60 pointer-events-none" />
       <input
         ref={filterRef}
+        aria-label="Filter projects"
         type="text"
         value={filter}
         onChange={e => setFilter(e.target.value)}
