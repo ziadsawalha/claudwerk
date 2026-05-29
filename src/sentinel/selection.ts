@@ -98,7 +98,7 @@ export interface UsageHeadroom {
  *  This is the "warning margin" -- set below 100 so scheduling STOPS before a
  *  spawn would blow through the cap mid-turn. Exported for tests + potential
  *  per-sentinel override (future work). */
-export const GATE_FIVE_HOUR_PCT = 80
+export const GATE_FIVE_HOUR_PCT = 75
 
 /** Weight of 7d drain pressure vs. live-load damping inside the eligible
  *  band. Drain-pressure-dominant (0.8) with a small load term so a burst of

@@ -418,8 +418,8 @@ describe('pickProfile -- Smart Balance v3', () => {
   ])
 
   test('the screenshot: 5h gate excludes the near-cap account', () => {
-    // Mirrors the live popover: default 5h=80% (AT the gate -> gated band),
-    // work 5h=57% (eligible). Even though default has MORE 7d headroom (81%
+    // Mirrors the live popover: default 5h=80% (over the 75% gate -> gated
+    // band), work 5h=57% (eligible). Even though default has MORE 7d headroom (81%
     // vs 72%), the 5h gate keeps it out -- a spawn there would throttle. work
     // wins. 'alt' has no telemetry (unknown band) and loses to eligible work.
     const usage = (name: string) => {
