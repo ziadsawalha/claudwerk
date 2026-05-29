@@ -1,15 +1,24 @@
 import type { RecapAudience, RecapCreateMessage, RecapStatus } from '../../shared/protocol'
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
-import { DASHBOARD_ROLES, registerHandlers } from '../message-router'
+import { DASHBOARD_ROLES, detectRole, registerHandlers, type WsRole } from '../message-router'
 import { getRecapOrchestrator } from '../recap-orchestrator'
 import { requireStrings } from './validate'
 
 function recapCreate(ctx: HandlerContext, data: MessageData): void {
+  const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
+  const echo = requestId ? { requestId } : {}
+  // Pillar B: agent-host callers may trigger recaps only when benevolent (the
+  // eval harness runs as a benevolent robot). Dashboards are inherently trusted.
+  // The router role gate already admitted agent-host to recap_create; this is the
+  // trust gate. The reply echoes requestId so the MCP call surfaces the error
+  // instead of hanging to a 30s silent timeout.
+  if (detectRole(ctx.ws.data) === 'agent-host' && ctx.callerSettings?.trustLevel !== 'benevolent') {
+    ctx.reply({ type: 'recap_error', error: 'Requires benevolent trust level', ...echo })
+    return
+  }
   const fields = requireStrings(ctx, data, ['projectUri', 'timeZone'] as const, 'recap_create')
   if (!fields) return
-  const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
   const batchId = typeof data.batchId === 'string' ? data.batchId : undefined
-  const echo = requestId ? { requestId } : {}
   if (batchId) {
     ctx.log.info(
       `[recap_create] batch=${batchId} project=${fields.projectUri} period=${(data.period as { label?: string } | null)?.label ?? 'unknown'} requestId=${requestId ?? 'none'}`,
@@ -149,10 +158,15 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+// recap_create additionally accepts benevolent agent-host callers (the eval
+// harness); the trust gate lives in recapCreate. Every other recap handler
+// stays dashboard-only.
+const RECAP_CREATE_ROLES: WsRole[] = [...DASHBOARD_ROLES, 'agent-host']
+
 export function registerRecapHandlers(): void {
+  registerHandlers({ recap_create: recapCreate } satisfies Record<string, MessageHandler>, RECAP_CREATE_ROLES)
   registerHandlers(
     {
-      recap_create: recapCreate,
       recap_cancel: recapCancel,
       recap_dismiss_failed: recapDismissFailed,
       recap_list: recapList,

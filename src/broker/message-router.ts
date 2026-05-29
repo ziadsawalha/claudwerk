@@ -49,6 +49,18 @@ interface HandlerEntry {
 const handlers = new Map<string, HandlerEntry>()
 
 /**
+ * Echo the caller's `requestId` back on a reply when present. RPC-style callers
+ * (brokerRpc / MCP tools) match the response to their pending promise by
+ * requestId; a rejection reply WITHOUT it can never be matched, so the call
+ * hangs to a silent timeout instead of surfacing the error. Every rejection the
+ * router emits must carry this. (Pillar B: fixed the 30s MCP timeout on
+ * role-rejected recap_create.)
+ */
+function requestIdEcho(data: MessageData): { requestId?: string } {
+  return typeof data.requestId === 'string' ? { requestId: data.requestId } : {}
+}
+
+/**
  * Register multiple handlers at once. If `roles` is provided, the router
  * will reject messages of these types from connections whose role is not
  * in the set. Omit `roles` to keep the legacy any-role behavior.
@@ -71,7 +83,12 @@ export function routeMessage(ctx: HandlerContext, type: string, data: MessageDat
   if (entry.roles) {
     const role = detectRole(ctx.ws.data)
     if (!entry.roles.includes(role)) {
-      ctx.reply({ type: `${type}_result`, ok: false, error: `Forbidden: ${type} not allowed for ${role}` })
+      ctx.reply({
+        type: `${type}_result`,
+        ok: false,
+        error: `Forbidden: ${type} not allowed for ${role}`,
+        ...requestIdEcho(data),
+      })
       ctx.log.debug(`[router] rejected ${type} from role=${role} (allowed=[${entry.roles.join(',')}])`)
       return true
     }
@@ -91,6 +108,7 @@ export function routeMessage(ctx: HandlerContext, type: string, data: MessageDat
         type: `${type}_result`,
         ok: false,
         error: 'Forbidden: share is scoped to a different conversation',
+        ...requestIdEcho(data),
       })
       ctx.log.debug(
         `[router] share-scope reject ${type}: target=${target.slice(0, 8)} bound=${shareConvId.slice(0, 8)}`,
@@ -104,15 +122,20 @@ export function routeMessage(ctx: HandlerContext, type: string, data: MessageDat
     if (result instanceof Promise) {
       result.catch(err => {
         console.error(`[router] Async handler error for ${type}:`, err)
-        ctx.reply({ type: `${type}_result`, ok: false, error: err instanceof Error ? err.message : 'Internal error' })
+        ctx.reply({
+          type: `${type}_result`,
+          ok: false,
+          error: err instanceof Error ? err.message : 'Internal error',
+          ...requestIdEcho(data),
+        })
       })
     }
   } catch (err) {
     if (err instanceof GuardError) {
-      ctx.reply({ type: `${type}_result`, ok: false, error: err.message })
+      ctx.reply({ type: `${type}_result`, ok: false, error: err.message, ...requestIdEcho(data) })
     } else {
       console.error(`[router] Handler error for ${type}:`, err)
-      ctx.reply({ type: `${type}_result`, ok: false, error: 'Internal error' })
+      ctx.reply({ type: `${type}_result`, ok: false, error: 'Internal error', ...requestIdEcho(data) })
     }
   }
 
