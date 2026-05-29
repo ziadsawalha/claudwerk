@@ -48,7 +48,7 @@ async function ensureLaunchProfilesLoaded(): Promise<LaunchProfile[]> {
 }
 
 export function useLaunchProfiles(): UseLaunchProfilesResult {
-  const [snapshot, setSnapshot] = useState<LaunchProfile[] | null>(getLaunchProfilesSnapshot())
+  const [snapshot, setSnapshot] = useState<LaunchProfile[] | null>(() => getLaunchProfilesSnapshot())
 
   useEffect(() => subscribeLaunchProfiles(setSnapshot), [])
 

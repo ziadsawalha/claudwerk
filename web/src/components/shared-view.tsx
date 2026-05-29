@@ -3,7 +3,7 @@
  * Shows uploads via share_file MCP tool and clipboard captures from OSC 52
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { cn, haptic } from '@/lib/utils'
 
 const API_BASE = ''
@@ -56,22 +56,24 @@ function copyText(text: string) {
 export function SharedView({ projectPath }: { projectPath: string }) {
   const [files, setFiles] = useState<SharedFileEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [seq, setSeq] = useState(0) // bump to re-fetch after delete
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: seq is a counter dep key used to trigger re-fetch after delete; not accessed in the body
-  useEffect(() => {
+  const refetch = useCallback(() => {
     setLoading(true)
     fetch(`${API_BASE}/api/shared-files?project=${encodeURIComponent(projectPath)}`)
       .then(r => r.json())
       .then((data: { files: SharedFileEntry[] }) => setFiles(data.files || []))
       .catch(() => setFiles([]))
       .finally(() => setLoading(false))
-  }, [projectPath, seq])
+  }, [projectPath])
+
+  useEffect(() => {
+    refetch()
+  }, [refetch])
 
   function handleDelete(hash: string) {
     haptic('tick')
     fetch(`${API_BASE}/api/shared-files/${hash}`, { method: 'DELETE' })
-      .then(() => setSeq(s => s + 1))
+      .then(() => refetch())
       .catch(() => {})
   }
 
@@ -93,7 +95,7 @@ export function SharedView({ projectPath }: { projectPath: string }) {
     if (!files.length) return
     haptic('error')
     Promise.all(files.map(f => fetch(`${API_BASE}/api/shared-files/${f.hash}`, { method: 'DELETE' })))
-      .then(() => setSeq(s => s + 1))
+      .then(() => refetch())
       .catch(() => {})
   }
 

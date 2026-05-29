@@ -578,7 +578,7 @@ export function RunTaskDialog({
 
   // Launch state
   const [phase, setPhase] = useState<'config' | 'launching'>('config')
-  const [spawnedConversationId, setWrapperId] = useState<string | null>(null)
+  const spawnedConversationIdRef = useRef<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const conversationAtLaunchRef = useRef<string | null>(null)
 
@@ -728,7 +728,7 @@ export function RunTaskDialog({
     if (result.ok) {
       haptic('success')
       const wid = result.conversationId
-      setWrapperId(wid)
+      spawnedConversationIdRef.current = wid
       progress.setSteps(prev => [
         ...prev.map(s =>
           s.status === 'active' ? { ...s, status: 'done' as const, detail: `agent-host=${wid.slice(0, 8)}` } : s,
@@ -753,7 +753,7 @@ export function RunTaskDialog({
     const diag = buildSpawnDiagnostics({
       source: 'run-task-dialog',
       jobId,
-      connectionId: spawnedConversationId || progress.launch.conversationId || null,
+      connectionId: spawnedConversationIdRef.current || progress.launch.conversationId || null,
       conversationId: progress.launch.conversationId ?? null,
       elapsedSec: progress.elapsed,
       error: progress.error || progress.launch.error || null,

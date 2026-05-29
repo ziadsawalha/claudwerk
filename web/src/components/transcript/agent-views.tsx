@@ -3,7 +3,7 @@
  * AgentTranscriptInline fetches + displays, AgentTranscriptEntries renders grouped entries.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { fetchSubagentTranscript, useConversationsStore } from '@/hooks/use-conversations'
 import type { TranscriptContentBlock, TranscriptEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -18,17 +18,17 @@ export function AgentTranscriptInline({ agentId, toolId }: { agentId: string; to
   const conversationId = useConversationsStore(state => state.selectedConversationId)
   const storeKey = conversationId ? `${conversationId}:${agentId}` : ''
   const liveEntries = useConversationsStore(state => (storeKey ? state.subagentTranscripts[storeKey] : undefined))
-  const [fetched, setFetched] = useState(false)
+  const fetchedRef = useRef(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const collapsibleId = toolId ? `agent-transcript-${toolId}` : `agent-transcript-${agentId}`
 
   function handleExpand() {
-    if (fetched || loading || !conversationId) return
+    if (fetchedRef.current || loading || !conversationId) return
     setLoading(true)
     fetchSubagentTranscript(conversationId, agentId)
       .then(data => {
-        setFetched(true)
+        fetchedRef.current = true
         setLoading(false)
         if (data.length > 0) {
           const key = `${conversationId}:${agentId}`

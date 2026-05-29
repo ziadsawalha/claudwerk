@@ -109,11 +109,14 @@ function Row({
   )
 }
 
+const EMPTY_SHOW = {} as NonNullable<LaunchFieldsProps['show']>
+const EMPTY_DISABLED = {} as NonNullable<LaunchFieldsProps['disabled']>
+
 export function LaunchConfigFields({
   value,
   onChange,
-  show = {},
-  disabled = {},
+  show = EMPTY_SHOW,
+  disabled = EMPTY_DISABLED,
   headlessShortcutHints = false,
 }: LaunchFieldsProps) {
   // Live env validation: recompute errors whenever envText changes so the user

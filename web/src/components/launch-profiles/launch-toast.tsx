@@ -22,7 +22,7 @@ import {
 import { openEditProfile } from './run-profile'
 
 export function LaunchToastContainer() {
-  const [items, setItems] = useState<LaunchToastItem[]>(getLaunchToasts())
+  const [items, setItems] = useState<LaunchToastItem[]>(() => getLaunchToasts())
 
   useEffect(() => subscribeLaunchToasts(setItems), [])
 

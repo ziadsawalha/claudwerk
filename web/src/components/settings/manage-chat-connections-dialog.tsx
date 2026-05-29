@@ -1,5 +1,5 @@
 import { DropdownMenu } from 'radix-ui'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { SafeCodeMirror } from '@/components/codemirror/safe-codemirror'
 import { buildFileEditorExtensions } from '@/components/codemirror-setup'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -62,7 +62,7 @@ export function ManageChatConnectionsDialog() {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<View>('list')
   const [connections, setConnections] = useState<ChatApiConnection[]>([])
-  const [editId, setEditId] = useState<string | null>(null)
+  const editIdRef = useRef<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [sourceMode, setSourceMode] = useState(false)
   const [yamlText, setYamlText] = useState('')
@@ -107,7 +107,7 @@ export function ManageChatConnectionsDialog() {
     setOpen(false)
     setView('list')
     setForm(emptyForm)
-    setEditId(null)
+    editIdRef.current = null
     setError(null)
     setTestResult(null)
     setSourceMode(false)
@@ -115,7 +115,7 @@ export function ManageChatConnectionsDialog() {
 
   function startAdd() {
     setForm(emptyForm)
-    setEditId(null)
+    editIdRef.current = null
     setView('add')
     setError(null)
     setSourceMode(false)
@@ -128,7 +128,7 @@ export function ManageChatConnectionsDialog() {
       apiKey: connection.apiKey,
       model: connection.model || '',
     })
-    setEditId(connection.id)
+    editIdRef.current = connection.id
     setView('edit')
     setError(null)
     setSourceMode(false)
@@ -141,7 +141,7 @@ export function ManageChatConnectionsDialog() {
       apiKey: connection.apiKey,
       model: connection.model || '',
     })
-    setEditId(null)
+    editIdRef.current = null
     setView('add')
     setError(null)
     setSourceMode(false)
@@ -200,8 +200,8 @@ export function ManageChatConnectionsDialog() {
         apiKey: saveForm.apiKey,
         model: saveForm.model || undefined,
       }
-      if (editId) {
-        await fetch(`${API_BASE}/chat/connections/${editId}`, {
+      if (editIdRef.current) {
+        await fetch(`${API_BASE}/chat/connections/${editIdRef.current}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -216,7 +216,7 @@ export function ManageChatConnectionsDialog() {
       await fetchConnections()
       setView('list')
       setForm(emptyForm)
-      setEditId(null)
+      editIdRef.current = null
       setSourceMode(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
