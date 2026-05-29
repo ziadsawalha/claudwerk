@@ -70,7 +70,7 @@ import { registerDaemonSession, startDaemonRosterWatch, stopDaemonRosterWatch } 
 import { runGitLog } from './git-log'
 import { type PreflightIssue, preflightSpawn } from './preflight'
 import { runProfileCli } from './profile-cli'
-import { pickProfile } from './selection'
+import { pickProfile, type UsageHeadroom } from './selection'
 import {
   configDirFor,
   DEFAULT_PROFILE_NAME,
@@ -299,25 +299,22 @@ function liveLoadForProfile(profileName: string): number {
 const USAGE_STALE_MS = 10 * 60 * 1000
 
 /** Headroom source for `pickProfile` -- reads the latest per-profile poll
- *  result and exposes the raw worst-window utilization + reset clock so the
- *  ranker can decide between in-budget (live-load balance) and drain
- *  (time-normalized burn rate). `undefined` for unauthed / errored / missing
- *  snapshots so the picker falls through to live-load. The "worst window"
- *  is whichever of `fiveHour` / `sevenDay` is more burned -- we carry its
- *  reset clock too so the burn-rate math is consistent. */
-function usageHeadroomForProfile(
-  profileName: string,
-): { worstUsedPercent: number; msUntilWorstReset: number; stale: boolean } | undefined {
+ *  result and exposes the 5h and 7d windows SEPARATELY so the ranker can
+ *  treat the 5h as a hard gate and the 7d as a soft drain-pressure
+ *  preference (Smart Balance v3, see `rankCandidate`). `undefined` for
+ *  unauthed / errored / missing snapshots so the picker falls through to
+ *  live-load. */
+function usageHeadroomForProfile(profileName: string): UsageHeadroom | undefined {
   const snap = getLatestProfileUsage().get(profileName)
-  if (!snap || !snap.authed || snap.error || !snap.fiveHour || !snap.sevenDay) return undefined
+  if (!snap?.authed || snap.error || !snap.fiveHour || !snap.sevenDay) return undefined
   const now = Date.now()
-  const worst =
-    snap.fiveHour.usedPercent >= snap.sevenDay.usedPercent
-      ? { used: snap.fiveHour.usedPercent, resetAt: snap.fiveHour.resetAt }
-      : { used: snap.sevenDay.usedPercent, resetAt: snap.sevenDay.resetAt }
-  const msUntilWorstReset = Math.max(0, new Date(worst.resetAt).getTime() - now)
-  const stale = now - snap.polledAt > USAGE_STALE_MS
-  return { worstUsedPercent: worst.used, msUntilWorstReset, stale }
+  return {
+    fiveHourUsedPercent: snap.fiveHour.usedPercent,
+    sevenDayUsedPercent: snap.sevenDay.usedPercent,
+    msUntilFiveHourReset: Math.max(0, new Date(snap.fiveHour.resetAt).getTime() - now),
+    msUntilSevenDayReset: Math.max(0, new Date(snap.sevenDay.resetAt).getTime() - now),
+    stale: now - snap.polledAt > USAGE_STALE_MS,
+  }
 }
 
 /** Dead PIDs discovered from registry on startup (reported once WS connects) */

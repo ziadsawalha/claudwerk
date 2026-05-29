@@ -13,7 +13,7 @@
  *   - `pool: null` profiles never appear in any selection.
  */
 import { describe, expect, test } from 'bun:test'
-import { FUNGIBLE_BAND_PCT, pickProfile } from './selection'
+import { GATE_FIVE_HOUR_PCT, pickProfile } from './selection'
 import type { SentinelConfig } from './sentinel-config'
 
 function mkConfig(
@@ -379,105 +379,132 @@ describe('pickProfile -- weighted selection (Phase 7b)', () => {
   })
 })
 
-// ─── Smart Balance v2 (dead-band + drain) ──────────────────────────
+// ─── Smart Balance v3 (5h hard gate + 7d drain pressure) ───────────
 //
-// v2 ranks profiles in two zones: in-budget (worstUsedPercent < 75) balances
-// by live-load; drain (>= 75) ranks by time-normalized burn rate. Stale /
-// missing telemetry falls back to live-load. The motivating pathology was
-// the v1 greedy-max-headroom ranker turning small `%` deltas into
-// deterministic monopolies; these tests pin the v2 fix.
+// v3 splits the two windows: the 5h window is a HARD GATE (a profile at/over
+// GATE_FIVE_HOUR_PCT drops below every eligible one -- a spawn there would
+// blow through the cap mid-turn) and the 7d window is a SOFT PREFERENCE
+// (drain pressure = headroom% / hours-until-7d-reset -- spend the weekly
+// budget that's about to refresh before it's wasted). Three disjoint bands:
+// eligible [0.5,1.0] > unknown/stale [0.25,0.5) > gated [0,0.25).
 
 const HOUR_MS = 60 * 60 * 1000
-const fresh = (pct: number, msReset: number = 2 * HOUR_MS) => ({
-  worstUsedPercent: pct,
-  msUntilWorstReset: msReset,
-  stale: false,
-})
-const stale = (pct: number, msReset: number = 2 * HOUR_MS) => ({
-  worstUsedPercent: pct,
-  msUntilWorstReset: msReset,
-  stale: true,
-})
+const DAY_MS = 24 * HOUR_MS
 
-describe('pickProfile -- Smart Balance v2', () => {
+interface Tele {
+  fiveHour?: number
+  sevenDay?: number
+  ms5h?: number
+  ms7d?: number
+}
+const TELE_DEFAULTS: Required<Tele> = { fiveHour: 0, sevenDay: 0, ms5h: 2 * HOUR_MS, ms7d: 7 * DAY_MS }
+const fresh = (t: Tele = {}) => {
+  const m = { ...TELE_DEFAULTS, ...t }
+  return {
+    fiveHourUsedPercent: m.fiveHour,
+    sevenDayUsedPercent: m.sevenDay,
+    msUntilFiveHourReset: m.ms5h,
+    msUntilSevenDayReset: m.ms7d,
+    stale: false,
+  }
+}
+const stale = (t: Tele = {}) => ({ ...fresh(t), stale: true })
+
+describe('pickProfile -- Smart Balance v3', () => {
   const cfg = mkConfig('balanced', [
     { name: 'alt', pool: 'default' },
     { name: 'default', pool: 'default' },
     { name: 'work', pool: 'default' },
   ])
 
-  test('in-budget pool with equal load: alphabetical tie-break (stable)', () => {
-    // All three under FUNGIBLE_BAND_PCT, all idle -> all rank 1.0.
-    // Tie-broken by name: 'alt' wins. Documents the stable-tie behavior --
-    // the operator can override with weights when they want a different order.
-    const usage = () => fresh(FUNGIBLE_BAND_PCT - 45) // well in-budget
-    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    expect(r.profile.name).toBe('alt')
-    expect(r.reason).toBe('smart-balance')
-  })
-
-  test('band edge: just under FUNGIBLE_BAND_PCT is in-budget; at/over is drain', () => {
-    // 'alt' just under band -> rank in [0.5, 1.0]. 'work' at the band edge
-    // (>= 75) -> drain rank < 0.5. 'default' loaded out to confirm load
-    // doesn't pull alt under work's drain rank.
+  test('the screenshot: 5h gate excludes the near-cap account', () => {
+    // Mirrors the live popover: default 5h=80% (AT the gate -> gated band),
+    // work 5h=57% (eligible). Even though default has MORE 7d headroom (81%
+    // vs 72%), the 5h gate keeps it out -- a spawn there would throttle. work
+    // wins. 'alt' has no telemetry (unknown band) and loses to eligible work.
     const usage = (name: string) => {
-      if (name === 'alt') return fresh(FUNGIBLE_BAND_PCT - 1)
-      if (name === 'work') return fresh(FUNGIBLE_BAND_PCT)
+      if (name === 'default') return fresh({ fiveHour: 80, sevenDay: 19, ms7d: 6 * DAY_MS + 11 * HOUR_MS })
+      if (name === 'work') return fresh({ fiveHour: 57, sevenDay: 28, ms7d: 2 * DAY_MS + 2 * HOUR_MS })
       return undefined
     }
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    expect(r.profile.name).toBe('alt')
-  })
-
-  test('in-budget: small %% deltas DO NOT decide -- live-load does', () => {
-    // The motivating pathology: v1 would deterministically pick 'default'
-    // forever because it has slightly more headroom. v2: both in-budget, so
-    // the one with fewer live agent hosts wins.
-    const usage = (name: string) => fresh(name === 'default' ? 5 : 30)
-    const load = (name: string) => (name === 'default' ? 3 : 0) // default loaded
-    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
-    expect(r.profile.name).toBe('alt') // idle in-budget, beats loaded in-budget
-  })
-
-  test('in-budget always beats drain-zone regardless of load delta', () => {
-    // 'work' is at 90% (drain) with zero load; 'default' at 60% (in budget)
-    // with 5 live hosts. v2 still picks default -- the band invariant says
-    // in-budget rank >= 0.5 > any drain rank.
-    const usage = (name: string) => {
-      if (name === 'work') return fresh(90)
-      if (name === 'default') return fresh(60)
-      return fresh(60)
-    }
-    const load = (name: string) => (name === 'default' ? 5 : 0)
-    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
-    expect(r.profile.name).not.toBe('work') // never drain when in-budget exists
-  })
-
-  test('drain zone: near-reset profile wins (more capacity becoming available)', () => {
-    // Both at 85% used. 'work' resets in 5min -> a fresh bucket is about to
-    // arrive, so spending its remaining 15% is FINE (3%/min sustainable for
-    // 5min, then full reset). 'default' resets in 4h -> the 15% has to last
-    // 4h (only 0.06%/min sustainable). v2 ranks `headroom% / minutesToReset`,
-    // so work wins. Without telemetry the wildcard 'alt' would tie via
-    // live-load -- pin it loaded so it falls below the band ceiling.
-    const usage = (name: string) => {
-      if (name === 'work') return fresh(85, 5 * 60 * 1000)
-      if (name === 'default') return fresh(85, 4 * HOUR_MS)
-      return undefined
-    }
-    // 'alt' has no telemetry -> falls to live-load rank. Load=5 -> ~0.17,
-    // which is below 0.5 so any in-budget/drain candidate beats it... but
-    // wait, drain ranks are also below 0.5. To isolate the drain-vs-drain
-    // comparison, force 'alt' to a much higher load so it ranks below both
-    // drain candidates.
-    const load = (name: string) => (name === 'alt' ? 999 : 0)
-    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
     expect(r.profile.name).toBe('work')
     expect(r.reason).toBe('smart-balance')
   })
 
+  test('7d drain pressure: soonest-resetting weekly budget wins among eligible', () => {
+    // Both under the 5h gate. work resets its 7d in ~2d with 72% headroom
+    // (1.44%/h); default resets in ~6.4d with 81% headroom (0.52%/h). Spend
+    // the soon-to-reset quota first -> work wins. A naive "most total
+    // headroom" picker would wrongly grab default (81 > 72).
+    const usage = (name: string) => {
+      if (name === 'default') return fresh({ fiveHour: 50, sevenDay: 19, ms7d: 6 * DAY_MS + 10 * HOUR_MS })
+      if (name === 'work') return fresh({ fiveHour: 57, sevenDay: 28, ms7d: 2 * DAY_MS })
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('work')
+  })
+
+  test('drain pressure self-limits: a near-drained soon-reset account loses headroom', () => {
+    // work resets in 2d but is already 95% used (5% headroom -> 0.1%/h);
+    // default resets in 6d with 70% headroom (~0.49%/h). The headroom%
+    // numerator shrinks as a profile drains, so selection rotates AWAY from
+    // work before it's slammed -- the "up to a limit" behaviour, for free.
+    const usage = (name: string) => {
+      if (name === 'work') return fresh({ fiveHour: 60, sevenDay: 95, ms7d: 2 * DAY_MS })
+      if (name === 'default') return fresh({ fiveHour: 40, sevenDay: 30, ms7d: 6 * DAY_MS })
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('default')
+  })
+
+  test('eligible beats unknown beats gated (band ordering)', () => {
+    // default eligible, work gated (5h=90), alt no telemetry (unknown).
+    // default (>=0.5) > alt (~0.5) > work (<0.25). default wins.
+    const usage = (name: string) => {
+      if (name === 'default') return fresh({ fiveHour: 50, sevenDay: 20 })
+      if (name === 'work') return fresh({ fiveHour: 90 })
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('default')
+  })
+
+  test('idle unknown beats a known-gated profile', () => {
+    // Only work has telemetry and it's 5h-gated; alt/default are unknown,
+    // idle. Unknown band (0.5) outranks gated band (<0.25). work loses.
+    const usage = (name: string) => (name === 'work' ? fresh({ fiveHour: 95 }) : undefined)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).not.toBe('work')
+  })
+
+  test('all profiles 5h-gated: the one freeing up soonest wins', () => {
+    // Every candidate is over the 5h gate, so the gated band decides by
+    // shortest wait to reset. work resets in 10min, default in 4h, alt in 8h.
+    const usage = (name: string) => {
+      if (name === 'work') return fresh({ fiveHour: 90, ms5h: 10 * 60 * 1000 })
+      if (name === 'default') return fresh({ fiveHour: 85, ms5h: 4 * HOUR_MS })
+      return fresh({ fiveHour: 95, ms5h: 8 * HOUR_MS })
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('work')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('eligible: load damps the pick when drain pressure ties', () => {
+    // Identical 7d windows -> identical drain pressure. The 0.2 live-load
+    // term breaks it toward the less-loaded profile.
+    const usage = () => fresh({ fiveHour: 30, sevenDay: 40, ms7d: 3 * DAY_MS })
+    const load = (name: string) => (name === 'default' ? 4 : 0)
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
+    expect(r.profile.name).toBe('alt') // idle, alphabetical over equally-idle work
+    expect(r.profile.name).not.toBe('default')
+  })
+
   test('all-stale telemetry falls back to least-active (legacy behavior)', () => {
-    const usage = () => stale(30) // % ignored when stale
+    const usage = () => stale({ fiveHour: 90, sevenDay: 30 }) // %s ignored when stale
     const load = (name: string) => (name === 'work' ? 5 : name === 'default' ? 0 : 2)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
     expect(r.profile.name).toBe('default')
@@ -490,66 +517,73 @@ describe('pickProfile -- Smart Balance v2', () => {
     expect(r.reason).toBe('least-active')
   })
 
-  test('partial telemetry: fresh-in-budget beats stale-loaded', () => {
-    const usage = (name: string) => {
-      if (name === 'alt') return fresh(20) // in-budget -> rank 1.0
-      return undefined
-    }
-    const load = (name: string) => (name === 'default' ? 5 : 4) // others stale -> ~0.17, 0.2
+  test('partial telemetry: fresh-eligible beats stale-loaded', () => {
+    const usage = (name: string) => (name === 'alt' ? fresh({ fiveHour: 20, sevenDay: 20 }) : undefined)
+    const load = (name: string) => (name === 'default' ? 5 : 4) // others unknown -> ~0.3, 0.3
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
     expect(r.profile.name).toBe('alt')
     expect(r.reason).toBe('smart-balance')
   })
 
-  test('stale-idle beats fresh-drain-zone (demonstrably-idle wins)', () => {
-    // 'work' is fresh at 99% (deep drain, rank ~0). 'default' has no telemetry
-    // and zero load (rank 1.0). Demonstrably-idle wins -- you do not slam a
-    // known-burned account when another account is idle. Documented as a
-    // deliberate bias: in-doubt prefer idle over burned.
-    const usage = (name: string) => (name === 'work' ? fresh(99) : undefined)
+  test('stale-idle beats a known-gated profile but loses to known-eligible', () => {
+    // work is fresh-gated (5h=99). default is stale+idle -> unknown band
+    // (~0.5), which beats gated work (<0.25). The deliberate bias: an idle
+    // account we can't confirm beats one we KNOW is throttled.
+    const usage = (name: string) => (name === 'work' ? fresh({ fiveHour: 99 }) : stale())
     const load = (name: string) => (name === 'default' ? 0 : 99)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })
     expect(r.profile.name).toBe('default')
     expect(r.reason).toBe('smart-balance')
   })
 
-  test('errored / unauthed snapshot is treated as no telemetry', () => {
-    // A profile that recently failed to poll returns `undefined`. v2: it
-    // falls back to live-load (rank 1.0 idle) and beats any drain-zone
-    // candidate; ties with other in-budget candidates broken by name.
-    const usage = (name: string) => (name === 'default' ? fresh(20) : undefined)
+  test('errored / unauthed snapshot is treated as no telemetry (unknown band)', () => {
+    // default has fresh-eligible telemetry; alt/work return undefined. A
+    // fresh-eligible profile (>=0.5) outranks idle-unknown (0.5 boundary)...
+    // default's eligible rank is strictly > 0.5, so default wins.
+    const usage = (name: string) => (name === 'default' ? fresh({ fiveHour: 20, sevenDay: 20 }) : undefined)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    // default (in-budget) rank 1.0, alt/work (no telemetry, load 0) rank 1.0.
-    // Tie -> alphabetical -> alt wins.
-    expect(r.profile.name).toBe('alt')
+    expect(r.profile.name).toBe('default')
     expect(r.reason).toBe('smart-balance')
   })
 
-  test('worstUsedPercent clamps gracefully outside [0,100]', () => {
+  test('utilization clamps gracefully outside [0,100]', () => {
+    // default 7d=150 clamps to 100 (zero headroom -> pressure 0). alt 7d=-30
+    // clamps to 0 (full headroom -> high pressure). Both eligible on 5h. alt
+    // wins on drain pressure.
     const usage = (name: string) => {
-      if (name === 'default') return fresh(150) // clamps to 100 -> drain
-      if (name === 'alt') return fresh(-30) // clamps to 0 -> in-budget
+      if (name === 'default') return fresh({ fiveHour: 10, sevenDay: 150 })
+      if (name === 'alt') return fresh({ fiveHour: 10, sevenDay: -30 })
       return undefined
     }
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
-    expect(r.profile.name).toBe('alt') // in-budget beats drain
+    expect(r.profile.name).toBe('alt')
   })
 
-  test('drain zone: msUntilWorstReset clamped above MIN_RESET_MS', () => {
-    // Both at 90%, both passing a near-zero reset time. Without the clamp
-    // this would divide by ~0; with it both end up well-defined and the
-    // tie-break falls to name.
-    const usage = () => fresh(90, 0) // 0ms reset -> floor to 60s inside
+  test('reset clocks clamped above MIN_RESET_MS (no divide-by-zero)', () => {
+    // Both eligible, identical 7d util, both with a 0ms 7d reset -> floored
+    // internally so both get a finite (equal) drain pressure; tie -> name.
+    const usage = () => fresh({ fiveHour: 30, sevenDay: 40, ms7d: 0 })
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
     expect(r.profile.name).toBe('alt') // alphabetical, no divergence
   })
+
+  test('GATE_FIVE_HOUR_PCT is the boundary: just-under eligible, at-gate gated', () => {
+    // alt at gate-1 (eligible band >=0.5); work AT the gate (gated <0.25).
+    // default loaded out of contention. alt wins.
+    const usage = (name: string) => {
+      if (name === 'alt') return fresh({ fiveHour: GATE_FIVE_HOUR_PCT - 1, sevenDay: 50 })
+      if (name === 'work') return fresh({ fiveHour: GATE_FIVE_HOUR_PCT })
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('alt')
+  })
 })
 
-// Regression: the v1 monopoly pathology that motivated v2.
-describe('pickProfile -- Smart Balance v2 spreads across in-budget pool', () => {
+// Regression: no-monopoly spread across equal-pressure eligible profiles.
+describe('pickProfile -- Smart Balance v3 spreads across equal-pressure pool', () => {
   // Pool must match defaultPool (third mkConfig arg) so balanced selection
-  // actually considers both members. Without it, the pool 'work' is unknown
-  // to the default pool 'default' and selection falls back to default.
+  // actually considers both members.
   const cfg = mkConfig(
     'balanced',
     [
@@ -559,11 +593,11 @@ describe('pickProfile -- Smart Balance v2 spreads across in-budget pool', () => 
     'work',
   )
 
-  test('simulated 4 spawns spread across 2 in-budget profiles (no monopoly)', () => {
-    // Both at 30% used (in-budget). Live load starts at 0/0 and we increment
-    // after each spawn. v1: 'default' would win all 4 because its %% is
-    // slightly lower; v2: load balances after spawn 1.
-    const usage = (name: string) => fresh(name === 'default' ? 5 : 30)
+  test('simulated 4 spawns spread 2/2 when drain pressure is equal (load damps)', () => {
+    // Identical 7d windows -> identical drain pressure, both eligible on 5h.
+    // The live-load damping term breaks ties toward the less-loaded profile,
+    // so picks alternate instead of monopolising one account.
+    const usage = () => fresh({ fiveHour: 30, sevenDay: 30, ms7d: 3 * DAY_MS })
     const load = new Map<string, number>([
       ['default', 0],
       ['work', 0],
@@ -578,13 +612,8 @@ describe('pickProfile -- Smart Balance v2 spreads across in-budget pool', () => 
       picks.push(r.profile.name)
       load.set(r.profile.name, (load.get(r.profile.name) ?? 0) + 1)
     }
-    // Should be 2/2, not 4/0. Order: name-tie -> default first, then work
-    // wins (default loaded), then tie -> default, then work. Specifically: D,W,D,W
-    // (or some other 2/2 alternation depending on alphabetical tiebreak).
-    const defCount = picks.filter(p => p === 'default').length
-    const workCount = picks.filter(p => p === 'work').length
-    expect(defCount).toBe(2)
-    expect(workCount).toBe(2)
+    expect(picks.filter(p => p === 'default').length).toBe(2)
+    expect(picks.filter(p => p === 'work').length).toBe(2)
   })
 })
 

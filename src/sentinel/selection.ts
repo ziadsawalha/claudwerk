@@ -4,10 +4,12 @@
  * Three modes:
  *   - Fixed:    a literal profile name. Short-circuits to that profile.
  *   - Balanced: from profiles whose `pool` matches the requested pool (or
- *               the sentinel's `defaultPool`), pick the one with the most
- *               rate-limit headroom (Smart Balance, see `rankCandidate`).
- *               Falls back to fewest live agent hosts when telemetry is
- *               stale or missing. Ties broken by name (stable).
+ *               the sentinel's `defaultPool`), pick by Smart Balance v3 (see
+ *               `rankCandidate`): the 5h window is a HARD GATE (skip profiles
+ *               near their 5h cap) and the 7d window is a SOFT PREFERENCE
+ *               (favour the most "drain pressure" -- headroom per hour until
+ *               the weekly budget resets). Falls back to fewest live agent
+ *               hosts when telemetry is stale or missing. Ties broken by name.
  *   - Random:   uniform pick over the same pool-filtered profiles.
  *
  * No-input spawn falls through to `config.defaultSelection` (default, balanced,
@@ -63,32 +65,48 @@ export type LiveLoadSource = (profileName: string) => number
  * without an entry (no source, or `undefined` from the source) are treated
  * as having no telemetry -- they rank purely on live-load.
  *
- * Carries the raw worst-window utilization + reset clock so the ranker can
- * decide between "in-budget" (under FUNGIBLE_BAND_PCT -- balance by live
- * load) and "drain" (over the band -- pick by time-normalized burn rate).
- * See `rankCandidate` for the math.
+ * The two Anthropic windows are kept SEPARATE on purpose -- they drive two
+ * different decisions (see `rankCandidate`):
+ *   - 5h  = HARD GATE. Near its cap means "do not schedule here right now"
+ *           (a spawn would blow through the limit mid-turn and get throttled).
+ *   - 7d  = SOFT PREFERENCE. Drives "drain pressure" -- the weekly budget
+ *           resets on a rolling clock, so unused headroom is wasted at reset.
+ *           Favour the profile with the most headroom per hour-until-reset.
  */
 export interface UsageHeadroom {
-  /** Worst-window utilization as a percentage (`max(fiveHour%, sevenDay%)`).
-   *  Computed by the caller from a `ProfileUsageSnapshot`. Values are
-   *  clamped to `[0, 100]` inside the ranker. */
-  worstUsedPercent: number
-  /** Milliseconds until the worst window resets. Used by the drain-zone
-   *  burn-rate math. Clamped to `>= MIN_RESET_MS` inside the ranker so a
-   *  window about to flip doesn't divide by near-zero. */
-  msUntilWorstReset: number
+  /** 5-hour window utilization as a percentage. The hard gate: at/over
+   *  `GATE_FIVE_HOUR_PCT` the profile drops below every eligible one. */
+  fiveHourUsedPercent: number
+  /** 7-day window utilization as a percentage. Drives drain pressure for
+   *  eligible profiles. Clamped to `[0, 100]` inside the ranker. */
+  sevenDayUsedPercent: number
+  /** Milliseconds until the 5h window resets. Used to rank GATED profiles
+   *  (soonest to free up wins) so an all-gated pool still picks sanely.
+   *  Clamped to `>= MIN_RESET_MS` inside the ranker. */
+  msUntilFiveHourReset: number
+  /** Milliseconds until the 7d window resets. The drain-pressure denominator
+   *  (headroom% / hours-until-reset). Clamped to `>= MIN_RESET_MS`. */
+  msUntilSevenDayReset: number
   /** When `true`, the snapshot is too old to trust -- ranked via live-load
-   *  instead of utilization. Caller decides the staleness window. */
+   *  instead of utilization (we can't honour the 5h gate on stale data).
+   *  Caller decides the staleness window. */
   stale: boolean
 }
 
-/** Worst-window utilization below this percentage is treated as fungible --
- *  inside the band, profiles balance by live-load, not by headroom. Picked
- *  to match Anthropic's soft-alert threshold (~80%) with a small buffer.
- *  Exported for tests + potential per-sentinel override (future work). */
-export const FUNGIBLE_BAND_PCT = 75
+/** 5-hour utilization at/over this percentage trips the HARD GATE: the
+ *  profile drops below every eligible one (only picked if ALL are gated).
+ *  This is the "warning margin" -- set below 100 so scheduling STOPS before a
+ *  spawn would blow through the cap mid-turn. Exported for tests + potential
+ *  per-sentinel override (future work). */
+export const GATE_FIVE_HOUR_PCT = 80
 
-/** Burn-rate denominator floor (1min). Prevents division-by-near-zero when
+/** Weight of 7d drain pressure vs. live-load damping inside the eligible
+ *  band. Drain-pressure-dominant (0.8) with a small load term so a burst of
+ *  spawns between usage polls doesn't dog-pile one profile before its
+ *  telemetry catches up. The remainder (0.2) is live-load. */
+const DRAIN_WEIGHT = 0.8
+
+/** Reset-clock denominator floor (1min). Prevents division-by-near-zero when
  *  a usage window is seconds away from resetting. */
 const MIN_RESET_MS = 60_000
 
@@ -241,29 +259,34 @@ function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[]
 }
 
 /**
- * Smart Balance v2 ranker. Two-zone ranker on a unified `[0, 1]` axis:
+ * Smart Balance v3 ranker. 5h is a HARD GATE; 7d is a SOFT PREFERENCE.
+ * Three disjoint bands on a unified `[0, 1]` axis:
  *
- *   In-budget zone (`worstUsedPercent < FUNGIBLE_BAND_PCT`):
- *     rank = 0.5 + 0.5 * loadRank      -- maps to [0.5, 1.0]
- *     loadRank = 1 / (1 + load/weight) -- weight is capacity
+ *   Eligible  (fresh telemetry, fiveHour% < GATE_FIVE_HOUR_PCT):  [0.5, 1.0]
+ *     rank = 0.5 + 0.5 * (DRAIN_WEIGHT*drainRank + (1-DRAIN_WEIGHT)*loadRank)
+ *     drainPressure = sevenDayHeadroom% / hoursUntil7dReset   ("%/hour")
+ *     drainRank     = drainPressure / (1 + drainPressure)     -- squash (0,1)
+ *     loadRank      = 1 / (1 + load/weight)                   -- weight=capacity
  *
- *   Drain zone (worstUsedPercent >= band):
- *     rank = 0.5 * burnRank             -- maps to [0, 0.5)
- *     burnRank = headroom% / minutesToReset, smooth-squashed to (0, 1)
+ *   Unknown   (no source / errored / stale):                       [0.25, 0.5)
+ *     rank = 0.25 + 0.25 * loadRank
+ *     -- can't confirm the 5h gate, so it never outranks a KNOWN-eligible
+ *        profile; but an idle unknown still beats a known-gated one.
  *
- *   Stale / missing telemetry:
- *     rank = loadRank                   -- legacy least-active fallback
+ *   Gated     (fresh telemetry, fiveHour% >= GATE_FIVE_HOUR_PCT):   [0, 0.25)
+ *     rank = 0.25 * soonRank,  soonRank = 1 / (1 + hoursUntil5hReset)
+ *     -- only reachable when EVERY profile is gated; then the one whose 5h
+ *        frees up soonest wins (shortest wait to become schedulable).
  *
  * Invariants:
- *   - Any in-budget profile beats any drain-zone one (>= 0.5 vs < 0.5).
- *   - Stale telemetry never enters the dead-band -- we don't trust old %s
- *     to declare "in budget" (that's how you slam a maxed-out account).
+ *   - Any eligible profile beats any unknown one beats any gated one.
+ *   - Within eligible, the soonest-resetting 7d window with the most headroom
+ *     wins -- "use it or lose it": weekly budget about to refresh is drained
+ *     first so it isn't wasted at reset. The headroom% numerator self-limits
+ *     (as a profile drains, its pressure falls and selection rotates away).
+ *   - With NO fresh telemetry anywhere, every candidate lands in the unknown
+ *     band ranked by load -> degrades cleanly to legacy least-active.
  *   - Tie-breaking is by name (stable; see `pickBalanced`).
- *
- * Goal: spread spawns across all in-budget profiles by live load, only
- * biasing toward most-headroom when a profile is near its cap. Solves the
- * monopoly pathology where the leader by tiny `%` deltas absorbed every
- * spawn until it caught up.
  */
 // fallow-ignore-next-line complexity
 function rankCandidate(profile: ResolvedProfile, liveLoad: LiveLoadSource, usage: UsageHeadroomSource): number {
@@ -272,31 +295,34 @@ function rankCandidate(profile: ResolvedProfile, liveLoad: LiveLoadSource, usage
 
   const u = usage(profile.name)
   if (!u || u.stale) {
-    // No fresh telemetry -- legacy live-load ranking. Returns [0, 1] so an
-    // idle stale profile can still beat a loaded one. By design this can
-    // outrank a fresh drain-zone profile (an idle account we haven't heard
-    // from in a while is probably still the safer choice over a known-burned
-    // one). See test 'partial telemetry: stale-but-idle beats fresh-low-...'.
-    return loadRank
+    // No fresh telemetry -- we can't honour the 5h gate, so this profile sits
+    // in the unknown band [0.25, 0.5): below any KNOWN-eligible profile (we
+    // prefer a profile we've confirmed is under the 5h margin), but above any
+    // KNOWN-gated one (an idle unknown beats a confirmed-throttled account).
+    // When ALL candidates are here, load-balancing decides (least-active).
+    return 0.25 + 0.25 * loadRank
   }
 
-  const usedPct = Math.max(0, Math.min(100, u.worstUsedPercent))
-  if (usedPct < FUNGIBLE_BAND_PCT) {
-    // In-budget zone: lift load-balancing into [0.5, 1.0] so any in-budget
-    // profile beats any drain-zone one regardless of load.
-    return 0.5 + 0.5 * loadRank
+  // HARD GATE -- 5h at/over the warning margin. Drop into the gated band
+  // [0, 0.25), ordered so the profile whose 5h frees up SOONEST ranks highest
+  // (this only matters when every candidate is gated).
+  if (Math.max(0, Math.min(100, u.fiveHourUsedPercent)) >= GATE_FIVE_HOUR_PCT) {
+    const hoursTo5hReset = Math.max(MIN_RESET_MS, u.msUntilFiveHourReset) / (60 * 60 * 1000)
+    const soonRank = 1 / (1 + hoursTo5hReset) // shorter wait -> higher, (0, 1]
+    return 0.25 * soonRank
   }
 
-  // Drain zone: time-normalized burn rate. headroom% per minute-until-reset
-  // -- a profile at 80% with 4h left has more sustainable capacity than one
-  // at 80% with 5min left (which is about to flush; don't hoard it).
-  const headroomPct = 100 - usedPct
-  const minutesToReset = Math.max(MIN_RESET_MS, u.msUntilWorstReset) / 60_000
-  const burnPerMinute = headroomPct / minutesToReset
+  // ELIGIBLE -- 5h has headroom. Rank by 7d DRAIN PRESSURE: headroom% per
+  // hour-until-7d-reset. A profile whose weekly budget refreshes in 2 days
+  // with 70% unused (35%/h) outranks one resetting in 6 days with 80% unused
+  // (~13%/h) -- spend the soon-to-reset quota before it's wasted. Live-load
+  // damps the pick so a burst between polls doesn't dog-pile one profile.
+  const headroom7d = 100 - Math.max(0, Math.min(100, u.sevenDayUsedPercent))
+  const hoursTo7dReset = Math.max(MIN_RESET_MS, u.msUntilSevenDayReset) / (60 * 60 * 1000)
+  const drainPressure = headroom7d / hoursTo7dReset
   // Squash to (0, 1): `x / (1 + x)`. Smooth, monotonic, asymptotic to 1.
-  // Then scale into [0, 0.5) so drain-zone never crosses the band ceiling.
-  const burnRank = burnPerMinute / (1 + burnPerMinute)
-  return 0.5 * burnRank
+  const drainRank = drainPressure / (1 + drainPressure)
+  return 0.5 + 0.5 * (DRAIN_WEIGHT * drainRank + (1 - DRAIN_WEIGHT) * loadRank)
 }
 
 /** Smart Balance picker. Returns the chosen profile + whether ANY candidate
