@@ -4,8 +4,10 @@
  *  - recap/period      (long-form markdown digest)
  *  - voice-stream      (Deepgram refinement pass)
  *
- * Handles bearer auth, AbortSignal-based timeout, exponential backoff on
- * 5xx, Retry-After honouring on 429, and normalised usage extraction.
+ * Handles bearer auth, deadline-enforced timeout (Promise.race, NOT just
+ * AbortController -- a hung provider response was observed to ignore signal
+ * abort in Bun), exponential backoff on 5xx, Retry-After honouring on 429,
+ * a SEPARATE (smaller) retry budget for timeouts, and normalised usage extraction.
  */
 
 import { NoApiKeyError, OpenRouterError, RateLimitError, TimeoutError } from './errors'
@@ -30,6 +32,11 @@ export interface ChatRequest {
   responseFormat?: { type: 'json_object' } | { type: 'text' }
   timeoutMs?: number
   retries?: number
+  /** Retries specifically for a TIMEOUT (the attempt exceeding timeoutMs).
+   *  Defaults to `retries`. A slow/hung provider must NOT draw the full
+   *  rate-limit retry budget -- e.g. 240s x 3 attempts = 12min of dead air
+   *  (the recap-resilience incident). The recap pipeline passes 1. */
+  timeoutRetries?: number
   /** Override fetch (test seam). Defaults to globalThis.fetch. */
   fetcher?: typeof fetch
   /** Override env lookup (test seam). Defaults to process.env. */
@@ -45,13 +52,15 @@ export interface ChatResponse {
 
 export async function chat(req: ChatRequest): Promise<ChatResponse> {
   const apiKey = resolveApiKey(req)
+  const retries = req.retries ?? DEFAULT_RETRIES
   const ctx: AttemptContext = {
     body: buildBody(req),
     fetcher: req.fetcher ?? globalThis.fetch,
     timeoutMs: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     apiKey,
     model: req.model,
-    maxAttempts: (req.retries ?? DEFAULT_RETRIES) + 1,
+    maxRetries: retries,
+    timeoutRetries: req.timeoutRetries ?? retries,
   }
   return runWithRetry(ctx)
 }
@@ -62,18 +71,34 @@ interface AttemptContext {
   timeoutMs: number
   apiKey: string
   model: string
-  maxAttempts: number
+  /** Retry budget for 429/5xx (the general transient-error budget). */
+  maxRetries: number
+  /** Retry budget for TimeoutError specifically (kept smaller on purpose). */
+  timeoutRetries: number
 }
 
+// Timeouts and rate-limit/5xx errors draw from SEPARATE budgets: a hung provider
+// should not consume the generous transient-error retries (and vice versa). A hard
+// ceiling on total attempts guards against an alternating-error stream looping.
 // fallow-ignore-next-line complexity
 async function runWithRetry(ctx: AttemptContext): Promise<ChatResponse> {
-  for (let attempt = 1; attempt <= ctx.maxAttempts; attempt++) {
+  let timeoutRetriesUsed = 0
+  let otherRetriesUsed = 0
+  const hardCap = ctx.maxRetries + ctx.timeoutRetries + 1
+  for (let total = 0; total < hardCap; total++) {
     try {
-      const res = await fetchOnce(ctx.fetcher, ctx.apiKey, ctx.body, ctx.timeoutMs)
-      return parseResponse(ctx.model, res)
+      return await attemptOnce(ctx)
     } catch (err) {
-      if (attempt === ctx.maxAttempts || !shouldRetry(err)) throw err
-      await sleep(backoffMs(attempt, err))
+      if (!shouldRetry(err)) throw err
+      if (err instanceof TimeoutError) {
+        if (timeoutRetriesUsed >= ctx.timeoutRetries) throw err
+        timeoutRetriesUsed++
+        await sleep(backoffMs(timeoutRetriesUsed, err))
+      } else {
+        if (otherRetriesUsed >= ctx.maxRetries) throw err
+        otherRetriesUsed++
+        await sleep(backoffMs(otherRetriesUsed, err))
+      }
     }
   }
   throw new OpenRouterError('unreachable')
@@ -111,31 +136,50 @@ function assembleMessages(req: ChatRequest): ChatMessage[] {
   return messages
 }
 
-async function fetchOnce(
-  fetcher: typeof fetch,
-  apiKey: string,
-  body: Record<string, unknown>,
-  timeoutMs: number,
-): Promise<Response> {
+/**
+ * One HTTP attempt, HARD-bounded by `timeoutMs`. The bound is enforced with a
+ * Promise.race against a deadline, not by AbortController alone: a slow/hung
+ * provider response (incident: a 707s Bedrock generation against a 240s timeout)
+ * was NOT interrupted by `signal` abort in Bun, so the deadline IS the guarantee
+ * and `ctrl.abort()` is best-effort socket cleanup layered on top. The race also
+ * covers the body read (`res.json()` in parseResponse): headers can arrive
+ * promptly while the body streams for minutes, so timing out only the fetch()
+ * call would miss exactly the failure mode that bit us.
+ */
+async function attemptOnce(ctx: AttemptContext): Promise<ChatResponse> {
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const res = await fetcher(ENDPOINT, {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const work = (async (): Promise<ChatResponse> => {
+    const res = await ctx.fetcher(ENDPOINT, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${ctx.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(ctx.body),
       signal: ctrl.signal,
     })
     if (!res.ok) throw await errorForStatus(res)
-    return res
+    return parseResponse(ctx.model, res)
+  })()
+  // If the deadline wins, `work` keeps running until the leaked socket settles;
+  // swallow its late rejection so it never surfaces as an unhandledRejection.
+  work.catch(() => {})
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          ctrl.abort()
+          reject(new TimeoutError())
+        }, ctx.timeoutMs)
+      }),
+    ])
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw new TimeoutError()
     throw err
   } finally {
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
   }
 }
 

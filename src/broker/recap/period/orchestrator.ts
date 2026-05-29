@@ -651,7 +651,16 @@ function collectSignals(
 // generous timeout: a 32k-token generation easily exceeds the client's 30s
 // default. Recaps run async (background), so the higher ceiling costs no UX.
 const RECAP_MAX_TOKENS = 32_000
+// Reduce/oneshot generate the FULL document (up to 32k tokens) -- a legitimate
+// Opus synthesis runs minutes (the incident's reduce took 147s), so these keep a
+// generous deadline. The MAP call is fast cheap extraction; it gets the tight
+// 120s bound, because that is the path that froze for ~12min (a 707s Bedrock map
+// call the old 240s timeout never aborted -- see plan-recap-resilience B1).
 const RECAP_TIMEOUT_MS = 240_000
+const RECAP_MAP_TIMEOUT_MS = 120_000
+// A hung call must not draw the full rate-limit retry budget (240s x 3 = 12min of
+// dead air). One timeout retry, then degrade -- the stage deadline backstops it.
+const RECAP_TIMEOUT_RETRIES = 1
 
 // Usage recorded when a chat() call THROWS (timeout/4xx/5xx): the attempt
 // happened but carries no token/cost data. costSource 'unknown' marks it.
@@ -762,6 +771,7 @@ async function callLlm(
     user: prompt.user,
     maxTokens: opts?.maxTokens ?? RECAP_MAX_TOKENS,
     timeoutMs: RECAP_TIMEOUT_MS,
+    timeoutRetries: RECAP_TIMEOUT_RETRIES,
     temperature: opts?.temperature ?? 0.2,
     retries: 2,
     apiKey,
@@ -787,6 +797,7 @@ async function parseOrRetry(
       retries: 1,
       maxTokens: RECAP_MAX_TOKENS,
       timeoutMs: RECAP_TIMEOUT_MS,
+      timeoutRetries: RECAP_TIMEOUT_RETRIES,
       temperature: 0.1,
       messages: [
         { role: 'system', content: built.system },
@@ -906,7 +917,8 @@ async function runChunked(
           user: prompt.user,
           responseFormat: { type: 'json_object' },
           maxTokens: t.maxTokens?.map ?? RECAP_MAX_TOKENS,
-          timeoutMs: RECAP_TIMEOUT_MS,
+          timeoutMs: RECAP_MAP_TIMEOUT_MS,
+          timeoutRetries: RECAP_TIMEOUT_RETRIES,
           temperature: t.temperature?.map ?? 0.1,
           retries: 2,
           apiKey: deps.apiKey,
@@ -962,6 +974,7 @@ async function runChunked(
     user: synth.user,
     maxTokens: t.maxTokens?.reduce ?? RECAP_MAX_TOKENS,
     timeoutMs: RECAP_TIMEOUT_MS,
+    timeoutRetries: RECAP_TIMEOUT_RETRIES,
     temperature: t.temperature?.reduce ?? 0.2,
     retries: 2,
     apiKey: deps.apiKey,

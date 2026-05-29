@@ -136,4 +136,63 @@ describe('chat()', () => {
     }
     expect(caught).toBeInstanceOf(OpenRouterError)
   })
+
+  // --- resilience: enforced timeout (the recap-resilience B1 incident) ---
+
+  // Resolve to the error chat() throws (or undefined if it unexpectedly succeeds),
+  // so the timeout assertions don't each repeat a try/catch block.
+  const catchErr = async (p: Promise<unknown>): Promise<unknown> => {
+    try {
+      await p
+      return undefined
+    } catch (err) {
+      return err
+    }
+  }
+  // A fetch that never resolves AND never honours abort -- the worst case the
+  // 707s incident approximated. Without the Promise.race deadline this hangs.
+  const neverSettles = () => new Promise<Response>(() => {})
+
+  it('enforces timeoutMs even when the fetch never settles and ignores abort', async () => {
+    const { fn, getAttempt } = makeFetcher(neverSettles)
+    const caught = await catchErr(
+      chat({ model: 'm', user: 'x', fetcher: fn, retries: 0, timeoutRetries: 0, timeoutMs: 30 }),
+    )
+    expect(caught).toBeInstanceOf(TimeoutError)
+    expect(getAttempt()).toBe(1)
+  })
+
+  it('bounds a slow body read (headers fast, json() hangs)', async () => {
+    // fetch() resolves promptly but the body never finishes -- the exact shape
+    // of a streamed-but-stalled completion. The deadline must cover res.json().
+    const hangingBody = { ok: true, status: 200, json: () => new Promise(() => {}) } as unknown as Response
+    const { fn } = makeFetcher(() => hangingBody)
+    const caught = await catchErr(
+      chat({ model: 'm', user: 'x', fetcher: fn, retries: 0, timeoutRetries: 0, timeoutMs: 30 }),
+    )
+    expect(caught).toBeInstanceOf(TimeoutError)
+  })
+
+  it('draws timeouts from their own (smaller) budget, not the rate-limit budget', async () => {
+    // Always times out. retries=5 but timeoutRetries=1 -> exactly 2 attempts.
+    const { fn, getAttempt } = makeFetcher(neverSettles)
+    const caught = await catchErr(
+      chat({ model: 'm', user: 'x', fetcher: fn, retries: 5, timeoutRetries: 1, timeoutMs: 20 }),
+    )
+    expect(caught).toBeInstanceOf(TimeoutError)
+    expect(getAttempt()).toBe(2)
+  })
+
+  it('keeps the full rate-limit budget even when timeoutRetries is 0', async () => {
+    // A low timeoutRetries must NOT starve 429 handling -- they are separate.
+    let n = 0
+    const { fn, getAttempt } = makeFetcher(() => {
+      n++
+      if (n < 4) return new Response('slow down', { status: 429 })
+      return jsonResponse('recovered')
+    })
+    const res = await chat({ model: 'm', user: 'x', fetcher: fn, retries: 3, timeoutRetries: 0 })
+    expect(res.content).toBe('recovered')
+    expect(getAttempt()).toBe(4)
+  })
 })
