@@ -35,7 +35,10 @@ export function ChatBubble({
                   // biome-ignore lint/suspicious/noArrayIndexKey: content blocks without stable IDs
                   // react-doctor-disable-next-line react-doctor/no-array-index-key, react-doctor/no-array-index-as-key
                   key={i}
-                  className="text-sm [&_a]:text-primary-foreground/85 [&_a]:underline [&_a]:decoration-primary-foreground/40 [&_code]:!bg-black/25 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!rounded-sm [&_code]:!text-primary-foreground/80 [&_code]:!text-[0.85em]"
+                  // [&_code] styles inline code chips; [&_pre_code] re-zeros them
+                  // for fenced blocks -- inline padding on a wrapped <code> bleeds
+                  // its left-padding onto the first visual line only, indenting it.
+                  className="text-sm [&_a]:text-primary-foreground/85 [&_a]:underline [&_a]:decoration-primary-foreground/40 [&_code]:!bg-black/25 [&_code]:!px-1.5 [&_code]:!py-0.5 [&_code]:!rounded-sm [&_code]:!text-primary-foreground/80 [&_code]:!text-[0.85em] [&_pre_code]:!bg-transparent [&_pre_code]:!p-0 [&_pre_code]:!rounded-none [&_pre_code]:!text-[0.95em]"
                 >
                   <Markdown inline={!hasBlocks}>{item.text}</Markdown>
                 </div>
