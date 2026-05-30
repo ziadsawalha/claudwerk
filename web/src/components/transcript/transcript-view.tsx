@@ -642,15 +642,34 @@ export const TranscriptView = memo(function TranscriptView({
     prevTotalSizeRef.current = 0
     virtualizer.scrollToEnd()
     onReachedBottom?.()
+    console.debug(`[follow] switch-pin cacheKey=${cacheKey?.slice(0, 8) ?? '-'} groups=${renderGroups.length}`)
+    // Did the entry actually land at the bottom? (Issue: "entering a conversation
+    // doesn't always get to the bottom".) Measure a frame later, after the
+    // scrollToEnd + first layout. DID-NOT-REACH means the pin undershot the
+    // still-measuring content -- the growth effect below should converge it iff
+    // `follow` is true by then.
+    const raf = requestAnimationFrame(() => {
+      const el = parentRef.current
+      if (!el) return
+      const drift = el.scrollHeight - el.scrollTop - el.clientHeight
+      console.debug(
+        `[follow] switch-pin settled drift=${drift.toFixed(0)} ${drift < 40 ? 'OK' : 'DID-NOT-REACH-BOTTOM'} follow=${follow ? 1 : 0}`,
+      )
+    })
     const id = setTimeout(() => {
       followSmoothRef.current = true
     }, 350)
-    return () => clearTimeout(id)
+    return () => {
+      clearTimeout(id)
+      cancelAnimationFrame(raf)
+    }
   }, [cacheKey])
 
-  // Re-pin when follow is toggled on (ScrollToBottomButton click).
+  // Re-pin when follow is toggled on (ScrollToBottomButton click). Logs the
+  // authoritative engaged/disengaged transition at the PROP level.
   // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizer is stable
   useLayoutEffect(() => {
+    console.debug(`[follow] follow-prop=${follow ? 'ON (engaged)' : 'OFF (disengaged)'}`)
     if (follow) virtualizer.scrollToEnd()
   }, [follow])
 
@@ -670,10 +689,26 @@ export const TranscriptView = memo(function TranscriptView({
   // that. prevTotalSizeRef (declared above, reset to 0 on switch) makes the first
   // measure of a fresh conversation count as growth.
   // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize is the intentional trigger; virtualizer is stable
+  const lastGrewLogRef = useRef(0)
   useLayoutEffect(() => {
     const grew = totalSize > prevTotalSizeRef.current
+    const delta = totalSize - prevTotalSizeRef.current
     prevTotalSizeRef.current = totalSize
-    if (follow && grew) virtualizer.scrollToEnd({ behavior: followSmoothRef.current ? 'smooth' : 'auto' })
+    if (follow && grew) {
+      virtualizer.scrollToEnd({ behavior: followSmoothRef.current ? 'smooth' : 'auto' })
+    } else if (grew && !follow && delta > 24) {
+      // Content arrived (new group, async recap, finished turn) while follow was
+      // already OFF, so nothing pins -- the "recap scrolls below / anchor lost"
+      // symptom. The preceding DISENGAGE line tells you WHY follow was off.
+      // Throttled so streaming-while-reading-history doesn't flood.
+      const now = performance.now()
+      if (now - lastGrewLogRef.current > 800) {
+        lastGrewLogRef.current = now
+        console.debug(
+          `[follow] grew-but-not-following Δ=${delta.toFixed(0)} total=${totalSize.toFixed(0)} -- content arrived while follow OFF (won't pin)`,
+        )
+      }
+    }
   }, [totalSize, follow])
 
   // PREPEND ANCHOR. There is NO native scroll anchoring (`anchorTo:'end'` is a
@@ -781,6 +816,10 @@ export const TranscriptView = memo(function TranscriptView({
   onUserScrollRef.current = onUserScroll
   const onReachedBottomRef = useRef(onReachedBottom)
   onReachedBottomRef.current = onReachedBottom
+  // Mirror of the `follow` prop so the scroll handler can log only the genuine
+  // ENGAGE/DISENGAGE transitions (not every qualifying scroll frame).
+  const followStateRef = useRef(follow)
+  followStateRef.current = follow
   useEffect(() => {
     const el = parentRef.current
     if (!el) return
@@ -801,8 +840,18 @@ export const TranscriptView = memo(function TranscriptView({
     function onScroll() {
       const drift = el!.scrollHeight - el!.scrollTop - el!.clientHeight
       if (drift < 40) {
+        if (!followStateRef.current) {
+          console.debug(
+            `[follow] ENGAGE reason=reached-bottom drift=${drift.toFixed(0)} userScrolling=${userScrolling} cacheKey=${cacheKeyRef.current?.slice(0, 8) ?? '-'}`,
+          )
+        }
         onReachedBottomRef.current?.()
       } else if (userScrolling && drift > 120) {
+        if (followStateRef.current) {
+          console.debug(
+            `[follow] DISENGAGE reason=user-scroll-up drift=${drift.toFixed(0)} cacheKey=${cacheKeyRef.current?.slice(0, 8) ?? '-'}`,
+          )
+        }
         onUserScrollRef.current?.()
       }
     }
