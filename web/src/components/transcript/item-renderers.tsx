@@ -17,38 +17,39 @@ const renderAgentInline = (agentId: string, toolId?: string) => (
   <AgentTranscriptInline agentId={agentId} toolId={toolId} />
 )
 
-// Encrypted thinking blocks are SEALED thoughts -- the content never lands in
-// the transcript, only its size. So instead of the live "thinking" label we name
-// the ghost of the thought with a random (but per-block stable) wild synonym.
+// Encrypted thinking blocks are SEALED, COMPLETED thoughts -- the content never
+// lands in the transcript, only its size. The live spinner is present-tense
+// ("Thinking..."), so the committed ghost reads in PAST tense: what the model
+// already DID. Random (but per-block stable) wild past-tense synonym.
 const THOUGHTS = [
   'THOUGHT',
-  'BRAINWAVE',
-  'EUREKA',
-  'COGITATION',
-  'MUSING',
-  'NOODLING',
-  'GALAXY BRAIN',
-  'RUMINATION',
-  'EPIPHANY',
-  'BRAIN BLAST',
-  'DEEP THUNK',
+  'PONDERED',
+  'MUSED',
+  'RUMINATED',
+  'COGITATED',
+  'NOODLED',
+  'BRAINSTORMED',
+  'MULLED IT OVER',
+  'DELIBERATED',
+  'CONTEMPLATED',
+  'OVERTHOUGHT',
   'THUNK',
-  'MIND PALACE',
-  'INNER MONOLOGUE',
-  'NEURON STORM',
-  'BIG THINK',
-  '5D CHESS',
-  'HOT TAKE',
-  'SYNAPSE FLARE',
-  'HEAD SCRATCHER',
-  'SHOWER THOUGHT',
-  'GREY MATTER',
-  'WETWARE OUTPUT',
-  'CEREBRATION',
-  'PONDERANCE',
-  'BRAINSTORM',
-  'GUT FEELING',
-  'SECOND GUESS',
+  'DEEP THUNK',
+  'GALAXY-BRAINED',
+  'BIG THONK',
+  'OVERCLOCKED',
+  'HALLUCINATED',
+  'VIBED',
+  'COOKED',
+  'LOCKED IN',
+  'SPIRALED',
+  'WOOLGATHERED',
+  'CEREBRATED',
+  'SCHEMED',
+  'COMPUTED',
+  '5D-CHESSED',
+  'INTROSPECTED',
+  'SECOND-GUESSED',
 ]
 // Deterministic per-block pick (seeded on the encrypted size) so a given block
 // always shows the same word -- no flicker on re-render/remount.
