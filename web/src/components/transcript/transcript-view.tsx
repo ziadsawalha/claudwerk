@@ -880,13 +880,48 @@ export const TranscriptView = memo(function TranscriptView({
     if (follow && grew) virtualizer.scrollToEnd({ behavior: followSmoothRef.current ? 'smooth' : 'auto' })
   }, [totalSize, follow])
 
+  // PREPEND ANCHOR. There is NO native scroll anchoring (`anchorTo:'end'` is a
+  // no-op -- the option does not exist in @tanstack/react-virtual 3.x), so when
+  // older content is added ABOVE the viewport (a "Load earlier" window reveal or
+  // an infinite-scrollback fetch) nothing compensates scrollTop and the view
+  // jerks up to the top of the freshly-prepended block. Detect head growth via
+  // the oldest VISIBLE entry's seq dropping, and -- only while NOT following --
+  // add the totalSize delta to scrollTop so the content you were reading stays
+  // fixed. Tail growth (streaming) leaves oldestVisibleSeq unchanged, so it never
+  // triggers here; following is handled by the pin effects above. Uses totalSize
+  // (not el.scrollHeight) to avoid a forced reflow.
+  const prevOldestSeqRef = useRef(oldestVisibleSeq)
+  const prevTotalForAnchorRef = useRef(totalSize)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: oldestVisibleSeq/totalSize are the intentional triggers
+  useLayoutEffect(() => {
+    const prevSeq = prevOldestSeqRef.current
+    const prevTotal = prevTotalForAnchorRef.current
+    prevOldestSeqRef.current = oldestVisibleSeq
+    prevTotalForAnchorRef.current = totalSize
+    const el = parentRef.current
+    if (!el || follow) return
+    const headGrewOlder = oldestVisibleSeq > 0 && prevSeq > 0 && oldestVisibleSeq < prevSeq
+    if (headGrewOlder) {
+      const delta = totalSize - prevTotal
+      if (delta > 0) el.scrollTop += delta
+    }
+  }, [oldestVisibleSeq, totalSize, follow])
+
   // Re-entrancy guard for the scroll-up auto-trigger.
   const loadingEarlierRef = useRef(false)
   // Re-entrancy guard for the server-side older-history fetch (infinite scrollback).
   const fetchingOlderRef = useRef(false)
+  // True only while the user is actively scrolling (wheel/touch + a short tail for
+  // momentum). The load-earlier trigger gates on this so PROGRAMMATIC scrolls --
+  // conversation-switch scrollToEnd, the pin effects, the prepend anchor's own
+  // scrollTop writes -- can never fire a backfill (which would snowball: switch
+  // snaps to top -> load -> over-cap prune storm -> regroup thrash).
+  const userScrollingRef = useRef(false)
+  const userScrollResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // "Load earlier": prepend a chunk of older entries from the local window.
-  // anchorTo:'end' handles scroll stability on prepend natively.
+  // Scroll stability on prepend is handled by the PREPEND ANCHOR effect above
+  // (NOT by anchorTo, which is a no-op in this TanStack version).
   const loadEarlier = useCallback(() => {
     setWindowStart(s => Math.max(0, s - LOAD_CHUNK))
   }, [])
@@ -924,7 +959,10 @@ export const TranscriptView = memo(function TranscriptView({
       // that offset (not scrollTop 0); subtract it so the load fires as real
       // content approaches the viewport, not after scrolling through the phantom.
       // phantomHeightRef is 0 when the reservation flag is off -> original behavior.
-      const nearTop = movedUp && st - phantomHeightRef.current < LOAD_EARLIER_SCROLL_THRESHOLD
+      // Gate on genuine user scrolling: programmatic scrolls (switch, pin,
+      // prepend anchor) must never trigger a load, or they snowball.
+      const nearTop =
+        movedUp && userScrollingRef.current && st - phantomHeightRef.current < LOAD_EARLIER_SCROLL_THRESHOLD
       if (nearTop && windowStartRef.current > 0 && !loadingEarlierRef.current) {
         loadingEarlierRef.current = true
         loadEarlier()
@@ -956,6 +994,13 @@ export const TranscriptView = memo(function TranscriptView({
       requestAnimationFrame(() => {
         userScrolling = false
       })
+      // Wider window for the load-trigger gate so momentum/inertia scroll still
+      // counts as user-driven. Programmatic scrolls never call this handler.
+      userScrollingRef.current = true
+      if (userScrollResetRef.current) clearTimeout(userScrollResetRef.current)
+      userScrollResetRef.current = setTimeout(() => {
+        userScrollingRef.current = false
+      }, 200)
     }
     function onScroll() {
       const drift = el!.scrollHeight - el!.scrollTop - el!.clientHeight
@@ -972,6 +1017,7 @@ export const TranscriptView = memo(function TranscriptView({
       el.removeEventListener('wheel', onWheelOrTouch)
       el.removeEventListener('touchstart', onWheelOrTouch)
       el.removeEventListener('scroll', onScroll)
+      if (userScrollResetRef.current) clearTimeout(userScrollResetRef.current)
     }
   }, [])
 
