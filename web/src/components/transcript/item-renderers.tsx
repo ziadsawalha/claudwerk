@@ -103,18 +103,20 @@ export function ProjectTaskItem({ item }: { item: Extract<RenderItem, { kind: 'p
 /**
  * Assistant prose -- the SINGLE renderer for both the in-flight streaming text
  * and the committed assistant entry. `streaming` is the only difference:
- *   streaming=true  : emerald live-accent + dimmed + caret, NO copy affordances
- *                     (text is still mutating -- nothing stable to copy yet).
- *   streaming=false : transparent accent (same geometry, no reflow on handoff) +
- *                     full opacity + the rich committed chrome (CopyMenu /
+ *   streaming=true  : dimmed + emerald live-accent bar + caret, NO copy
+ *                     affordances (text is still mutating -- nothing stable to
+ *                     copy yet). The `is-streaming` class lights the accent.
+ *   streaming=false : full opacity + the rich committed chrome (CopyMenu /
  *                     copy-as-image / hover). The API-error treatment applies to
  *                     committed text only -- a live stream never settles mid-JSON.
  *
- * The left accent keeps a CONSTANT 2px border + pl-3 in both states so the
- * streaming->committed swap (solar-orca's in-place live-slot takeover) never
- * shifts geometry -- only border-COLOR + opacity change. The settle morph
- * (globals.css `assistant-settle`, triggered by the group wrapper in
- * transcript-view) animates exactly those two composited properties.
+ * The box is LAYOUT-IDENTICAL in both states: flush, full width. The emerald
+ * accent is a paint-only `::before` bar that BLEEDS LEFT into the gutter
+ * (globals.css [data-assistant-text]::before, absolutely positioned -> zero
+ * layout width). So the streaming->committed swap (solar-orca's in-place
+ * live-slot takeover) cannot re-wrap or shift the text -- only opacity + the
+ * bar's opacity change. The settle morph (globals.css `assistant-settle`,
+ * triggered by the group wrapper in transcript-view) fades exactly those.
  */
 export function AssistantText({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const isApiError = !streaming && /^API Error:\s*\d+\s*\{/.test(text)
@@ -129,13 +131,7 @@ export function AssistantText({ text, streaming = false }: { text: string; strea
   }
 
   return (
-    <div
-      data-assistant-text
-      className={cn(
-        'text-sm group/text relative border-l-2 pl-3',
-        streaming ? 'border-emerald-400/40 opacity-75' : 'border-transparent opacity-100',
-      )}
-    >
+    <div data-assistant-text className={cn('text-sm group/text relative', streaming && 'is-streaming opacity-75')}>
       <Markdown>{text}</Markdown>
       {streaming ? (
         <span className="inline-block w-1.5 h-4 bg-emerald-500 animate-pulse ml-0.5 align-text-bottom" />

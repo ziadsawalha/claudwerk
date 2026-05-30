@@ -469,6 +469,58 @@ body:has([data-mobile-compose-panel]) [data-voice-fab] {
 .transcript-entry-enter {
 	animation: transcript-entry-enter 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* Assistant streaming accent + settle morph (layout-neutral).
+   The emerald live-accent is a paint-only ::before bar that BLEEDS LEFT into the
+   transcript's p-3/p-4 gutter (absolute -> zero layout width). The text box is
+   byte-identical streaming vs committed -- flush, full width -- so a handoff can
+   NEVER re-wrap or shift it; only opacity animates. No reflow, no virtualizer
+   re-measure, no scroll movement (same discipline as transcript-entry-enter). */
+[data-assistant-text]::before {
+	content: '';
+	position: absolute;
+	left: -8px;
+	top: 0.15rem;
+	bottom: 0.15rem;
+	width: 2px;
+	border-radius: 1px;
+	background-color: rgb(52 211 153 / 0.5); /* emerald-400/50 */
+	opacity: 0; /* committed resting: no bar */
+	pointer-events: none;
+}
+[data-assistant-text].is-streaming::before {
+	opacity: 1;
+}
+
+/* Settle morph: when a turn completes, the committed entry takes over the live
+   slot in place (solar-orca's rework). The committed text node mounts where the
+   streaming box was; `assistant-settle` (set on the just-settled group wrapper in
+   transcript-view) fades the emerald bar out (1 -> 0) and the text up to full
+   opacity (0.75 -> 1), so the box visibly settles into the final text. The
+   committed prose carries NO is-streaming class, so these land on the resting
+   values (bar gone, full opacity). */
+@keyframes assistant-settle-bar {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@keyframes assistant-settle-text {
+	from {
+		opacity: 0.75;
+	}
+	to {
+		opacity: 1;
+	}
+}
+.assistant-settle [data-assistant-text]::before {
+	animation: assistant-settle-bar 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.assistant-settle [data-assistant-text]:not(.is-streaming) {
+	animation: assistant-settle-text 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
 /* NOTE: no prefers-reduced-motion guard. A real-browser harness proved the
    animation fires/runs 11/11 on new groups; the only thing suppressing it in the
    live app was this guard firing because the viewer has OS "Reduce Motion" on.

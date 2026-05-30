@@ -21,6 +21,7 @@ import {
 import { fetchTranscriptBefore, useConversationsStore } from '@/hooks/use-conversations'
 import { record } from '@/lib/perf-metrics'
 import type { TranscriptAssistantEntry, TranscriptEntry } from '@/lib/types'
+import { cn } from '@/lib/utils'
 import {
   AskQuestionBanners,
   LinkRequestBanners,
@@ -536,6 +537,38 @@ export const TranscriptView = memo(function TranscriptView({
   }, [tailKey])
   const clearEntering = useCallback(() => setEnteringKey(null), [])
 
+  // SETTLE MORPH. When the streaming TEXT buffer clears (a message/turn just
+  // committed), the committed assistant entry has taken over the live slot in
+  // place. Tag that tail group so its wrapper plays `assistant-settle`
+  // (globals.css): the emerald accent bar fades out + opacity rises to full, so
+  // the streaming box visibly settles into the final text. Mirrors enteringKey;
+  // detected during render off the true->false edge of the text buffer.
+  const [settlingKey, setSettlingKey] = useState<string | null>(null)
+  const streamingTextPresent = useConversationsStore(state =>
+    selectedConversationId ? !!state.streamingText[selectedConversationId] : false,
+  )
+  const prevStreamingTextRef = useRef(streamingTextPresent)
+  const pendingSettleRef = useRef<string | null>(null)
+  const settleTailGroup = mainGroups.length > 0 ? mainGroups[mainGroups.length - 1] : null
+  if (
+    prevStreamingTextRef.current &&
+    !streamingTextPresent &&
+    tailKey !== null &&
+    settleTailGroup?.type === 'assistant'
+  ) {
+    pendingSettleRef.current = tailKey
+  }
+  prevStreamingTextRef.current = streamingTextPresent
+  // biome-ignore lint/correctness/useExhaustiveDependencies: streamingTextPresent is the intentional trigger
+  useEffect(() => {
+    const key = pendingSettleRef.current
+    if (key) {
+      pendingSettleRef.current = null
+      setSettlingKey(key)
+    }
+  }, [streamingTextPresent])
+  const clearSettling = useCallback(() => setSettlingKey(null), [])
+
   // Extract plan content from entries for ExitPlanMode display.
   // Finds the last Write to a plans/*.md path across all entries.
   // IMPORTANT: return stable reference when content hasn't changed to avoid busting memo on all GroupViews.
@@ -861,6 +894,7 @@ export const TranscriptView = memo(function TranscriptView({
           })().map(virtualItem => {
             const itemKey = String(virtualItem.key)
             const isEntering = enteringKey === itemKey
+            const isSettling = settlingKey === itemKey
             const isLast = virtualItem.index === renderGroups.length - 1
             const group = renderGroups[virtualItem.index]
             const isLive = group.type === 'live'
@@ -879,11 +913,16 @@ export const TranscriptView = memo(function TranscriptView({
                     pure in-flight UI until the committed entry takes it over. */}
                 {!isLive && (
                   <div
-                    className={isEntering ? 'transcript-entry-enter' : undefined}
+                    className={cn(isEntering && 'transcript-entry-enter', isSettling && 'assistant-settle')}
                     onAnimationEnd={
-                      isEntering
+                      isEntering || isSettling
                         ? e => {
                             if (e.animationName === 'transcript-entry-enter') clearEntering()
+                            else if (
+                              e.animationName === 'assistant-settle-bar' ||
+                              e.animationName === 'assistant-settle-text'
+                            )
+                              clearSettling()
                           }
                         : undefined
                     }
