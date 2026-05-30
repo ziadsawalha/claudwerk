@@ -260,6 +260,15 @@ export function useGlobalCommands(toggleSidebar: () => void) {
   )
 
   useCommand(
+    'toggle-scrollback-reservation',
+    () => {
+      const store = useConversationsStore.getState()
+      store.updateControlPanelPrefs({ scrollbackReservation: !store.controlPanelPrefs.scrollbackReservation })
+    },
+    { label: 'Toggle scrollback reservation (experimental)', group: 'View' },
+  )
+
+  useCommand(
     'interrupt',
     () => {
       const store = useConversationsStore.getState()

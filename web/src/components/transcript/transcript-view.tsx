@@ -29,9 +29,9 @@ import {
   SpawnApprovalBanners,
 } from '../conversation-detail/conversation-banners'
 import { Markdown } from '../markdown'
+import { Collapse } from './collapse'
 import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
-import { Collapse } from './collapse'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
 import { AssistantText } from './item-renderers'
 import { ThinkingPill } from './thinking-pill'
@@ -39,6 +39,11 @@ import { ThinkingPill } from './thinking-pill'
 /** Content-aware size estimation to minimize layout shift on first render.
  *  Falls back to measuredSizes cache for groups that have been rendered before. */
 function estimateGroupSize(group: DisplayGroup, measuredSizes: Map<string, number>, key: string): number {
+  // The scrollback spacer's height is authoritative-by-computation (olderCount *
+  // avgPerEntry), NOT by measurement -- bypass the cache so refinements take
+  // effect and a stale measured height never sticks.
+  if (group.type === 'scrollback_spacer') return group.spacerHeight ?? 0
+
   const cached = measuredSizes.get(key)
   if (cached !== undefined) return cached
 
@@ -626,10 +631,37 @@ export const TranscriptView = memo(function TranscriptView({
   // transition an in-place swap (same key/index, no count change).
   const appendSyntheticLive = liveActive && lastMainGroup?.type !== 'assistant'
   const LIVE_GROUP = useMemo<DisplayGroup>(() => ({ type: 'live', timestamp: '', entries: [] }), [])
-  const renderGroups = useMemo(
-    () => (appendSyntheticLive ? [...mainGroups, LIVE_GROUP] : mainGroups),
-    [appendSyntheticLive, mainGroups, LIVE_GROUP],
+
+  // SCROLLBACK SPACER (flag-gated, EXPERIMENTAL). Reserve estimated height for
+  // older entries not yet rendered, so the scrollbar reflects the full
+  // conversation length. The durable seq is dense-from-1, so the oldest VISIBLE
+  // entry's `seq - 1` is exactly the count of unrendered-older entries (both
+  // windowed-out AND server-unloaded). Height = that count * a running per-entry
+  // average (avgPerEntryRef, refined post-measure each frame). Quantized into a
+  // bucket so the memo identity stays stable across sub-pixel avg drift.
+  const avgPerEntryRef = useRef(60) // running avg measured group height per entry (px)
+  const phantomHeightRef = useRef(0) // current scrollback-spacer height, for the load trigger
+  const reserveScrollback = useConversationsStore(state => state.controlPanelPrefs.scrollbackReservation)
+  const oldestVisibleSeq = windowed.length > 0 ? (windowed[0].seq ?? 0) : 0
+  const olderCount = reserveScrollback && oldestVisibleSeq > 1 ? oldestVisibleSeq - 1 : 0
+  const spacerHeight = Math.round(olderCount * avgPerEntryRef.current)
+  const spacerBucket = Math.round(spacerHeight / 24)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: spacerHeight is intentionally bucketed via spacerBucket to keep the memo identity stable across sub-pixel drift
+  const SCROLLBACK_SPACER = useMemo<DisplayGroup | null>(
+    () =>
+      olderCount > 0
+        ? { type: 'scrollback_spacer', timestamp: '', entries: [], spacerHeight, spacerCount: olderCount }
+        : null,
+    [olderCount, spacerBucket],
   )
+  const renderGroups = useMemo(() => {
+    const head = SCROLLBACK_SPACER ? [SCROLLBACK_SPACER] : []
+    const tail = appendSyntheticLive ? [LIVE_GROUP] : []
+    return head.length || tail.length ? [...head, ...mainGroups, ...tail] : mainGroups
+  }, [SCROLLBACK_SPACER, appendSyntheticLive, mainGroups, LIVE_GROUP])
+  const hasSpacer = !!SCROLLBACK_SPACER
+  phantomHeightRef.current = hasSpacer ? spacerHeight : 0
+  const spacerKey = selectedConversationId ? `scrollback-${selectedConversationId}` : 'scrollback'
   const liveKey = selectedConversationId ? `live-${selectedConversationId}` : 'live'
   // The live slot is the last renderGroups item while the turn is live, keyed
   // liveKey so the synthetic group and the committed assistant group are the
@@ -647,8 +679,12 @@ export const TranscriptView = memo(function TranscriptView({
   const measuredSizes = useMemo(() => getConvSizeCache(cacheKey ?? null), [cacheKey])
 
   const getItemKey = useCallback(
-    (index: number) => (index === liveSlotIndex ? liveKey : stableGroupKey(renderGroups[index])),
-    [renderGroups, liveSlotIndex, liveKey],
+    (index: number) => {
+      if (index === liveSlotIndex) return liveKey
+      if (hasSpacer && index === 0) return spacerKey
+      return stableGroupKey(renderGroups[index])
+    },
+    [renderGroups, liveSlotIndex, liveKey, hasSpacer, spacerKey],
   )
 
   const virtualizer = useVirtualizer({
@@ -729,6 +765,22 @@ export const TranscriptView = memo(function TranscriptView({
   if (liveActive && !appendSyntheticLive && lastMainGroup) {
     const liveSize = measuredSizes.get(liveKey)
     if (liveSize !== undefined) measuredSizes.set(stableGroupKey(lastMainGroup), liveSize)
+  }
+  // Refine the per-entry height average from currently-measured REAL groups
+  // (exclude the synthetic spacer + live slot). Drives the scrollback spacer's
+  // reserved height; one-frame lag is fine (the spacer is an estimate).
+  if (reserveScrollback) {
+    let hSum = 0
+    let eSum = 0
+    for (const g of renderGroups) {
+      if (g.type === 'scrollback_spacer' || g.type === 'live' || g.entries.length === 0) continue
+      const sz = measuredSizes.get(stableGroupKey(g))
+      if (sz !== undefined) {
+        hSum += sz
+        eSum += g.entries.length
+      }
+    }
+    if (eSum > 0) avgPerEntryRef.current = hSum / eSum
   }
 
   // Total virtualized height. Also the dependency that drives the pin-to-bottom
@@ -867,7 +919,12 @@ export const TranscriptView = memo(function TranscriptView({
       const st = el.scrollTop
       const movedUp = st < lastScrollTop
       lastScrollTop = st
-      const nearTop = movedUp && st < LOAD_EARLIER_SCROLL_THRESHOLD
+      // "Near top" = within threshold of the FIRST REAL entry. With the scrollback
+      // spacer reserving phantomHeightRef px above real content, the real top is at
+      // that offset (not scrollTop 0); subtract it so the load fires as real
+      // content approaches the viewport, not after scrolling through the phantom.
+      // phantomHeightRef is 0 when the reservation flag is off -> original behavior.
+      const nearTop = movedUp && st - phantomHeightRef.current < LOAD_EARLIER_SCROLL_THRESHOLD
       if (nearTop && windowStartRef.current > 0 && !loadingEarlierRef.current) {
         loadingEarlierRef.current = true
         loadEarlier()
@@ -947,6 +1004,7 @@ export const TranscriptView = memo(function TranscriptView({
             const isLast = virtualItem.index === renderGroups.length - 1
             const group = renderGroups[virtualItem.index]
             const isLive = group.type === 'live'
+            const isSpacer = group.type === 'scrollback_spacer'
             return (
               <div
                 key={virtualItem.key}
@@ -958,9 +1016,12 @@ export const TranscriptView = memo(function TranscriptView({
                   width: '100%',
                 }}
               >
-                {/* Committed content. The synthetic live group has none -- it is
-                    pure in-flight UI until the committed entry takes it over. */}
-                {!isLive && (
+                {/* Scrollback spacer: a pure reserved-height block standing in for
+                    older entries not yet rendered. measureElement reads this
+                    explicit height; estimateGroupSize returns the same value. */}
+                {isSpacer && <div aria-hidden style={{ height: group.spacerHeight ?? 0 }} />}
+                {/* Committed content. The synthetic live/spacer groups have none. */}
+                {!isLive && !isSpacer && (
                   <div
                     className={cn(isEntering && 'transcript-entry-enter', isSettling && 'assistant-settle')}
                     onAnimationEnd={

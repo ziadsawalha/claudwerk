@@ -26,6 +26,11 @@ export interface DisplayGroup {
      *  TranscriptView so the live turn is a real measured virtualizer item that
      *  the committed assistant group takes over in place (same key/index). */
     | 'live'
+    /** Synthetic HEAD item reserving estimated height for older entries not yet
+     *  rendered (windowed-out or server-unloaded), so the scrollbar reflects the
+     *  full conversation length. Prepended by TranscriptView; height in
+     *  `spacerHeight`. Flag-gated (controlPanelPrefs.scrollbackReservation). */
+    | 'scrollback_spacer'
   /** Stable React/virtualizer key, assigned by useIncrementalGroups and carried
    *  across regroups (tail-append, head-prune, refetch) so a group's DOM subtree
    *  is reused instead of remounted. A remount would give every DiffView/EditDiff
@@ -41,6 +46,10 @@ export interface DisplayGroup {
   queued?: boolean
   skillName?: string
   planMode?: boolean
+  /** scrollback_spacer only: estimated reserved height (px) + the count of
+   *  unrendered older entries it stands in for. */
+  spacerHeight?: number
+  spacerCount?: number
 }
 
 /**

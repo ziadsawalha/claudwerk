@@ -58,6 +58,10 @@ export interface ControlPanelPrefs {
   showDiag: boolean
   showStreaming: boolean
   showPerfMonitor: boolean
+  /** EXPERIMENTAL: reserve estimated scrollbar height for older entries not yet
+   *  loaded, so the thumb reflects full conversation length from load. Off by
+   *  default -- see plan-transcript-scrollback-reservation.md. */
+  scrollbackReservation: boolean
   /** Live "thinking" pill on the active turn (ephemeral, while pings arrive).
    *  detailed = sparkline + tokens/sec + count; compact = spinner + count. */
   thinkingIndicator: 'detailed' | 'compact' | 'off'
@@ -95,6 +99,7 @@ const defaultPrefs: ControlPanelPrefs = {
   showDiag: false,
   showStreaming: true,
   showPerfMonitor: false,
+  scrollbackReservation: false,
   thinkingIndicator: 'detailed',
   defaultConversationCwd: '',
   toolDisplay: {},
