@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
-/** Exaggerated for the field test so the motion is visible. Pull down to ~150
- *  once the behavior looks right. */
-export const INFLIGHT_COLLAPSE_MS = 700
+/** Reveal (fade + expand) and collapse (fade + shrink) duration for in-flight
+ *  decorations. Both directions animate height (grid-template-rows) AND opacity. */
+export const INFLIGHT_COLLAPSE_MS = 250
 
 /**
  * Smoothly collapses its children's height (and fades them) when `show` flips
