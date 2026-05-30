@@ -109,6 +109,38 @@ export interface CommitDigest {
   }>
 }
 
+/** One forgotten thread: an INVESTED conversation that was abandoned BEFORE the
+ *  period window and ended on an unanswered question (open loop). Surfaced so the
+ *  user/agent sees long-dropped work they may want to resume. Deterministic --
+ *  NOT extracted by the map stage (these conversations are outside the chunks). */
+export interface ForgottenThread {
+  conversationId: string
+  /** May be '' -- 77% of forgotten threads are untitled; the synthesis LLM
+   *  writes a one-line label from lastUserPrompt + finalAssistantText. */
+  conversationTitle: string
+  projectUri: string
+  /** Whole days since last_activity (the "how long ago did I drop this"). */
+  idleDays: number
+  /** All-time recorded turns -- the investment signal. */
+  turnCount: number
+  /** The user's last prompt before the thread went cold (context for the label). */
+  lastUserPrompt: string
+  /** The assistant's final message (truncated) -- where the thread was left. */
+  finalAssistantText: string
+  /** The trailing question(s) the user never answered (the open loop). */
+  openQuestions: string[]
+}
+
+export interface ForgottenThreadDigest {
+  /** Open-loop survivors, ranked by investment then abandonment, capped. */
+  threads: ForgottenThread[]
+  /** Stale+invested candidates BEFORE the open-loop hard filter (for the
+   *  "N more not shown" line + the orchestrator's no-silent-caps log). */
+  candidateCount: number
+  /** How many candidate tails were probed for an open loop (working-set bound). */
+  probed: number
+}
+
 export interface CommitEntry {
   sha: string
   isoDate: string

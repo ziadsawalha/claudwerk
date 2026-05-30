@@ -13,6 +13,7 @@
  */
 
 import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
+import type { ForgottenThreadDigest } from '../gather/types'
 import {
   AGENT_BODY_SPEC,
   FRONTMATTER_SPEC,
@@ -20,6 +21,7 @@ import {
   RETRO_BODY_SPEC,
   RETRO_FRONTMATTER_SPEC,
 } from '../llm/prompt-builder'
+import { renderForgottenSection } from '../llm/render-forgotten'
 
 export interface SynthesizePrompt {
   system: string
@@ -30,6 +32,10 @@ export interface SynthesizeContext {
   projectLabel: string
   periodHuman: string
   periodIsoRange: string
+  /** Period-global forgotten threads. These bypass map extraction (the
+   *  conversations are outside the chunks), so they're injected here as an
+   *  authoritative deterministic block alongside the merged facts. */
+  forgotten?: ForgottenThreadDigest
 }
 
 export function buildSynthesizePrompt(
@@ -57,8 +63,10 @@ NOT extraction:
     (same thing, different wording), keep the most specific title, merge details.
   - PRESERVE every citation (conversation ids, commit hashes) and every
     "inferred" flag exactly as given -- never upgrade an inference to a fact.
-  - DO NOT invent items, citations, or facts that are not in the merged input.
-    You have no transcripts here; everything you state must trace to the input.
+  - DO NOT invent items, citations, or facts that are not in the merged input
+    OR the FORGOTTEN_THREADS block below (the latter is authoritative,
+    deterministic data -- render it, don't second-guess it).
+    You have no transcripts here; everything else you state must trace to the input.
   - DROP anything genuinely empty; never pad to fill a section.
 
 Output format: a YAML frontmatter block (between --- lines) followed by the
@@ -69,10 +77,11 @@ ${FRONTMATTER_SPEC}
 
 ${bodySpec}`
 
+  const forgottenBlock = ctx.forgotten ? renderForgottenSection(ctx.forgotten) : ''
   const user = `MERGED FACTS (already extracted + code-deduped across all chunks of the period):
 
 ${JSON.stringify(merged, null, 2)}
-
+${forgottenBlock ? `\n${forgottenBlock}\n` : ''}
 Synthesize the final recap now: refine + de-duplicate the above, then write the
 frontmatter and body per the contract. Output the frontmatter block and body only.`
 

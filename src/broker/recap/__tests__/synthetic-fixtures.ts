@@ -291,6 +291,7 @@ export function makePromptInputs(size: keyof typeof SIZES): PromptInputs {
     tools: makeTools(conversations, cfg.perTool),
     errors: makeErrors(),
     openQuestions: makeOpenQuestions(conversations),
+    forgotten: { threads: [], candidateCount: 0, probed: 0 },
     commits: makeCommits(cfg.commits),
   }
 }

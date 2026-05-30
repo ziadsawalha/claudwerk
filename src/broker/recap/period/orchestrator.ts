@@ -26,6 +26,7 @@ import {
   gatherConversations,
   gatherCost,
   gatherErrors,
+  gatherForgotten,
   gatherOpenQuestions,
   gatherTasks,
   gatherToolUse,
@@ -553,6 +554,7 @@ async function replayStage(
         projectLabel: promptInputs.projectLabel,
         periodHuman: promptInputs.periodHuman,
         periodIsoRange: promptInputs.periodIsoRange,
+        forgotten: promptInputs.forgotten,
       },
       audience,
       manifest.retrospect ?? false,
@@ -653,6 +655,14 @@ async function runRecap(
     'info',
     'gather/done',
     `gathered ${promptInputs.conversations.length} conversations, ${inputChars} chars input (audience=${audience})`,
+  )
+  // Forgotten threads: no silent caps -- log the full funnel (candidate pool ->
+  // tails probed -> open-loop survivors shown) so a missing thread is explainable.
+  const fg = promptInputs.forgotten
+  emit.emit(
+    'info',
+    'gather/forgotten',
+    `forgotten threads: ${fg.threads.length} shown (open-loop survivors) of ${fg.candidateCount} stale+invested candidate(s), ${fg.probed} tail(s) probed`,
   )
   emit.setProgress(35, 'gather/done')
 
@@ -757,6 +767,7 @@ function collectSignals(
   const tools = gatherToolUse(deps.brokerStore, conversations, scope)
   const errors = gatherErrors(deps.brokerStore, conversations, scope)
   const openQuestions = gatherOpenQuestions(deps.brokerStore, conversations, scope)
+  const forgotten = gatherForgotten(deps.brokerStore, scope)
   const commits = gatherCommitsStub(scope)
   const promptInputs: PromptInputs = {
     projectLabel: (projectLabelFn ?? defaultLabel)(projectUri),
@@ -769,6 +780,7 @@ function collectSignals(
     tools,
     errors,
     openQuestions,
+    forgotten,
     commits,
   }
   const inputChars = transcripts.reduce(
@@ -1236,6 +1248,7 @@ async function runChunked(
       projectLabel: promptInputs.projectLabel,
       periodHuman: promptInputs.periodHuman,
       periodIsoRange: promptInputs.periodIsoRange,
+      forgotten: promptInputs.forgotten,
     },
     audience,
     p.args.retrospect ?? false,

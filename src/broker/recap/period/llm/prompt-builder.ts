@@ -4,11 +4,13 @@ import type {
   ConversationDigest,
   CostDigest,
   ErrorDigest,
+  ForgottenThreadDigest,
   OpenQuestionDigest,
   TaskDigest,
   ToolUseDigest,
   TranscriptDigest,
 } from '../gather/types'
+import { renderForgottenSection } from './render-forgotten'
 import { renderTranscriptsSection, shortId } from './render-transcripts'
 
 export interface PromptInputs {
@@ -22,6 +24,7 @@ export interface PromptInputs {
   tools: ToolUseDigest
   errors: ErrorDigest
   openQuestions: OpenQuestionDigest
+  forgotten: ForgottenThreadDigest
   commits: CommitDigest
 }
 
@@ -145,6 +148,16 @@ export const HUMAN_BODY_SPEC = `MARKDOWN BODY (after the closing --- of frontmat
   decision and never got one. Do not invent open questions; only use
   ones present in the input.
 
+  ## Loose ends -- forgotten threads
+  Invested conversations from BEFORE this period that were abandoned mid-work,
+  each left on a question you never answered -- work you may have forgotten you
+  started. Render EVERY thread in the FORGOTTEN_THREADS input as a bullet:
+  link it via [short label](/sessions/conv_xxx...), state how long it's been
+  idle and its turn count, and write a one-line synthesis of what it was about
+  (use the title if present, else infer a label from LAST USER / LEFT AT). Lead
+  with the open question that was left hanging. Most-invested first. This is the
+  "you forgot this existed" section -- omit only if FORGOTTEN_THREADS is empty.
+
   ## Tasks completed
   Project board items closed in the period
 
@@ -192,6 +205,15 @@ export const AGENT_BODY_SPEC = `MARKDOWN BODY (after the closing --- of frontmat
   Constraints or landmines discovered this period: a tool that misbehaves,
   an environment quirk, a non-obvious dependency, a surprising failure
   mode. Only include something that would actually bite the reader.
+
+  ## Forgotten -- may want to resume
+  Invested conversations from BEFORE this period, abandoned mid-work and left on
+  a question the user never answered. Render EVERY thread in the
+  FORGOTTEN_THREADS input: link it (/sessions/conv_xxx...), give idle-age + turn
+  count, a one-line synthesis of what it was about (title if present, else infer
+  from LAST USER / LEFT AT), and the open question it stalled on. These are
+  candidate work to RESUME -- the user may not remember they exist. Omit the
+  section only if FORGOTTEN_THREADS is empty.
 
   ## Pick up here
   The obvious next actions, most important first. If there is genuinely
@@ -273,6 +295,7 @@ function userPayload(inputs: PromptInputs): string {
   parts.push(renderToolsSection(inputs.tools))
   parts.push(renderErrorsSection(inputs.errors))
   parts.push(renderOpenQuestionsSection(inputs.openQuestions))
+  parts.push(renderForgottenSection(inputs.forgotten))
   parts.push(renderCommitsSection(inputs.commits))
   parts.push(renderCostSummary(inputs.cost))
   parts.push('\nWrite the recap now.')

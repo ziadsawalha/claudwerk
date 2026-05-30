@@ -1,6 +1,42 @@
-import type { StoreDriver } from '../../../store/types'
+import type { StoreDriver, TranscriptEntryRecord } from '../../../store/types'
 import { extractUserPromptsAndFinals } from '../../shared/transcript-extract'
 import type { ConversationDigest, OpenQuestionDigest, PeriodScope } from './types'
+
+/** The open-loop signal extracted from a slice of transcript records: the final
+ *  turn's user prompt, the assistant's final text, and the trailing question(s)
+ *  the user never answered. `null` when the slice has no turns or the final
+ *  assistant turn ends on no question. SHARED by the period open-questions gather
+ *  (in-window slice) and the forgotten-threads gather (the conversation tail). */
+export interface OpenLoop {
+  lastUserPrompt: string
+  finalAssistantText: string
+  openQuestions: string[]
+  timestamp: number
+}
+
+export function detectOpenLoopFromRecords(records: TranscriptEntryRecord[]): OpenLoop | null {
+  const turns = extractUserPromptsAndFinals(
+    records.map(
+      rec =>
+        ({
+          type: rec.type,
+          uuid: rec.uuid,
+          timestamp: rec.timestamp,
+          ...rec.content,
+        }) as never,
+    ),
+  )
+  if (turns.length === 0) return null
+  const last = turns[turns.length - 1]
+  const questions = extractTrailingQuestions(last.assistantFinal)
+  if (questions.length === 0) return null
+  return {
+    lastUserPrompt: last.userPrompt,
+    finalAssistantText: last.assistantFinal,
+    openQuestions: questions,
+    timestamp: last.timestamp,
+  }
+}
 
 /**
  * Detect conversations whose final assistant turn ends on one or more
@@ -35,33 +71,20 @@ function detectOpenQuestion(
     before: scope.periodEnd,
     limit: 1_000,
   })
-  const turns = extractUserPromptsAndFinals(
-    entries.map(
-      rec =>
-        ({
-          type: rec.type,
-          uuid: rec.uuid,
-          timestamp: rec.timestamp,
-          ...rec.content,
-        }) as never,
-    ),
-  )
-  if (turns.length === 0) return null
-  const last = turns[turns.length - 1]
-  const questions = extractTrailingQuestions(last.assistantFinal)
-  if (questions.length === 0) return null
+  const open = detectOpenLoopFromRecords(entries)
+  if (!open) return null
   return {
     conversationId: conv.id,
     conversationTitle: conv.title,
-    lastUserPrompt: last.userPrompt,
-    finalAssistantText: last.assistantFinal,
-    openQuestions: questions,
-    timestamp: last.timestamp,
+    lastUserPrompt: open.lastUserPrompt,
+    finalAssistantText: open.finalAssistantText,
+    openQuestions: open.openQuestions,
+    timestamp: open.timestamp,
   }
 }
 
 /** Pull any sentence in the trailing third of the assistant text that ends with `?`. */
-function extractTrailingQuestions(text: string): string[] {
+export function extractTrailingQuestions(text: string): string[] {
   if (!text) return []
   const sentences = splitSentences(text)
   if (sentences.length === 0) return []
