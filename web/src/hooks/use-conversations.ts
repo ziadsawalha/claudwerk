@@ -810,15 +810,18 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
     const pending = pendingDialogs[conversationId]
     if (ws?.readyState === WebSocket.OPEN) {
       if (pending?.source === 'plan_approval' && pending.meta) {
-        // Plan approval: route as plan_approval_response instead of dialog_result
-        const action = result._action === 'reject' ? 'reject' : result.feedback ? 'feedback' : 'approve'
+        // Plan approval: route as plan_approval_response instead of dialog_result.
+        // Two outcomes: approve (exit plan mode + run) or reject (keep planning).
+        // CC ignores feedback on approve, so the textarea only travels with reject,
+        // where it becomes the deny message fed back to the agent to revise.
+        const action = result._action === 'reject' ? 'reject' : 'approve'
         const msg = JSON.stringify({
           type: 'plan_approval_response',
           conversationId,
           requestId: pending.meta.requestId,
           toolUseId: pending.meta.toolUseId,
           action,
-          feedback: result.feedback || undefined,
+          feedback: action === 'reject' ? (result.feedback as string) || undefined : undefined,
         })
         ws.send(msg)
         recordOut(msg.length)

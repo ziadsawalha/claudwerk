@@ -968,16 +968,19 @@ function handlePlanApproval(msg: DashboardMessage) {
   const layout: DialogLayout = {
     title: 'Plan Approval',
     timeout: 600,
-    submitLabel: 'Approve',
-    cancelLabel: 'Reject',
+    // Approve = exit plan mode and run. "Request changes" = reject + send the
+    // feedback back to the agent so it revises (CC ignores feedback on approve,
+    // so the textarea only travels with reject). The header X = plain dismiss.
+    submitLabel: 'Approve & run',
+    secondaryAction: { id: 'reject', label: 'Request changes', intent: 'destructive' },
     body: [
       { type: 'Markdown', content: pa.plan },
       { type: 'Divider' },
       {
         type: 'TextInput',
         id: 'feedback',
-        label: 'Feedback (optional)',
-        placeholder: 'Changes or additional instructions...',
+        label: 'What to change (sent to the agent if you request changes)',
+        placeholder: 'What should the agent do differently?',
         multiline: true,
       },
     ],

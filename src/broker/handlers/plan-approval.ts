@@ -66,11 +66,11 @@ const planApprovalResponse: MessageHandler = (ctx, data) => {
     if (conversation.pendingAttention?.type === 'plan_approval') {
       delete conversation.pendingAttention
     }
-    // Defense in depth: approve/feedback means the user accepted exiting plan
-    // mode. The agent host will also emit `plan_mode_changed:false`, but
-    // setting the flag here guarantees the PLAN badge clears even if the
-    // wire message races a stale `permissionMode:'plan'` status update.
-    if ((data.action === 'approve' || data.action === 'feedback') && conversation.planMode) {
+    // Defense in depth: approve means the user accepted exiting plan mode.
+    // The agent host will also emit `plan_mode_changed:false`, but setting the
+    // flag here guarantees the PLAN badge clears even if the wire message races
+    // a stale `permissionMode:'plan'` status update. Reject keeps plan mode on.
+    if (data.action === 'approve' && conversation.planMode) {
       conversation.planMode = false
     }
     ctx.conversations.persistConversationById(conversationId)

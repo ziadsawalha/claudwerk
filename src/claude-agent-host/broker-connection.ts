@@ -775,25 +775,25 @@ function handlePlanApproval(
   ctx: AgentHostContext,
   deps: BrokerConnectionDeps,
   requestId: string,
-  action: 'approve' | 'reject' | 'feedback',
+  action: 'approve' | 'reject',
   feedback?: string,
   toolUseId?: string,
 ) {
   if (!deps.headless || !ctx.streamProc) return
   clearInteraction(ctx, requestId)
 
-  const exitedPlanMode = action === 'approve' || action === 'feedback'
+  const exitedPlanMode = action === 'approve'
   if (action === 'approve') {
+    // CC ignores feedback when ExitPlanMode is allowed -- it just proceeds.
     ctx.streamProc.sendPermissionResponse(requestId, true, undefined, toolUseId)
     ctx.diag('plan', `Plan approved: ${requestId.slice(0, 8)}`)
-  } else if (action === 'feedback') {
-    ctx.streamProc.sendPermissionResponse(requestId, true, { feedback: feedback || '' }, toolUseId)
-    ctx.diag('plan', `Plan approved with feedback: ${requestId.slice(0, 8)}`)
   } else {
-    ctx.streamProc.sendPermissionResponse(requestId, false, undefined, toolUseId)
-    ctx.diag('plan', `Plan rejected: ${requestId.slice(0, 8)}`)
+    // Reject: deny the ExitPlanMode permission and feed the user's reason back
+    // to the agent as the deny message so it revises the plan. CC keeps plan mode.
+    ctx.streamProc.sendPermissionResponse(requestId, false, undefined, toolUseId, feedback)
+    ctx.diag('plan', `Plan rejected${feedback ? ' with feedback' : ''}: ${requestId.slice(0, 8)}`)
   }
-  // Only emit plan_mode_changed:false on approve/feedback. On reject, CC stays
+  // Only emit plan_mode_changed:false on approve. On reject, CC stays
   // in plan mode -- emitting false would lie to the broker.
   if (exitedPlanMode) {
     // Arm the stale-status suppressor. CC may still emit `system/status`

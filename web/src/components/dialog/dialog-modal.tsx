@@ -251,6 +251,10 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
   const requiredIds = useMemo(() => collectRequired(allComponents), [allComponents])
   const canProceed = requiredIds.every(id => hasValue(values[id]))
 
+  // Secondary action: a one-click submit (carries form values) shown in place of
+  // the plain cancel button. Only on the last page -- it ends the dialog.
+  const secondary = layout.secondaryAction
+
   // Countdown visual state
   const urgent = remaining <= 30
   const critical = remaining <= 10
@@ -431,9 +435,18 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
           className="flex items-center justify-between gap-2 px-4 pt-3 sm:pb-3 border-t border-border/30 shrink-0"
           style={{ paddingBottom: 'max(1.25rem, calc(env(safe-area-inset-bottom, 0px) + 0.75rem))' }}
         >
-          <Button variant="ghost" onClick={handleCancel}>
-            {layout.cancelLabel || 'Cancel'}
-          </Button>
+          {secondary && isLastPage ? (
+            <Button
+              variant={secondary.intent === 'destructive' ? 'destructive' : 'outline'}
+              onClick={() => handleSubmit(secondary.id)}
+            >
+              {secondary.label}
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={handleCancel}>
+              {layout.cancelLabel || 'Cancel'}
+            </Button>
+          )}
 
           <div className="flex items-center gap-2">
             {lastAction && <span className="text-[10px] text-muted-foreground font-mono">[{lastAction}]</span>}

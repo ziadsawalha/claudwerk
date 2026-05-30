@@ -126,7 +126,7 @@ export interface WsClientOptions {
   onDialogKeepalive?: (dialogId: string) => void
   onPlanApprovalResponse?: (
     requestId: string,
-    action: 'approve' | 'reject' | 'feedback',
+    action: 'approve' | 'reject',
     feedback?: string,
     toolUseId?: string,
   ) => void

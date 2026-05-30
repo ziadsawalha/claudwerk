@@ -133,6 +133,7 @@ export interface StreamProcess {
     allow: boolean,
     updatedInput?: Record<string, unknown>,
     toolUseId?: string,
+    denyMessage?: string,
   ) => void
   sendSetModel: (model: string) => void
   sendSetPermissionMode: (mode: string) => void
@@ -379,6 +380,7 @@ function buildStreamProcess(
       allow: boolean,
       updatedInput?: Record<string, unknown>,
       toolUseId?: string,
+      denyMessage?: string,
     ) {
       debug(`Permission response: ${requestId} -> ${allow ? 'allow' : 'deny'}`)
       writeStdin({
@@ -388,7 +390,13 @@ function buildStreamProcess(
           request_id: requestId,
           response: allow
             ? { behavior: 'allow', updatedInput: updatedInput || {}, ...(toolUseId && { toolUseID: toolUseId }) }
-            : { behavior: 'deny', message: 'Denied by user', ...(toolUseId && { toolUseID: toolUseId }) },
+            : {
+                behavior: 'deny',
+                // The deny message is surfaced to the agent (e.g. ExitPlanMode
+                // rejection reason), so prefer the caller's text over the default.
+                message: denyMessage?.trim() || 'Denied by user',
+                ...(toolUseId && { toolUseID: toolUseId }),
+              },
         },
       })
     },

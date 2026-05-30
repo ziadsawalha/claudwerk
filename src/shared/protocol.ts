@@ -1210,8 +1210,8 @@ export interface PlanApprovalResponse {
   conversationId: string
   requestId: string
   toolUseId?: string
-  action: 'approve' | 'reject' | 'feedback'
-  feedback?: string // user feedback text (when action === 'feedback')
+  action: 'approve' | 'reject'
+  feedback?: string // rejection reason, fed to the agent as the deny message (action === 'reject')
   [key: string]: unknown // WS JSON boundary
 }
 

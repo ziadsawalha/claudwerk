@@ -18,6 +18,16 @@ describe('validateDialogLayout', () => {
     expect(validateDialogLayout(layout)).toEqual([])
   })
 
+  it('accepts a layout with a secondaryAction', () => {
+    const layout: DialogLayout = {
+      title: 'Plan Approval',
+      submitLabel: 'Approve & run',
+      secondaryAction: { id: 'reject', label: 'Request changes', intent: 'destructive' },
+      body: [{ type: 'Markdown', content: 'plan' }],
+    }
+    expect(validateDialogLayout(layout)).toEqual([])
+  })
+
   it('rejects non-object input', () => {
     expect(validateDialogLayout(null)).toEqual(['Layout must be an object'])
     expect(validateDialogLayout('string')).toEqual(['Layout must be an object'])

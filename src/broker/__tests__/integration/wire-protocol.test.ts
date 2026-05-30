@@ -208,6 +208,68 @@ describe('conversation lifecycle', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 1b. Plan approval response (approve vs reject-with-feedback)
+// ---------------------------------------------------------------------------
+
+describe('plan approval response', () => {
+  function bootWithPendingPlan(project = 'claude:///home/user/project') {
+    const convId = testId('conv')
+    const agent = h.bootAgentHost({ conversationId: convId, project })
+    const conv = h.conversationStore.getConversation(convId)!
+    conv.planMode = true
+    conv.pendingPlanApproval = { requestId: 'pa', plan: '1. Do X', timestamp: Date.now() }
+    conv.pendingAttention = { type: 'plan_approval', question: 'Plan approval required', timestamp: Date.now() }
+    return { convId, agent, conv }
+  }
+
+  it('approve forwards to the agent host and clears plan mode', async () => {
+    const dashboard = h.connectDashboard()
+    const { convId, agent, conv } = bootWithPendingPlan()
+    agent.clearMessages()
+
+    h.dashboardSend(dashboard, {
+      type: 'plan_approval_response',
+      conversationId: convId,
+      requestId: 'pa',
+      action: 'approve',
+    })
+    await h.flushUpdates()
+
+    const fwd = agent.messagesOfType('plan_approval_response')
+    expect(fwd.length).toBe(1)
+    expect(fwd[0].action).toBe('approve')
+    expect(fwd[0].feedback).toBeUndefined()
+    // Approve exits plan mode and clears the pending approval.
+    expect(conv.planMode).toBe(false)
+    expect(conv.pendingPlanApproval).toBeUndefined()
+    expect(conv.pendingAttention).toBeUndefined()
+  })
+
+  it('reject forwards the feedback and KEEPS plan mode on', async () => {
+    const dashboard = h.connectDashboard()
+    const { convId, agent, conv } = bootWithPendingPlan()
+    agent.clearMessages()
+
+    h.dashboardSend(dashboard, {
+      type: 'plan_approval_response',
+      conversationId: convId,
+      requestId: 'pa',
+      action: 'reject',
+      feedback: 'use fetch, not axios',
+    })
+    await h.flushUpdates()
+
+    const fwd = agent.messagesOfType('plan_approval_response')
+    expect(fwd.length).toBe(1)
+    expect(fwd[0].action).toBe('reject')
+    expect(fwd[0].feedback).toBe('use fetch, not axios')
+    // Reject keeps the agent in plan mode so it can revise; pending dialog clears.
+    expect(conv.planMode).toBe(true)
+    expect(conv.pendingPlanApproval).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 2. Message routing
 // ---------------------------------------------------------------------------
 

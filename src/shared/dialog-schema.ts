@@ -170,6 +170,14 @@ export interface DialogLayout {
   timeout?: number // seconds, default 300, min 10, max 3600
   submitLabel?: string // default 'Submit'
   cancelLabel?: string // default 'Cancel'
+  /** Optional one-click secondary submit. Unlike the footer cancel button
+   *  (which dismisses with NO form values), this SUBMITS the dialog -- the
+   *  result carries every field value plus `_action: id`. Use it for a real
+   *  second outcome that needs the typed input (e.g. "Request changes" on a
+   *  plan-approval dialog, where the feedback text must travel with reject).
+   *  Renders as the left footer button, replacing plain cancel; the header X
+   *  and backdrop still perform a pure dismiss. */
+  secondaryAction?: { id: string; label: string; intent?: ButtonIntent }
   // Mutually exclusive: single-page (body) or multi-page (pages)
   body?: DialogComponent[]
   pages?: DialogPage[]
