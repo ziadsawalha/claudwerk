@@ -65,6 +65,15 @@ export default defineConfig(({ mode }) => {
     resolve: {
       tsconfigPaths: true,
       conditions: reactDev ? ['development'] : [],
+      // Force a SINGLE React copy. react-virtuoso lives in the ROOT node_modules
+      // and resolves its `react` import to ROOT/node_modules/react, while the web
+      // app uses web/node_modules/react -- two physically distinct copies (same
+      // version). Two copies = two ReactSharedInternals = a null hook dispatcher
+      // for whichever React isn't the one actively rendering, surfacing as
+      // "null is not an object (evaluating 'ReactSharedInternals.H.useState')".
+      // dedupe collapses every `react`/`react-dom` import to the copy nearest the
+      // project root (web/).
+      dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
       alias: {
         // Enable React Profiler in production builds (for perf monitoring).
         // Skipped in dev mode -- profiling is a production variant, we want the full dev bundle.
