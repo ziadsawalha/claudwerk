@@ -8,7 +8,7 @@
  *   off                : returns null
  */
 
-import { memo, useSyncExternalStore } from 'react'
+import { memo, type ReactNode, useSyncExternalStore } from 'react'
 import {
   getThinkingProgress,
   getVersion,
@@ -17,6 +17,7 @@ import {
   type ThinkingSample,
 } from '@/hooks/thinking-progress-store'
 import { useConversationsStore } from '@/hooks/use-conversations'
+import { Collapse, INFLIGHT_COLLAPSE_MS } from './collapse'
 
 const BARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 
@@ -54,30 +55,38 @@ export const ThinkingPill = memo(function ThinkingPill({ conversationId }: Think
   const mode = useConversationsStore(state => state.controlPanelPrefs.thinkingIndicator) ?? 'detailed'
   // Subscribe to the external store -- version bumps on coalesced 250ms ticks.
   useSyncExternalStore(subscribe, getVersion, getVersion)
-  if (mode === 'off' || !conversationId) return null
-  const entry = getThinkingProgress(conversationId)
-  if (!entry) return null
+  const entry = mode !== 'off' && conversationId ? getThinkingProgress(conversationId) : null
+  const last = entry?.samples[entry.samples.length - 1]
+  // Wrapped in Collapse so the sparkline fades/collapses out when thinking ends
+  // instead of poofing (an instant unmount drops scrollHeight and jerks the view).
+  const show = mode !== 'off' && !!entry && !!last
 
-  const last = entry.samples[entry.samples.length - 1]
-  if (!last) return null
-
-  if (mode === 'compact') {
-    return (
-      <div className="mt-1 flex items-center gap-1.5 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
-        <span className="inline-block size-1.5 bg-accent rounded-full animate-pulse" />
-        <span className="text-purple-400/70">thinking</span>
-        <span className="text-muted-foreground/50 tabular-nums">{formatCount(last.tokens)}</span>
-      </div>
-    )
+  let content: ReactNode = null
+  if (show && entry && last) {
+    if (mode === 'compact') {
+      content = (
+        <div className="mt-1 flex items-center gap-1.5 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
+          <span className="inline-block size-1.5 bg-accent rounded-full animate-pulse" />
+          <span className="text-purple-400/70">thinking</span>
+          <span className="text-muted-foreground/50 tabular-nums">{formatCount(last.tokens)}</span>
+        </div>
+      )
+    } else {
+      const rate = tokensPerSec(entry)
+      content = (
+        <div className="mt-1 flex items-center gap-2 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
+          <span className="text-purple-400/70">thinking</span>
+          <span className="text-purple-400/70 tabular-nums leading-none">{sparkline(entry.samples)}</span>
+          {rate > 0 && <span className="text-muted-foreground/50 tabular-nums">{rate}/s</span>}
+          <span className="text-muted-foreground/70 tabular-nums">{formatCount(last.tokens)}</span>
+        </div>
+      )
+    }
   }
 
-  const rate = tokensPerSec(entry)
   return (
-    <div className="mt-1 flex items-center gap-2 px-4 py-1 text-[11px] font-mono text-muted-foreground/60">
-      <span className="text-purple-400/70">thinking</span>
-      <span className="text-purple-400/70 tabular-nums leading-none">{sparkline(entry.samples)}</span>
-      {rate > 0 && <span className="text-muted-foreground/50 tabular-nums">{rate}/s</span>}
-      <span className="text-muted-foreground/70 tabular-nums">{formatCount(last.tokens)}</span>
-    </div>
+    <Collapse show={show} durationMs={INFLIGHT_COLLAPSE_MS}>
+      {content}
+    </Collapse>
   )
 })

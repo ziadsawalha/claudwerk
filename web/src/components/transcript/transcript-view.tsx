@@ -31,6 +31,7 @@ import {
 import { Markdown } from '../markdown'
 import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
+import { Collapse } from './collapse'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
 import { AssistantText } from './item-renderers'
 import { ThinkingPill } from './thinking-pill'
@@ -299,23 +300,25 @@ const ThinkingSpinner = memo(function ThinkingSpinner({ conversationId }: { conv
     // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [isActive])
 
-  if (!isActive) return null
-
+  // Wrapped in Collapse so it fades/collapses out when the turn ends instead of
+  // poofing -- an instant unmount drops scrollHeight and jerks the viewport.
   return (
-    <div className="mt-2 flex flex-col items-start px-4 py-1.5 text-[11px] font-mono text-muted-foreground/60">
-      <div className="flex items-center gap-2">
-        <span className="inline-block size-2 bg-accent rounded-full animate-pulse" />
-        <span className="text-accent/70">
-          {verb}
-          {'.'.repeat(dots)}
-        </span>
+    <Collapse show={isActive}>
+      <div className="mt-2 flex flex-col items-start px-4 py-1.5 text-[11px] font-mono text-muted-foreground/60">
+        <div className="flex items-center gap-2">
+          <span className="inline-block size-2 bg-accent rounded-full animate-pulse" />
+          <span className="text-accent/70">
+            {verb}
+            {'.'.repeat(dots)}
+          </span>
+        </div>
+        {turnTokens > 0 && (
+          <span className="text-muted-foreground/40 tabular-nums pl-4 text-[10px]">
+            {(turnTokens / 1000).toFixed(1)}K tokens
+          </span>
+        )}
       </div>
-      {turnTokens > 0 && (
-        <span className="text-muted-foreground/40 tabular-nums pl-4 text-[10px]">
-          {(turnTokens / 1000).toFixed(1)}K tokens
-        </span>
-      )}
-    </div>
+    </Collapse>
   )
 })
 
@@ -779,12 +782,16 @@ export const TranscriptView = memo(function TranscriptView({
   // the content as it measures in. Flipped true a beat after settle so subsequent
   // growth (streaming/pills/appends) follows SMOOTHLY.
   const followSmoothRef = useRef(false)
+  // Last totalSize, for the growth-only follow guard below. Reset on switch so the
+  // first measure of a fresh conversation counts as growth.
+  const prevTotalSizeRef = useRef(0)
 
   // Conversation switch: scroll to end + re-enable follow in the parent. Resets
   // the smooth gate so the entry scroll + initial load stay instant.
   // biome-ignore lint/correctness/useExhaustiveDependencies: virtualizer is stable, onReachedBottom is stable
   useLayoutEffect(() => {
     followSmoothRef.current = false
+    prevTotalSizeRef.current = 0
     virtualizer.scrollToEnd()
     onReachedBottom?.()
     const id = setTimeout(() => {
@@ -809,9 +816,16 @@ export const TranscriptView = memo(function TranscriptView({
   // visible. Gated on `follow` so a scrolled-up user is never yanked; idempotent
   // when already pinned; stable across the live->committed swap (seeded height
   // keeps totalSize constant there), so it does not fire spuriously.
+  // Follow only on GROWTH. On shrink -- in-flight decorations collapsing away --
+  // we do NOT scroll: the smooth height-collapse + the browser's own scrollTop
+  // clamp settle the content gently, and an extra scrollToEnd here would fight
+  // that. prevTotalSizeRef (declared above, reset to 0 on switch) makes the first
+  // measure of a fresh conversation count as growth.
   // biome-ignore lint/correctness/useExhaustiveDependencies: totalSize is the intentional trigger; virtualizer is stable
   useLayoutEffect(() => {
-    if (follow) virtualizer.scrollToEnd({ behavior: followSmoothRef.current ? 'smooth' : 'auto' })
+    const grew = totalSize > prevTotalSizeRef.current
+    prevTotalSizeRef.current = totalSize
+    if (follow && grew) virtualizer.scrollToEnd({ behavior: followSmoothRef.current ? 'smooth' : 'auto' })
   }, [totalSize, follow])
 
   // Re-entrancy guard for the scroll-up auto-trigger.
