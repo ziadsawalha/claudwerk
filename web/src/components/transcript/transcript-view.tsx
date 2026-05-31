@@ -145,11 +145,28 @@ const LOAD_CHUNK = 100
 /** Auto-load older entries when a user scroll-UP brings the viewport within this
  *  many px of the top (infinite scrollback, Phase 1b -- replaces the button). */
 const LOAD_EARLIER_SCROLL_THRESHOLD = 400
+/** Re-anchor the seq-anchored window forward once the boundary entry drifts to
+ *  within this many entries of the pruned head. Keeps a safety buffer above the
+ *  live prune line so the anchor entry is never the one pruned (which would pin
+ *  windowStart at 0 and reintroduce per-tick regroup thrash). Small relative to
+ *  WINDOW_SIZE so the window amortizes ~(WINDOW_SIZE - margin) appends per
+ *  re-anchor instead of regrouping on every post-cap tick. */
+const WINDOW_REANCHOR_MARGIN = 8
 
 /** Default window start: show the last WINDOW_SIZE entries, or all of them when
  *  the transcript is short enough that windowing buys nothing. */
 function defaultWindowStart(len: number): number {
   return len > WINDOW_THRESHOLD ? len - WINDOW_SIZE : 0
+}
+
+/** The window boundary as a SEQ rather than an absolute index. Returns the seq
+ *  of the entry at the default window start, or null when the transcript is
+ *  short enough that no window applies (show all). Anchoring by seq keeps the
+ *  window pinned to the same logical entry across a live head-prune. */
+function defaultAnchorSeq(entries: TranscriptEntry[]): number | null {
+  const idx = defaultWindowStart(entries.length)
+  if (idx <= 0) return null
+  return entries[idx]?.seq ?? null
 }
 
 /** Stable virtualizer key for a group. Prefers the group's reconciled `id`
@@ -239,35 +256,68 @@ export const TranscriptView = memo(function TranscriptView({
   // no ResizeObserver fires on return when the box didn't actually resize.
   const rectCbRef = useRef<((rect: { width: number; height: number }) => void) | null>(null)
 
-  // Progressive load window (Phase 1a). windowStart is an ABSOLUTE index into
-  // `entries`: set to the last-N default on open, only ever REDUCED by "Load
-  // earlier". Keeping it fixed during streaming means `windowed` stays a pure
-  // tail-append of the previous `windowed`, so grouping stays on the cheap
-  // incremental path (resetSignal below only changes on a prepend).
-  const [windowStart, setWindowStart] = useState(() => defaultWindowStart(entries.length))
+  // Progressive load window (Phase 1a), SEQ-ANCHORED. windowAnchorSeq is the seq
+  // of the entry at the window's top boundary; the slice index `windowStart` is
+  // DERIVED from it each render. Anchoring by seq (not a raw index) keeps the
+  // window pinned to the same logical entry when the live head-prune
+  // (TRANSCRIPT_LIVE_CAP in use-websocket-handlers.ts) drops older entries off
+  // entries[0]: an absolute index silently slid forward on every post-cap append,
+  // flipping windowed[0] -> regroupSignal -> a full cold re-group + virtualizer
+  // jump on EVERY streamed tick once a conversation passed 100 entries. The prune
+  // only ever drops entries BELOW the boundary, so the anchor entry survives and
+  // the derived index just decrements -- windowed stays a pure tail-append and
+  // grouping stays on the cheap incremental path. null = no window (show all).
+  const [windowAnchorSeq, setWindowAnchorSeq] = useState<number | null>(() => defaultAnchorSeq(entries))
   const prevCacheKeyRef = useRef(cacheKey)
   // True once we've sized the window against a NON-EMPTY transcript for the
   // current cacheKey. A cold switch (MISS) opens the conversation with entries=[]
-  // (fetch in flight), so the initial windowStart is 0; without this flag the
+  // (fetch in flight), so the initial anchor is null; without this flag the
   // window would never re-default when the fetched transcript arrives, and a
   // freshly-fetched 460-entry conversation would render ALL of it (measured
   // 340ms commit->paint -- the cold-open bug this fixes).
   const windowInitRef = useRef(entries.length > 0)
+  // Derived slice index: the first entry at or after the anchor seq. A head-prune
+  // shrinks this number without moving the boundary entry; a switch/cold-open/
+  // load-earlier moves the anchor and so moves this deliberately. Computed before
+  // the reset block so the re-anchor branch can read it.
+  const windowStart = useMemo(() => {
+    if (windowAnchorSeq === null) return 0
+    const idx = entries.findIndex(e => (e.seq ?? 0) >= windowAnchorSeq)
+    return idx < 0 ? 0 : idx
+  }, [entries, windowAnchorSeq])
   // Derived-state reset (the documented "adjust state on prop change in render"
   // pattern -- re-renders before commit, no flash, no full-render paint):
   if (cacheKey !== prevCacheKeyRef.current) {
     // Conversation switch -- snap to the last-N default for whatever is loaded
-    // (0 for a MISS; the real default for a HIT).
+    // (null for a MISS; the real default anchor for a HIT).
     prevCacheKeyRef.current = cacheKey
     windowInitRef.current = entries.length > 0
-    setWindowStart(defaultWindowStart(entries.length))
+    setWindowAnchorSeq(defaultAnchorSeq(entries))
   } else if (!windowInitRef.current && entries.length > 0) {
     // Cold-open transcript just arrived (MISS -> fetch). Size the window now.
     windowInitRef.current = true
-    setWindowStart(defaultWindowStart(entries.length))
-  } else if (windowStart > 0 && windowStart >= entries.length) {
-    // Stale start past a shrunk array (e.g. /clear replacing the transcript).
-    setWindowStart(defaultWindowStart(entries.length))
+    setWindowAnchorSeq(defaultAnchorSeq(entries))
+  } else if (
+    windowAnchorSeq !== null &&
+    entries.length > 0 &&
+    (entries[entries.length - 1].seq ?? 0) < windowAnchorSeq
+  ) {
+    // Anchor slid past the end of a shrunk/replaced array (e.g. /clear creating a
+    // new transcript whose seqs are all below the old anchor). Re-default.
+    setWindowAnchorSeq(defaultAnchorSeq(entries))
+  } else if (
+    follow &&
+    windowAnchorSeq !== null &&
+    entries.length > WINDOW_THRESHOLD &&
+    windowStart < WINDOW_REANCHOR_MARGIN
+  ) {
+    // The window grew (tail-append + head-prune) until the anchor entry drifted
+    // within WINDOW_REANCHOR_MARGIN of the pruned head. Re-default the anchor
+    // forward to the last WINDOW_SIZE so the boundary sits safely above the prune
+    // line again. Gated on `follow` (viewport at the bottom) so dropping the
+    // now-offscreen older entries is invisible -- and so a scrollback reader, where
+    // the prune is deferred and windowStart wouldn't shrink anyway, is never yanked.
+    setWindowAnchorSeq(defaultAnchorSeq(entries))
   }
   const windowed = useMemo(() => (windowStart > 0 ? entries.slice(windowStart) : entries), [entries, windowStart])
   // Live windowStart for the scroll handler (infinite scrollback trigger).
@@ -275,10 +325,11 @@ export const TranscriptView = memo(function TranscriptView({
   windowStartRef.current = windowStart
 
   // Grouping reset signal: identity of the FIRST rendered entry. Changes on a
-  // local window reveal (windowStart down) AND a server prepend (windowStart
-  // stays 0 but the oldest entry changes) -- both are head-growth that the
-  // tail-only incremental path would mis-group. Stays constant during streaming
-  // (tail append), so streaming stays incremental.
+  // local window reveal (anchor moved older) AND a server prepend (anchor null/0
+  // but the oldest entry changes) -- both are head-growth that the tail-only
+  // incremental path would mis-group. Stays constant during streaming (tail
+  // append) AND across a head-prune (the anchor entry survives the prune), so
+  // both stay on the cheap incremental path.
   const regroupSignal = windowed.length > 0 ? (windowed[0].seq ?? windowed[0].uuid ?? windowStart) : windowStart
   // More history exists on the server iff our oldest-held entry isn't seq 1.
   const hasMoreOlder = (entries[0]?.seq ?? 1) > 1
@@ -341,14 +392,17 @@ export const TranscriptView = memo(function TranscriptView({
   const [enteringKey, setEnteringKey] = useState<string | null>(null)
   const prevTailKeyRef = useRef<string | null>(null)
   const enterCacheKeyRef = useRef(cacheKey)
-  const enterWindowStartRef = useRef(windowStart)
+  // Track the ANCHOR, not the derived index: a head-prune decrements windowStart
+  // without logically moving the window, and that must NOT read as a window change
+  // (which would suppress the slide-in for genuine new tail entries).
+  const enterWindowAnchorRef = useRef(windowAnchorSeq)
   const tailKey = mainGroups.length > 0 ? stableGroupKey(mainGroups[mainGroups.length - 1]) : null
   const shouldEnter =
     tailKey !== null &&
     tailKey !== prevTailKeyRef.current &&
     prevTailKeyRef.current !== null &&
     cacheKey === enterCacheKeyRef.current &&
-    windowStart === enterWindowStartRef.current &&
+    windowAnchorSeq === enterWindowAnchorRef.current &&
     // Never animate while a turn is live: the streaming itself is the animation,
     // and the committed entry takes over the live item in place -- a slide-in
     // there would flash/jerk. Genuine new entries while idle still animate.
@@ -357,7 +411,7 @@ export const TranscriptView = memo(function TranscriptView({
   if (shouldEnter) pendingEnterRef.current = tailKey
   prevTailKeyRef.current = tailKey
   enterCacheKeyRef.current = cacheKey
-  enterWindowStartRef.current = windowStart
+  enterWindowAnchorRef.current = windowAnchorSeq
   // Fire the state update in an effect so it lands AFTER the pin-to-bottom scroll
   // has brought the new row into the virtualizer's visible range.
   // biome-ignore lint/correctness/useExhaustiveDependencies: tailKey is the intentional trigger
@@ -754,7 +808,11 @@ export const TranscriptView = memo(function TranscriptView({
   // Scroll stability on prepend is handled by the PREPEND ANCHOR effect above
   // (NOT by anchorTo, which is a no-op in this TanStack version).
   const loadEarlier = useCallback(() => {
-    setWindowStart(s => Math.max(0, s - LOAD_CHUNK))
+    const ents = entriesRef.current
+    const newStart = Math.max(0, windowStartRef.current - LOAD_CHUNK)
+    // Move the anchor to the newly-revealed boundary entry (null = reached the
+    // top, show all). Derived windowStart re-resolves from this on the next render.
+    setWindowAnchorSeq(newStart <= 0 ? null : (ents[newStart]?.seq ?? null))
   }, [])
 
   // Infinite scrollback: fetch older entries from the broker.
