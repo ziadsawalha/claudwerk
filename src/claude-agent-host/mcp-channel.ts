@@ -74,9 +74,33 @@ export function setDialogCwd(cwd: string): void {
   dialogCwd = cwd
 }
 
+// Strip internal underscore-prefixed control keys, leaving only user values.
+function dialogUserValues(result: DialogResult): Record<string, unknown> {
+  const userValues: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(result)) {
+    if (!k.startsWith('_')) userValues[k] = v
+  }
+  return userValues
+}
+
+// Late answer: the dialog already timed out on this host (pending entry deleted),
+// but the user re-displayed the expired dialog and submitted. The broker tags
+// such a result `_late`. Deliver it labeled so the agent can correct assumptions
+// it made on the timeout. A late *cancel* is consumed silently (the agent was
+// already told it timed out).
+function deliverLateAnswer(dialogId: string, result: DialogResult): boolean {
+  if (result._cancelled) return true
+  const title = typeof result._dialogTitle === 'string' ? result._dialogTitle : dialogId
+  callbacks.onDeliverMessage?.(
+    `Late answer to dialog "${title}" (user responded after it timed out):\n${JSON.stringify(dialogUserValues(result), null, 2)}`,
+    { sender: 'dialog', dialog_id: dialogId, status: 'late' },
+  )
+  return true
+}
+
 export function resolveDialog(dialogId: string, result: DialogResult): boolean {
   const pending = pendingDialogs.get(dialogId)
-  if (!pending) return false
+  if (!pending) return result._late ? deliverLateAnswer(dialogId, result) : false
   clearTimeout(pending.timer)
   pendingDialogs.delete(dialogId)
 
@@ -94,11 +118,7 @@ export function resolveDialog(dialogId: string, result: DialogResult): boolean {
   } else {
     meta.status = 'submitted'
     if (result._action && result._action !== 'submit') meta.action = result._action as string
-    const userValues: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(result)) {
-      if (!k.startsWith('_')) userValues[k] = v
-    }
-    callbacks.onDeliverMessage?.(JSON.stringify(userValues, null, 2), meta)
+    callbacks.onDeliverMessage?.(JSON.stringify(dialogUserValues(result), null, 2), meta)
   }
   callbacks.onDialogDismiss?.(dialogId)
   return true
@@ -122,7 +142,7 @@ export function keepaliveDialog(dialogId: string): boolean {
         dialog_id: dialogId,
         status: 'timeout',
       })
-      callbacks.onDialogDismiss?.(dialogId)
+      callbacks.onDialogDismiss?.(dialogId, 'timeout')
     }, minRemaining)
     elog(`keepalive: ${dialogId.slice(0, 8)} extended to ${Math.round(minRemaining / 1000)}s`)
   }

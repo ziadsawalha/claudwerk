@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp, Layers } from 'lucide-react'
 import { memo, useEffect, useRef, useState } from 'react'
-import { DialogModal } from '@/components/dialog'
+import { DialogModal, ExpiredDialogPill } from '@/components/dialog'
 import { InputEditor } from '@/components/input-editor'
 import { requestEditorSetValue } from '@/components/input-editor/backends/codemirror/extensions'
 import { sendInput, useConversationsStore } from '@/hooks/use-conversations'
@@ -255,15 +255,35 @@ export function DialogOverlay({ conversationId }: { conversationId: string }) {
   const submitDialog = useConversationsStore(s => s.submitDialog)
   const dismissDialog = useConversationsStore(s => s.dismissDialog)
   const keepaliveDialog = useConversationsStore(s => s.keepaliveDialog)
+  // When the user re-opens an expired dialog from its pill, render the modal again.
+  const [reopened, setReopened] = useState(false)
+
+  // Reset the re-open state whenever the active dialog changes (or clears) so a
+  // fresh dialog never inherits a stale "reopened" flag.
+  useEffect(() => {
+    setReopened(false)
+  }, [pending?.dialogId])
 
   if (!pending) return null
+
+  // Expired dialog, not re-opened: show the passive pill instead of the modal.
+  if (pending.expired && !reopened) {
+    return (
+      <ExpiredDialogPill
+        title={pending.layout.title}
+        onReopen={() => setReopened(true)}
+        onDiscard={() => dismissDialog(conversationId, pending.dialogId)}
+      />
+    )
+  }
 
   return (
     <DialogModal
       layout={pending.layout}
+      expired={pending.expired}
       onSubmit={result => submitDialog(conversationId, pending.dialogId, result)}
-      onCancel={() => dismissDialog(conversationId, pending.dialogId)}
-      onKeepalive={() => keepaliveDialog(conversationId, pending.dialogId)}
+      onCancel={() => (pending.expired ? setReopened(false) : dismissDialog(conversationId, pending.dialogId))}
+      onKeepalive={pending.expired ? undefined : () => keepaliveDialog(conversationId, pending.dialogId)}
     />
   )
 }

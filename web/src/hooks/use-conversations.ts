@@ -268,6 +268,9 @@ interface ConversationsState {
       timestamp: number
       source?: 'mcp' | 'plan_approval'
       meta?: Record<string, unknown> // requestId, toolUseId, etc.
+      // true once the dialog timed out: no longer blocks as a modal, rendered as
+      // a re-displayable "expired" pill. Submitting reaches the agent as a late answer.
+      expired?: boolean
     }
   >
   submitDialog: (conversationId: string, dialogId: string, result: DialogResult) => void

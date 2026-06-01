@@ -949,7 +949,15 @@ function handleDialogShow(msg: DashboardMessage) {
 function handleDialogDismiss(msg: DashboardMessage) {
   const exSid = msg.conversationId as string
   if (!exSid) return
+  const reason = (msg as DashboardMessage & { reason?: string }).reason
+  const exId = msg.dialogId as string | undefined
   useConversationsStore.setState(state => {
+    const existing = state.pendingDialogs[exSid]
+    // Timeout: keep the dialog re-displayable (expired pill) instead of removing.
+    if (reason === 'timeout' && existing && (!exId || existing.dialogId === exId)) {
+      if (existing.expired) return state
+      return { pendingDialogs: { ...state.pendingDialogs, [exSid]: { ...existing, expired: true } } }
+    }
     const updated = { ...state.pendingDialogs }
     delete updated[exSid]
     return { pendingDialogs: updated }

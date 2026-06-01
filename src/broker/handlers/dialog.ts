@@ -12,6 +12,21 @@ import { cancelDialogNotify, resetDialogNotifyTimer, scheduleDialogNotify } from
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
 
+type DialogHandlerContext = Parameters<MessageHandler>[0]
+
+// Clear a conversation's pending dialog + dialog attention, then persist +
+// broadcast. Shared by the answered/cancelled/hard-dismiss paths.
+function clearDialogState(ctx: DialogHandlerContext, conversationId: string): void {
+  const conversation = ctx.conversations.getConversation(conversationId)
+  if (!conversation) return
+  delete conversation.pendingDialog
+  if (conversation.pendingAttention?.type === 'dialog') {
+    delete conversation.pendingAttention
+  }
+  ctx.conversations.persistConversationById(conversationId)
+  ctx.conversations.broadcastConversationUpdate(conversationId)
+}
+
 // Dialog show: agent host -> broker -> dashboard (broadcast)
 const dialogShow: MessageHandler = (ctx, data) => {
   const conversationId = (data.conversationId || data.conversationId || ctx.ws.data.conversationId) as string
@@ -76,15 +91,18 @@ const dialogResult: MessageHandler = (ctx, data) => {
   const conversation = conversationId ? ctx.conversations.getConversation(conversationId) : undefined
   if (conversation) ctx.requirePermission('chat', conversation.project)
 
-  // Clear pending dialog + attention from conversation
-  if (conversation) {
-    delete conversation.pendingDialog
-    if (conversation.pendingAttention?.type === 'dialog') {
-      delete conversation.pendingAttention
-    }
-    ctx.conversations.persistConversationById(conversationId)
-    ctx.conversations.broadcastConversationUpdate(conversationId)
+  // Late answer: the dialog already timed out (expired) on the agent host but the
+  // user re-displayed it and submitted. Tag the result `_late` (+ title) so the
+  // agent host delivers it as a labeled late answer instead of dropping it. The
+  // dialogId must still match -- a stale result for a replaced dialog is not late.
+  const expired = conversation?.pendingDialog?.expired === true && conversation.pendingDialog.dialogId === dialogId
+  if (expired && conversation?.pendingDialog) {
+    result._late = true
+    result._dialogTitle = (conversation.pendingDialog.layout as { title?: string })?.title || 'Dialog'
   }
+
+  // Clear pending dialog + attention from conversation
+  clearDialogState(ctx, conversationId)
 
   cancelDialogNotify(conversationId)
 
@@ -100,7 +118,7 @@ const dialogResult: MessageHandler = (ctx, data) => {
       }),
     )
     ctx.log.info(
-      `[dialog] Result: ${dialogId.slice(0, 8)} action=${result._action} conversation=${conversationId.slice(0, 8)}`,
+      `[dialog] Result: ${dialogId.slice(0, 8)} action=${result._action}${expired ? ' LATE' : ''} conversation=${conversationId.slice(0, 8)}`,
     )
   } else {
     ctx.log.error(`[dialog] No socket for conversation ${conversationId.slice(0, 8)}`)
@@ -120,16 +138,32 @@ const dialogDismiss: MessageHandler = (ctx, data) => {
   const dialogId = data.dialogId as string
   if (!conversationId || !dialogId) return
 
-  // Clear pending dialog + attention from conversation
+  const reason = data.reason as string | undefined
   const conversation = ctx.conversations.getConversation(conversationId)
-  if (conversation) {
-    delete conversation.pendingDialog
+
+  // Timeout dismiss: don't destroy the dialog -- mark it expired and keep the
+  // layout so the user can re-display + answer it late. Clear the attention nag
+  // (the agent already received the timeout message). The dashboard renders an
+  // "expired" pill instead of the blocking modal.
+  if (reason === 'timeout' && conversation?.pendingDialog?.dialogId === dialogId) {
+    conversation.pendingDialog.expired = true
     if (conversation.pendingAttention?.type === 'dialog') {
       delete conversation.pendingAttention
     }
     ctx.conversations.persistConversationById(conversationId)
     ctx.conversations.broadcastConversationUpdate(conversationId)
+    cancelDialogNotify(conversationId)
+    if (conversation.project) {
+      ctx.broadcastScoped({ type: 'dialog_dismiss', conversationId, dialogId, reason: 'timeout' }, conversation.project)
+    }
+    ctx.log.info(
+      `[dialog] Expired (re-displayable): ${dialogId.slice(0, 8)} conversation=${conversationId.slice(0, 8)}`,
+    )
+    return
   }
+
+  // Hard dismiss (answered/cancelled/conversation ended): clear everything.
+  clearDialogState(ctx, conversationId)
 
   cancelDialogNotify(conversationId)
 

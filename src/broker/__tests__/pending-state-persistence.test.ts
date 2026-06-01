@@ -57,6 +57,23 @@ describe('pending-state persistence', () => {
     expect(rehydrated?.pendingAttention?.type).toBe('dialog')
   })
 
+  it('pendingDialog.expired survives broker restart (timed-out dialog stays re-displayable)', () => {
+    const cs1 = createConversationStore({ store })
+    const conv = cs1.createConversation('conv-expired', 'claude://default/home/user/proj')
+    conv.pendingDialog = {
+      dialogId: 'dlg-late',
+      layout: { title: 'Pick a color', body: [] } as unknown as NonNullable<Conversation['pendingDialog']>['layout'],
+      timestamp: 1700000000000,
+      expired: true,
+    }
+    cs1.persistConversationById('conv-expired')
+
+    const cs2 = createConversationStore({ store })
+    const rehydrated = cs2.getConversation('conv-expired')
+    expect(rehydrated?.pendingDialog?.dialogId).toBe('dlg-late')
+    expect(rehydrated?.pendingDialog?.expired).toBe(true)
+  })
+
   it('pendingPlanApproval + planMode survive broker restart', () => {
     const cs1 = createConversationStore({ store })
     cs1.createConversation('conv-2', 'claude://default/home/user/proj')

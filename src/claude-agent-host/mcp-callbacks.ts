@@ -173,13 +173,16 @@ export function buildMcpCallbacksWithRules(
       } as unknown as AgentHostMessage)
     },
 
-    onDialogDismiss(dialogId) {
-      ctx.diag('dialog', `Dismiss: ${dialogId.slice(0, 8)}`)
+    onDialogDismiss(dialogId, reason) {
+      ctx.diag('dialog', `Dismiss: ${dialogId.slice(0, 8)}${reason ? ` (${reason})` : ''}`)
+      // Stop replaying dialog_show on reconnect -- the dialog is dead on this
+      // host. On 'timeout' the broker keeps the layout re-displayable (expired).
       clearInteraction(ctx, dialogId)
       ctx.wsClient?.send({
         type: 'dialog_dismiss',
         conversationId: ctx.conversationId,
         dialogId,
+        ...(reason ? { reason } : {}),
       } as unknown as AgentHostMessage)
     },
 

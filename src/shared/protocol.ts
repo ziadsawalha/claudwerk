@@ -1192,6 +1192,9 @@ export interface DialogDismissMessage {
   type: 'dialog_dismiss'
   conversationId: string
   dialogId: string
+  // 'timeout' = the dialog timed out on the agent host but the layout is kept
+  // re-displayable (expired). Absent/other = hard dismiss (answered/cancelled/ended).
+  reason?: 'timeout'
 }
 
 // Plan approval relay (headless: ExitPlanMode -> agent host -> broker -> dashboard -> back)
@@ -2113,7 +2116,7 @@ export interface Conversation {
   }
   planMode?: boolean // true when conversation is in plan mode (EnterPlanMode approved, not yet exited)
   hasNotification?: boolean // unread notification (cleared when conversation is viewed)
-  pendingDialog?: { dialogId: string; layout: DialogLayout; timestamp: number }
+  pendingDialog?: { dialogId: string; layout: DialogLayout; timestamp: number; expired?: boolean }
   pendingPlanApproval?: {
     requestId: string
     toolUseId?: string

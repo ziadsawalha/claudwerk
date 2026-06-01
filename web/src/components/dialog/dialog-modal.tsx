@@ -88,9 +88,18 @@ interface DialogModalProps {
   onSubmit: (result: DialogResult) => void
   onCancel: () => void
   onKeepalive?: () => void
+  // Re-displayed after the dialog timed out. Disables the countdown/keepalive
+  // (the deadline is already gone); a submit reaches the agent as a late answer.
+  expired?: boolean
 }
 
-export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCancel, onKeepalive }: DialogModalProps) {
+export const DialogModal = memo(function DialogModal({
+  layout,
+  onSubmit,
+  onCancel,
+  onKeepalive,
+  expired = false,
+}: DialogModalProps) {
   const [values, setValues] = useState(() => getInitialValues(layout))
   const [activePage, setActivePage] = useState(0)
   const [lastAction, setLastAction] = useState<string | null>(null)
@@ -99,8 +108,9 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
   const [remaining, setRemaining] = useState(timeoutSec)
   const lastInteractionRef = useRef(Date.now())
 
-  // Countdown timer
+  // Countdown timer (skipped for expired re-displays -- there is no deadline)
   useEffect(() => {
+    if (expired) return
     const interval = setInterval(() => {
       setRemaining(prev => {
         if (prev <= 1) {
@@ -111,18 +121,18 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [])
+  }, [expired])
 
   // Keepalive interval while minimized (every 30s)
   useEffect(() => {
-    if (!minimized) return
+    if (!minimized || expired) return
     const interval = setInterval(() => {
       const minRemaining = Math.ceil(timeoutSec * 0.5)
       setRemaining(prev => Math.max(prev, minRemaining))
       onKeepalive?.()
     }, 30_000)
     return () => clearInterval(interval)
-  }, [minimized, timeoutSec, onKeepalive])
+  }, [minimized, expired, timeoutSec, onKeepalive])
 
   // Send keepalive on user interaction and reset local countdown
   const onInteraction = useCallback(() => {
@@ -338,11 +348,11 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
           'w-full h-full sm:w-[560px] sm:max-h-[85vh] sm:h-auto sm:rounded-lg',
         )}
       >
-        {/* Countdown bar */}
+        {/* Countdown bar (solid amber when expired -- no live deadline) */}
         <div className="shrink-0 h-0.5 bg-muted/20">
           <div
-            className={cn('h-full transition-all duration-1000 ease-linear', countdownColor)}
-            style={{ width: `${(remaining / timeoutSec) * 100}%` }}
+            className={cn('h-full transition-all duration-1000 ease-linear', expired ? 'bg-amber-500' : countdownColor)}
+            style={{ width: expired ? '100%' : `${(remaining / timeoutSec) * 100}%` }}
           />
         </div>
 
@@ -351,9 +361,15 @@ export const DialogModal = memo(function DialogModal({ layout, onSubmit, onCance
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="text-base font-semibold text-foreground truncate">{layout.title}</h2>
-              <span className={cn('text-[10px] font-mono shrink-0 tabular-nums', countdownTextColor)}>
-                {formatCountdown(remaining)}
-              </span>
+              {expired ? (
+                <span className="text-[10px] font-mono font-semibold shrink-0 text-amber-500 uppercase tracking-wide">
+                  late answer
+                </span>
+              ) : (
+                <span className={cn('text-[10px] font-mono shrink-0 tabular-nums', countdownTextColor)}>
+                  {formatCountdown(remaining)}
+                </span>
+              )}
             </div>
             {layout.description && (
               <div className="text-sm text-muted-foreground mt-0.5">

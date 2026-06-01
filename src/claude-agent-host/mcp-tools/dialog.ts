@@ -154,7 +154,9 @@ export function registerDialogTool(ctx: McpToolContext): Record<string, ToolDef>
                 dialog_id: dialogId,
                 status: 'timeout',
               })
-              ctx.callbacks.onDialogDismiss?.(dialogId)
+              // 'timeout' keeps the dialog re-displayable so the user can still
+              // answer it late (delivered to the agent as a labeled late answer).
+              ctx.callbacks.onDialogDismiss?.(dialogId, 'timeout')
             }
           }, timeout)
 
