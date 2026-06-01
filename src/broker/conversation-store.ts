@@ -2287,6 +2287,12 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       token: s.token,
       project: s.project,
       conversationId: s.conversationId,
+      // Forward the polymorphic target so the control panel can tell a
+      // conversation share from a recap share -- without it, a project-scoped
+      // recap share (no conversationId) painted "SHARED" on every conversation
+      // in the project (plan-recap-share-leak.md).
+      targetKind: s.targetKind,
+      targetId: s.targetId,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,
       createdBy: s.createdBy,

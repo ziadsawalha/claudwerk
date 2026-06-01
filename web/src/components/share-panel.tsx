@@ -27,20 +27,31 @@ const DURATION_OPTIONS = [
 
 const EMPTY_SHARES: ReturnType<typeof useConversationsStore.getState>['shares'] = []
 
+/** A share "belongs to" a conversation only when it is a conversation-kind share
+ *  bound to that exact conversationId. Recap shares (targetKind 'recap', no
+ *  conversationId) are project-scoped documents -- they must NEVER mark a
+ *  conversation as shared. The old `!conversationId` clause let one recap share
+ *  paint "SHARED" on every conversation in the project (plan-recap-share-leak.md). */
+export function conversationShareMatches(
+  share: { project: string; expiresAt: number; conversationId?: string; targetKind?: 'conversation' | 'recap' },
+  conversationProject: string,
+  conversationId: string,
+): boolean {
+  return (
+    (share.targetKind ?? 'conversation') === 'conversation' &&
+    share.conversationId === conversationId &&
+    share.project === conversationProject &&
+    share.expiresAt > Date.now()
+  )
+}
+
 export function ShareBanner({ conversationProject, conversationId }: SharePanelProps) {
   const allShares = useConversationsStore(s => s.shares) || EMPTY_SHARES
-  // A share belongs to ONE conversation. The legacy project-only filter
-  // showed every share for the project on every conversation in it, which
-  // (a) looked like every conversation was shared, and (b) let users revoke
-  // a sibling conversation's share by mistake. Only show shares whose
-  // conversationId matches this conversation. Legacy shares without a
-  // conversationId are treated as project-wide and still surface.
-  const shares = allShares.filter(
-    s =>
-      s.project === conversationProject &&
-      s.expiresAt > Date.now() &&
-      (!s.conversationId || s.conversationId === conversationId),
-  )
+  // A share belongs to ONE conversation. Only surface conversation-kind shares
+  // bound to this exact conversationId -- never recap/project-scoped shares
+  // (which previously painted every conversation as shared and let users revoke
+  // the wrong token). See conversationShareMatches.
+  const shares = allShares.filter(s => conversationShareMatches(s, conversationProject, conversationId))
 
   const [expanded, setExpanded] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -323,11 +334,15 @@ export function ShareIndicator({
   compact?: boolean
 }) {
   // Two primitive selectors -- never return an object literal from a Zustand
-  // selector (React #185 infinite render).
-  const matches = (sh: { project: string; expiresAt: number; conversationId?: string }) =>
-    sh.project === conversationProject &&
-    sh.expiresAt > Date.now() &&
-    (!sh.conversationId || sh.conversationId === conversationId)
+  // selector (React #185 infinite render). Only conversation-kind shares bound
+  // to THIS conversation count (conversationShareMatches) -- a recap share is
+  // not a conversation share.
+  const matches = (sh: {
+    project: string
+    expiresAt: number
+    conversationId?: string
+    targetKind?: 'conversation' | 'recap'
+  }) => conversationShareMatches(sh, conversationProject, conversationId)
   const count = useConversationsStore(s => s.shares.filter(matches).length)
   const viewers = useConversationsStore(s => s.shares.filter(matches).reduce((n, sh) => n + sh.viewerCount, 0))
 

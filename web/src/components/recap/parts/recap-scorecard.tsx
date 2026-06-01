@@ -30,7 +30,11 @@ export function RecapScorecard({ metadata, digest }: { metadata?: RecapMetadata;
   if (digest) {
     if (digest.cost.totalCostUsd) stats.push({ value: fmtUsd(digest.cost.totalCostUsd), label: 'project cost' })
     if (digest.cost.totalTurns) stats.push({ value: fmtCompact(digest.cost.totalTurns), label: 'turns' })
-    if (digest.conversations.length) stats.push({ value: digest.conversations.length, label: 'conversations' })
+    // Prefer the aggregate count: the public share strips the per-conversation
+    // manifest (digest.conversations) but keeps activity.conversations, so the
+    // count still renders without leaking identities (plan-recap-share-leak.md).
+    const convCount = digest.activity?.conversations ?? digest.conversations.length
+    if (convCount) stats.push({ value: convCount, label: 'conversations' })
     if (digest.commits?.total) stats.push({ value: digest.commits.total, label: 'commits' })
   }
   if (!stats.length) return null

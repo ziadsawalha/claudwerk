@@ -60,10 +60,16 @@ const subscribe: MessageHandler = (ctx, data) => {
     const serverRoles = user?.serverRoles
     // Global permissions (project='*')
     const global = resolvePermissionFlags(grants, '*', serverRoles)
-    // Per-conversation permissions (resolved against each conversation's project)
+    // Per-conversation permissions (resolved against each conversation's project).
+    // SECURITY (plan-recap-share-leak.md): only enumerate conversations the
+    // caller can actually read. Emitting a flags entry for every conversation
+    // leaked the broker-wide conversation-id roster to share viewers (whose
+    // grants resolve to no chat:read on any project).
     const perConversation: Record<string, ReturnType<typeof resolvePermissionFlags>> = {}
     for (const s of ctx.conversations.getActiveConversations()) {
-      perConversation[s.id] = resolvePermissionFlags(grants, s.project, serverRoles)
+      const flags = resolvePermissionFlags(grants, s.project, serverRoles)
+      if (!flags.canReadChat) continue
+      perConversation[s.id] = flags
     }
     ctx.reply({ type: 'permissions', global, conversations: perConversation })
   }

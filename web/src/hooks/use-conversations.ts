@@ -394,6 +394,8 @@ interface ConversationsState {
     token: string
     project: string
     conversationId?: string
+    targetKind?: 'conversation' | 'recap'
+    targetId?: string
     createdAt: number
     expiresAt: number
     createdBy: string
@@ -407,6 +409,8 @@ interface ConversationsState {
       token: string
       project: string
       conversationId?: string
+      targetKind?: 'conversation' | 'recap'
+      targetId?: string
       createdAt: number
       expiresAt: number
       createdBy: string

@@ -12,6 +12,7 @@
  */
 
 import type { PeriodRecapDoc, RecapSummary } from '@shared/protocol'
+import { Link2 } from 'lucide-react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { regenerateRecap } from '@/components/recap-jobs/recap-wire'
@@ -113,6 +114,11 @@ async function shareRecap(recapId: string): Promise<string | null> {
 
 function RecapHeader({ recap }: { recap: PeriodRecapDoc }) {
   const [isShareLoading, setIsShareLoading] = useState(false)
+  // Active public share for THIS recap (recap-kind share targeting recap.recapId).
+  // Primitive boolean selector -- never return an object from a Zustand selector.
+  const isShared = useConversationsStore(s =>
+    s.shares.some(sh => sh.targetKind === 'recap' && sh.targetId === recap.recapId && sh.expiresAt > Date.now()),
+  )
 
   const handleShare = async () => {
     setIsShareLoading(true)
@@ -164,7 +170,18 @@ function RecapHeader({ recap }: { recap: PeriodRecapDoc }) {
     <div className="px-4 pt-4 pb-2 border-b border-border shrink-0">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <h2 className="text-base font-semibold truncate">{recap.title || `Recap ${recap.recapId.slice(0, 12)}`}</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-base font-semibold truncate">{recap.title || `Recap ${recap.recapId.slice(0, 12)}`}</h2>
+            {isShared && (
+              <span
+                className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] uppercase font-bold bg-teal-500/20 text-teal-400 border border-teal-500/50"
+                title="This recap has an active public share link"
+              >
+                <Link2 className="size-2.5" />
+                shared
+              </span>
+            )}
+          </div>
           {recap.subtitle && <p className="text-xs italic text-muted-foreground mt-0.5">{recap.subtitle}</p>}
           <p className="text-[11px] text-muted-foreground mt-1">
             {formatPeriod(recap)} - {recap.model || 'pending'} - cost ${recap.llmCostUsd.toFixed(4)}

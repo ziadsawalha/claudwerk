@@ -3546,6 +3546,10 @@ export interface RecapSummary {
   progress: number
   phase?: string
   error?: string
+  /** True when this recap currently has an active (non-expired) public share
+   *  token. Server-computed in `GET /api/recaps` so the list can show a shared
+   *  indicator. See plan-recap-share-leak.md. */
+  isShared?: boolean
 }
 
 /** One cited item in a recap section (feature/bug/fix/incident/decision/...).

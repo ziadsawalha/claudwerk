@@ -6,6 +6,7 @@
  */
 
 import type { RecapSummary } from '@shared/protocol'
+import { Link2 } from 'lucide-react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useCallback, useEffect, useState } from 'react'
 import { Kbd } from '@/components/ui/kbd'
@@ -96,7 +97,18 @@ export function RecapHistoryModal() {
                 className="w-full text-left rounded-md border border-border bg-card hover:bg-muted/50 px-3 py-2"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-medium truncate">{r.title || r.id}</div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="text-xs font-medium truncate">{r.title || r.id}</div>
+                    {r.isShared && (
+                      <span
+                        className="shrink-0 inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] uppercase font-bold bg-teal-500/20 text-teal-400 border border-teal-500/40"
+                        title="This recap has an active public share link"
+                      >
+                        <Link2 className="size-2.5" />
+                        shared
+                      </span>
+                    )}
+                  </div>
                   <div className={`text-[10px] uppercase tracking-wide ${statusBadge(r.status)}`}>{r.status}</div>
                 </div>
                 {r.subtitle && <div className="text-xs italic text-muted-foreground mt-0.5 truncate">{r.subtitle}</div>}

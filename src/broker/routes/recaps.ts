@@ -17,11 +17,13 @@
 
 import { type Context, Hono } from 'hono'
 import { marked } from 'marked'
+import type { RecapDigest, RecapMetadata } from '../../shared/protocol'
 import { getAuthenticatedUser } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
+import { sanitizeRecapForPublicShare } from '../recap/period/public-share-sanitize'
 import type { RecapRow, RecapStatus } from '../recap/period/store'
 import { getRecapOrchestrator, type RecapOrchestrator } from '../recap-orchestrator'
-import { createShare, validateShare } from '../shares'
+import { createShare, listShares, validateShare } from '../shares'
 import type { RouteHelpers } from './shared'
 
 const CROSS_PROJECT = '*'
@@ -194,7 +196,16 @@ export function createRecapsRouter(_conversationStore: ConversationStore, helper
       return helpers.httpHasPermission(c.req.raw, 'chat:read', r.projectUri)
     })
 
-    return c.json({ recaps: filtered, total: filtered.length, _user: user || null })
+    // Flag which recaps currently have an active public share, so the recap
+    // list/history can show a "shared" indicator (plan-recap-share-leak.md F4).
+    const sharedRecapIds = new Set(
+      listShares()
+        .filter(s => s.targetKind === 'recap' && s.targetId)
+        .map(s => s.targetId as string),
+    )
+    const withShared = filtered.map(r => ({ ...r, isShared: sharedRecapIds.has(r.id) }))
+
+    return c.json({ recaps: withShared, total: withShared.length, _user: user || null })
   })
 
   app.get('/api/recaps/:id', c => {
@@ -340,6 +351,14 @@ export function createRecapsRouter(_conversationStore: ConversationStore, helper
     }
 
     const accept = c.req.header('accept') || ''
+    // SECURITY (plan-recap-share-leak.md): a recap share grants ZERO project
+    // access, so the public document must not carry the project's
+    // per-conversation manifest. Strip `digest.conversations` + the metadata
+    // conversation-id citations; keep all aggregate analytics.
+    const { metadata, digest } = sanitizeRecapForPublicShare({
+      metadata: safeJson<RecapMetadata>(row.metadataJson),
+      digest: safeJson<RecapDigest>(row.digestJson),
+    })
     const data = {
       recapId: row.id,
       title: row.title,
@@ -352,8 +371,8 @@ export function createRecapsRouter(_conversationStore: ConversationStore, helper
       markdown: row.markdown,
       // Recap 2.0: structured render data. Absent on pre-2.0 shared recaps;
       // the React share view degrades to markdown when undefined.
-      metadata: safeJson(row.metadataJson),
-      digest: safeJson(row.digestJson),
+      metadata,
+      digest,
       llmCostUsd: row.llmCostUsd,
       completedAt: row.completedAt,
       shareLabel: share.label,
