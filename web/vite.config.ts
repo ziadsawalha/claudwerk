@@ -85,6 +85,16 @@ export default defineConfig(({ mode }) => {
     ...(reactDev ? { define: { 'process.env.NODE_ENV': '"development"' } } : {}),
     build: {
       outDir: 'dist',
+      // Do NOT wipe dist on each build. The broker serves dist via a live
+      // bind mount (docker-compose: ./web/dist:/srv/web); Vite's default
+      // emptyOutDir deletes every file (incl. index.html) before rewriting,
+      // and that delete-then-recreate churn makes the running container's
+      // mounted view go stale -> the whole UI 404s until the broker is
+      // recreated. Overwriting in place (hashed chunk names) keeps index.html
+      // always present and the mount coherent. Tradeoff: old hashed chunks
+      // accumulate in dist over time -- harmless (the SW precache manifest is
+      // built from the bundle object, not the dir), clear them on demand.
+      emptyOutDir: false,
       sourcemap: true,
       minify: reactDev ? false : undefined,
       rollupOptions: {
