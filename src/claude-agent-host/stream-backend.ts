@@ -129,6 +129,19 @@ export interface StreamPermissionRequest {
   [key: string]: unknown
 }
 
+/** Result of a generic control_request round-trip (debug-control feature). */
+export interface ControlRequestResult {
+  ok: boolean
+  /** CC's control_response subtype ('success' | 'error'). */
+  subtype?: string
+  /** Inner response payload on success (shape varies by command). */
+  response?: unknown
+  /** Error text on failure. */
+  error?: string
+  /** True when no response arrived before the timeout. */
+  timedOut?: boolean
+}
+
 export interface StreamProcess {
   proc: Subprocess
   sendUserMessage: (text: string, source?: string) => void
@@ -144,6 +157,9 @@ export interface StreamProcess {
   sendUpdateEnv: (variables: Record<string, string>) => void
   sendSetEffort: (level: string) => void
   sendInterrupt: () => void
+  /** Generic control_request poke (debug-control). Sends `{subtype, ...payload}`
+   *  to CC and resolves with the control_response (success or error). */
+  sendControlRequest: (subtype: string, payload: Record<string, unknown>, timeoutMs?: number) => Promise<ControlRequestResult>
   forwardStdin: () => void
   kill: (signal?: NodeJS.Signals) => void
   closeStdin: () => boolean
@@ -155,10 +171,16 @@ export function spawnStreamClaude(options: StreamBackendOptions): StreamProcess 
   const proc = spawnProcess(options)
   const diagLog = initDiagLog(options.cwd, options.conversationId, proc.pid)
 
+  // Resolvers for generic debug control_requests, keyed by request_id.
+  // Separate from pendingControlRequests (which drives set_model/perm-mode
+  // transcript notices); this one returns the full response to the caller.
+  const controlRequestResolvers = new Map<string, (r: ControlRequestResult) => void>()
+
   const hctx: HandlerContext = {
     monitors: createMonitorTracker(),
     replay: createReplayBuffer(),
     pendingControlRequests: new Map(),
+    controlRequestResolvers,
     syntheticUserUuids: options.syntheticUserUuids,
     conversationId: options.conversationId,
     callbacks: {
@@ -208,7 +230,7 @@ export function spawnStreamClaude(options: StreamBackendOptions): StreamProcess 
     proc.stdin.flush()
   }
 
-  return buildStreamProcess(proc, writeStdin, options, hctx.pendingControlRequests)
+  return buildStreamProcess(proc, writeStdin, options, hctx.pendingControlRequests, controlRequestResolvers)
 }
 
 function spawnProcess(options: StreamBackendOptions) {
@@ -343,6 +365,7 @@ function buildStreamProcess(
   writeStdin: (json: Record<string, unknown>) => void,
   options: StreamBackendOptions,
   pendingControlRequests: Map<string, { subtype: string; detail?: string }>,
+  controlRequestResolvers: Map<string, (r: ControlRequestResult) => void>,
 ): StreamProcess {
   return {
     proc,
@@ -449,6 +472,26 @@ function buildStreamProcess(
         type: 'control_request',
         request_id: nextRequestId('int'),
         request: { subtype: 'interrupt' },
+      })
+    },
+
+    sendControlRequest(subtype: string, payload: Record<string, unknown>, timeoutMs = 8000) {
+      return new Promise<ControlRequestResult>(resolve => {
+        const id = nextRequestId('dbg')
+        let settled = false
+        const finish = (r: ControlRequestResult) => {
+          if (settled) return
+          settled = true
+          controlRequestResolvers.delete(id)
+          resolve(r)
+        }
+        const timer = setTimeout(() => finish({ ok: false, timedOut: true, error: `control_request ${subtype} timed out` }), timeoutMs)
+        controlRequestResolvers.set(id, r => {
+          clearTimeout(timer)
+          finish(r)
+        })
+        debug(`debug control_request: ${subtype} (${id})`)
+        writeStdin({ type: 'control_request', request_id: id, request: { subtype, ...payload } })
       })
     },
 

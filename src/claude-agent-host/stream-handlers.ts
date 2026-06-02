@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import type { TranscriptEntry } from '../shared/protocol'
 import { debug as _debug } from './debug'
-import type { StreamBackendOptions, StreamInitMessage, StreamResultMessage } from './stream-backend'
+import type { ControlRequestResult, StreamBackendOptions, StreamInitMessage, StreamResultMessage } from './stream-backend'
 import { deriveMonitorOutputPath, type MonitorTracker } from './stream-monitors'
 import { flushReplayBuffer, type ReplayBuffer } from './stream-replay'
 
@@ -34,6 +34,8 @@ export interface HandlerContext {
   monitors: MonitorTracker
   replay: ReplayBuffer
   pendingControlRequests: Map<string, { subtype: string; detail?: string }>
+  /** Resolvers for generic debug control_requests (full response back to caller). */
+  controlRequestResolvers?: Map<string, (r: ControlRequestResult) => void>
   syntheticUserUuids?: Map<string, string>
   conversationId?: string
   callbacks: Pick<
@@ -554,6 +556,20 @@ function handleControlResponse(hctx: HandlerContext, msg: Record<string, unknown
   const requestId = (response.request_id as string) || ''
   const subtype = response.subtype as string
   debug(`control_response: ${requestId} subtype=${subtype}`)
+
+  // Generic debug control_request: resolve the caller's promise with the full
+  // response (success OR error) before the set_model/perm-mode notice logic.
+  const resolver = hctx.controlRequestResolvers?.get(requestId)
+  if (resolver) {
+    hctx.controlRequestResolvers?.delete(requestId)
+    resolver({
+      ok: subtype === 'success',
+      subtype,
+      response: response.response,
+      error: typeof response.error === 'string' ? response.error : undefined,
+    })
+    return
+  }
 
   const pending = hctx.pendingControlRequests.get(requestId)
   hctx.pendingControlRequests.delete(requestId)

@@ -132,6 +132,7 @@ export interface WsClientOptions {
   ) => void
   onQuitConversation?: (source: string, initiator?: string) => void
   onInterrupt?: () => void
+  onDebugControlSend?: (req: { traceId: string; channel: string; command: string; payload: Record<string, unknown> }) => void
   onConfigUpdated?: () => void
   onConfigGet?: (requestId: string) => void
   onConfigSet?: (requestId: string, config: RclaudePermissionConfig) => void
@@ -250,6 +251,7 @@ export function createWsClient(options: WsClientOptions): WsClient {
     onPlanApprovalResponse,
     onQuitConversation,
     onInterrupt,
+    onDebugControlSend,
     onConfigUpdated,
     onConfigGet,
     onConfigSet,
@@ -413,6 +415,17 @@ export function createWsClient(options: WsClientOptions): WsClient {
         break
       case 'interrupt':
         onInterrupt?.()
+        break
+      case 'debug_control_send':
+        onDebugControlSend?.({
+          traceId: typeof message.traceId === 'string' ? message.traceId : '',
+          channel: typeof message.channel === 'string' ? message.channel : '',
+          command: typeof message.command === 'string' ? message.command : '',
+          payload:
+            message.payload && typeof message.payload === 'object'
+              ? (message.payload as Record<string, unknown>)
+              : {},
+        })
         break
       case 'terminate_conversation': {
         const source = typeof message.source === 'string' ? message.source : 'dashboard-other'

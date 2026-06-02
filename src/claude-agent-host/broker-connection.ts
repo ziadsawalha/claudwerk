@@ -35,6 +35,7 @@ import type { RulesEngine } from './permission-rules'
 import { getTerminalSize } from './pty-spawn'
 import { readAndSendTasks, startProjectWatching, startTaskWatching } from './task-watcher'
 import { resendTranscriptFromFile, startTranscriptWatcher } from './transcript-manager'
+import { dispatchDebugControl } from './debug-dispatch'
 import { createWsClient } from './ws-client'
 
 export interface BrokerConnectionDeps {
@@ -417,6 +418,9 @@ export function connectToBroker(ctx: AgentHostContext, deps: BrokerConnectionDep
     },
     onInterrupt() {
       executeControl(ctx, 'interrupt', { source: 'dashboard-interrupt' })
+    },
+    onDebugControlSend(req) {
+      void dispatchDebugControl(ctx, req)
     },
     onControl(action, args) {
       const source = args.fromConversation
