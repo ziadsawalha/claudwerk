@@ -186,10 +186,7 @@ const dialogDismiss: MessageHandler = (ctx, data) => {
   // also arrives here as the agent host's follow-up dismiss after it resolves
   // the cancelled MCP call -- without this it would hard-clear the state that
   // the dialog_result handler just preserved.)
-  if (
-    (reason === 'timeout' || reason === 'cancelled') &&
-    conversation?.pendingDialog?.dialogId === dialogId
-  ) {
+  if ((reason === 'timeout' || reason === 'cancelled') && conversation?.pendingDialog?.dialogId === dialogId) {
     conversation.pendingDialog.expired = true
     if (conversation.pendingAttention?.type === 'dialog') {
       delete conversation.pendingAttention
