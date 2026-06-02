@@ -600,15 +600,18 @@ function AskQuestionCard({
         >
           Send answers
         </button>
-        {hasTty && (
-          <button
-            type="button"
-            onClick={handleSkip}
-            className="px-4 py-2.5 text-xs font-bold text-muted-foreground hover:text-foreground border border-border/40 hover:border-border rounded-md transition-colors cursor-pointer"
-          >
-            SKIP TO TERMINAL
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={handleSkip}
+          title={
+            hasTty
+              ? 'Dismiss this card and answer in the terminal instead'
+              : 'Cancel the question -- the agent is told you declined and continues'
+          }
+          className="px-4 py-2.5 text-xs font-bold text-muted-foreground hover:text-foreground border border-border/40 hover:border-border rounded-md transition-colors cursor-pointer"
+        >
+          {hasTty ? 'SKIP TO TERMINAL' : 'CANCEL'}
+        </button>
       </div>
     </div>
   )
