@@ -146,10 +146,26 @@ renderer.codespan = ({ text }) => {
   return `<code>${escaped}</code>`
 }
 
-renderer.code = ({ text, lang }) => {
+renderer.code = ({ text, lang, raw }) => {
   // Mermaid blocks: emit placeholder, rendered post-mount via useEffect
   if (lang === 'mermaid') {
     const escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // STREAMING GUARD: while the closing ``` hasn't arrived yet, the diagram
+    // source is incomplete and mutates on every delta. Rendering it produces
+    // parse errors / half-drawn graphs that flash. Show the raw source as a
+    // plain code block until the fence closes, then render once. marked leaves
+    // the closing fence out of `raw` for an unterminated fence (EOF mid-stream).
+    const fenceClosed = /\n`{3,}[ \t]*$/.test(raw)
+    if (!fenceClosed) {
+      return `<div class="code-block-wrap"><pre><code class="shiki mermaid-streaming">${escaped}</code></pre></div>`
+    }
+    // Cache hit -> emit the rendered SVG inline synchronously. Re-renders during
+    // streaming (trailing text growing AFTER the diagram) then re-emit the same
+    // SVG with no placeholder flash. Mirrors the shiki cache-hit path below.
+    const cachedSvg = mermaidCacheGet(text)
+    if (cachedSvg !== undefined) {
+      return `<div class="mermaid-container">${cachedSvg}</div>`
+    }
     return `<pre class="mermaid" data-mermaid-source="${encodeURIComponent(text)}">${escaped}</pre>`
   }
   const canonical = normalizeLang(lang)
@@ -305,7 +321,13 @@ function processMermaidQueue() {
     const source = decodeURIComponent(block.getAttribute('data-mermaid-source') || '')
     if (!source) continue
     try {
-      const svg = mermaidModule.renderMermaidSVG(source, MERMAID_THEME)
+      // Reuse a previously-rendered SVG for identical source so a repeated
+      // render (scroll-back, remount) is free; otherwise render and cache it.
+      let svg = mermaidCacheGet(source)
+      if (svg === undefined) {
+        svg = mermaidModule.renderMermaidSVG(source, MERMAID_THEME)
+        mermaidCacheSet(source, svg)
+      }
       const wrapper = document.createElement('div')
       wrapper.className = 'mermaid-container'
       wrapper.innerHTML = svg
@@ -420,6 +442,30 @@ function hlCacheSet(key: string, value: string) {
     if (oldest !== undefined) hlCache.delete(oldest)
   }
   hlCache.set(key, value)
+}
+
+// LRU cache for rendered Mermaid SVG, keyed by the diagram source. Lets
+// renderer.code emit the finished SVG inline (no placeholder flash) on every
+// re-render once a diagram has been rendered once -- critical during streaming,
+// where trailing text after the diagram triggers a re-parse on every delta.
+const MERMAID_CACHE_MAX = 50
+const mermaidCache = new Map<string, string>()
+
+function mermaidCacheGet(key: string): string | undefined {
+  const v = mermaidCache.get(key)
+  if (v !== undefined) {
+    mermaidCache.delete(key)
+    mermaidCache.set(key, v)
+  }
+  return v
+}
+
+function mermaidCacheSet(key: string, value: string) {
+  if (mermaidCache.size >= MERMAID_CACHE_MAX) {
+    const oldest = mermaidCache.keys().next().value
+    if (oldest !== undefined) mermaidCache.delete(oldest)
+  }
+  mermaidCache.set(key, value)
 }
 
 // LRU cache for parsed markdown HTML, keyed by `${inline?'i':'b'}\n${source}`.
