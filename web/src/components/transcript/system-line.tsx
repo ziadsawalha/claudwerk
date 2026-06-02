@@ -178,6 +178,101 @@ function describeSystemEntry(
         ),
       }
     }
+    // --- CC 2.1.160 OUT subtypes (Class 1, render-only) ---
+    case 'model_fallback': {
+      const from = (entry.original_model as string) || '?'
+      const to = (entry.fallback_model as string) || '?'
+      const trigger = (entry.trigger as string) || ''
+      return {
+        kind: 'text',
+        text: `Model fallback: ${from} -> ${to}${trigger ? ` (${trigger})` : ''}`,
+        color: 'text-amber-400',
+      }
+    }
+    case 'notification': {
+      const text = (entry.text as string) || content
+      if (!text) return null
+      const priority = entry.priority as string | undefined
+      return {
+        kind: 'text',
+        text,
+        color: priority === 'high' ? 'text-amber-400' : 'text-cyan-400/70',
+      }
+    }
+    case 'permission_denied': {
+      const tool = (entry.tool_name as string) || 'tool'
+      const agentId = entry.agent_id as string | undefined
+      return {
+        kind: 'text',
+        text: `Permission denied: ${tool}${agentId ? ' (subagent)' : ''}`,
+        color: 'text-red-400',
+      }
+    }
+    case 'mirror_error':
+      return {
+        kind: 'text',
+        text: `Transcript mirror error: ${(entry.error as string) || 'unknown'}`,
+        color: 'text-red-400',
+      }
+    case 'task_updated': {
+      const err = entry.error as string | undefined
+      const desc = entry.description as string | undefined
+      if (err) return { kind: 'text', text: `Task error: ${err}`, color: 'text-red-400' }
+      if (entry.is_backgrounded) return { kind: 'text', text: 'Task backgrounded', color: 'text-muted-foreground/70' }
+      if (desc) return { kind: 'text', text: `Task: ${desc}`, color: 'text-muted-foreground/70' }
+      return null
+    }
+    case 'memory_recall': {
+      const memories = entry.memories as unknown[] | undefined
+      const mode = entry.mode as string | undefined
+      const n = Array.isArray(memories) ? memories.length : 0
+      return {
+        kind: 'text',
+        text: `Recalled ${n} ${n === 1 ? 'memory' : 'memories'}${mode ? ` (${mode})` : ''}`,
+        color: 'text-cyan-400/70',
+      }
+    }
+    case 'files_persisted': {
+      const files = entry.files as unknown[] | undefined
+      const failed = entry.failed as unknown[] | undefined
+      const n = Array.isArray(files) ? files.length : 0
+      const f = Array.isArray(failed) ? failed.length : 0
+      return {
+        kind: 'text',
+        text: `Saved ${n} ${n === 1 ? 'file' : 'files'}${f ? ` (${f} failed)` : ''}`,
+        color: f ? 'text-red-400/80' : 'text-cyan-400/70',
+      }
+    }
+    case 'plugin_install': {
+      const status = (entry.status as string) || ''
+      const name = (entry.name as string) || ''
+      const err = entry.error as string | undefined
+      return {
+        kind: 'text',
+        text: `Plugin install${name ? ` ${name}` : ''}: ${status}${err ? ` -- ${err}` : ''}`,
+        color: status === 'failed' ? 'text-red-400' : 'text-muted-foreground/70',
+      }
+    }
+    case 'hook_progress': {
+      const name = (entry.hook_name as string) || 'hook'
+      const event = (entry.hook_event as string) || ''
+      return {
+        kind: 'text',
+        text: `Hook ${name}${event ? ` (${event})` : ''}`,
+        color: 'text-muted-foreground/50',
+      }
+    }
+    case 'elicitation_complete':
+      return {
+        kind: 'text',
+        text: `Elicitation complete${entry.mcp_server_name ? ` (${entry.mcp_server_name})` : ''}`,
+        color: 'text-muted-foreground/70',
+      }
+    // task_summary is an ephemeral activity phrase, not a transcript line; it is
+    // suppressed at the agent host (handled as onActivityPhrase, like thinking_tokens).
+    // Belt-and-suspenders: never render it inline even if one slips through.
+    case 'task_summary':
+      return null
     default:
       return { kind: 'text', text: content || `[${sub}]`, color: 'text-muted-foreground' }
   }
