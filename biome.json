@@ -14,7 +14,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!.claude", "!scripts/**/*.html"]
+    "includes": ["**", "!.claude", "!.agent", "!.agents", "!scripts/**/*.html"]
   },
   "formatter": {
     "enabled": true,
