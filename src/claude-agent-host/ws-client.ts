@@ -76,8 +76,6 @@ export interface WsClientOptions {
   onJsonStreamDetach?: () => void
   onTranscriptRequest?: (limit?: number) => void
   onSubagentTranscriptRequest?: (agentId: string, limit?: number) => void
-  onFileRequest?: (requestId: string, path: string) => void
-  onFileEditorMessage?: (message: Record<string, unknown>) => void
   onAck?: (origins: string[]) => void
   onTranscriptKick?: () => void
   onChannelConversationsList?: (
@@ -132,6 +130,12 @@ export interface WsClientOptions {
   ) => void
   onQuitConversation?: (source: string, initiator?: string) => void
   onInterrupt?: () => void
+  onDebugControlSend?: (req: {
+    traceId: string
+    channel: string
+    command: string
+    payload: Record<string, unknown>
+  }) => void
   onConfigUpdated?: () => void
   onConfigGet?: (requestId: string) => void
   onConfigSet?: (requestId: string, config: RclaudePermissionConfig) => void
@@ -224,8 +228,6 @@ export function createWsClient(options: WsClientOptions): WsClient {
     onJsonStreamDetach,
     onTranscriptRequest,
     onSubagentTranscriptRequest,
-    onFileRequest,
-    onFileEditorMessage,
     onAck,
     onTranscriptKick,
     onChannelConversationsList,
@@ -250,6 +252,7 @@ export function createWsClient(options: WsClientOptions): WsClient {
     onPlanApprovalResponse,
     onQuitConversation,
     onInterrupt,
+    onDebugControlSend,
     onConfigUpdated,
     onConfigGet,
     onConfigSet,
@@ -369,9 +372,6 @@ export function createWsClient(options: WsClientOptions): WsClient {
       case 'subagent_transcript_request':
         onSubagentTranscriptRequest?.(message.agentId, message.limit)
         break
-      case 'file_request':
-        onFileRequest?.(message.requestId, message.path)
-        break
       case 'ack':
         onAck?.(message.origins || [])
         break
@@ -413,6 +413,15 @@ export function createWsClient(options: WsClientOptions): WsClient {
         break
       case 'interrupt':
         onInterrupt?.()
+        break
+      case 'debug_control_send':
+        onDebugControlSend?.({
+          traceId: typeof message.traceId === 'string' ? message.traceId : '',
+          channel: typeof message.channel === 'string' ? message.channel : '',
+          command: typeof message.command === 'string' ? message.command : '',
+          payload:
+            message.payload && typeof message.payload === 'object' ? (message.payload as Record<string, unknown>) : {},
+        })
         break
       case 'terminate_conversation': {
         const source = typeof message.source === 'string' ? message.source : 'dashboard-other'
@@ -542,9 +551,6 @@ export function createWsClient(options: WsClientOptions): WsClient {
             break
           }
           // No requestId -> a broadcast; fall through to normal handling below.
-        }
-        if (msgType?.startsWith('file_') || msgType?.startsWith('project_') || msgType === 'project_quick_add') {
-          onFileEditorMessage?.(message as unknown as Record<string, unknown>)
         }
         break
       }

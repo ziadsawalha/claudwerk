@@ -5,31 +5,31 @@ import { AuthExpiredModal } from '@/components/auth-expired-modal'
 import { AuthGate } from '@/components/auth-gate'
 import { ChordOverlay } from '@/components/chord-overlay'
 import { CommandPalette } from '@/components/command-palette'
-import { BatchModeModal } from '@/components/command-palette/batch-mode'
 import { ConversationDetail } from '@/components/conversation-detail'
+import { DebugControlModal } from '@/components/debug/debug-control-modal'
 import { DebugConsole } from '@/components/debug-console'
 import { Header } from '@/components/header'
 import { JsonInspectorDialog } from '@/components/json-inspector'
 import { LaunchProfileCommands } from '@/components/launch-profiles/launch-profile-commands'
 import { LaunchToastContainer } from '@/components/launch-profiles/launch-toast'
-import { LaunchProfileManager } from '@/components/launch-profiles/manager'
+import { useLaunchProfileManagerState } from '@/components/launch-profiles/manager-state'
 import { MarkdownViewerModal } from '@/components/markdown-viewer-modal'
 import { MediaLightbox } from '@/components/media-lightbox'
 import { ProjectList } from '@/components/project-list'
-import { QuickTaskModal } from '@/components/quick-task-modal'
+import { quickTaskBus } from '@/components/quick-task-trigger'
 import { PublicRecapView } from '@/components/recap/public-recap-view'
-import { RecapHistoryModal } from '@/components/recap/recap-history-modal'
-import { RecapViewer } from '@/components/recap/recap-viewer'
-import { RecapConfigDialog } from '@/components/recap-jobs/recap-config-dialog'
+import { recapOpenBus } from '@/components/recap/recap-open-trigger'
+import { recapConfigBus } from '@/components/recap-jobs/recap-config-trigger'
+import { recapHistoryBus } from '@/components/recap-jobs/recap-history-trigger'
 import { RecapJobsWidget } from '@/components/recap-jobs/recap-jobs-widget'
-import { RenameModal } from '@/components/rename-modal'
-import { ReviveDialog } from '@/components/revive-dialog'
-import { ManageChatConnectionsDialog } from '@/components/settings/manage-chat-connections-dialog'
-import { ManageProjectLinksDialog } from '@/components/settings/manage-project-links-dialog'
+import { renameModalBus } from '@/components/rename-modal-trigger'
+import { reviveDialogBus } from '@/components/revive-dialog-trigger'
+import { manageChatConnectionsBus } from '@/components/settings/manage-chat-connections-trigger'
+import { manageProjectLinksBus } from '@/components/settings/manage-project-links-trigger'
 import { SharedConversationView } from '@/components/shared-conversation-view'
 import { ShortcutHelp } from '@/components/shortcut-help'
-import { SpawnDialog } from '@/components/spawn-dialog'
-import { TaskBatchSelector } from '@/components/task-batch-selector'
+import { spawnDialogBus } from '@/components/spawn-dialog-trigger'
+import { taskBatchBus } from '@/components/task-batch-trigger'
 import { TerminateConfirmDialog } from '@/components/terminate-confirm'
 import { TerminateLineageConfirmDialog } from '@/components/terminate-lineage-confirm'
 import { ToastContainer } from '@/components/toast'
@@ -47,6 +47,7 @@ import { useSyncEffects } from '@/hooks/use-sync-effects'
 import { useWebSocket } from '@/hooks/use-websocket'
 import { executeCommand } from '@/lib/commands'
 import { focusInputEditor } from '@/lib/focus-input'
+import { lazyModule, named } from '@/lib/lazy-module'
 import { clearShareMode, detectShareKind, detectShareMode } from '@/lib/share-mode'
 import { isMobileViewport, isTouchDevice } from '@/lib/utils'
 
@@ -62,6 +63,57 @@ const SearchIndexManagerDialog = lazy(() =>
   import('@/components/search-index-manager').then(m => ({ default: m.SearchIndexManagerDialog })),
 )
 const SheafPage = lazy(() => import('@/sheaf/sheaf-page').then(m => ({ default: m.SheafPage })))
+
+// Lazy modals: code-split out of the eager index chunk, mounted on first open.
+// The gate subscribes to each modal's open signal (see lazyModule / lazy-bus).
+const SpawnDialog = lazyModule(
+  named(() => import('@/components/spawn-dialog'), 'SpawnDialog'),
+  spawnDialogBus.useArmed,
+)
+const ReviveDialog = lazyModule(
+  named(() => import('@/components/revive-dialog'), 'ReviveDialog'),
+  reviveDialogBus.useArmed,
+)
+const RecapConfigDialog = lazyModule(
+  named(() => import('@/components/recap-jobs/recap-config-dialog'), 'RecapConfigDialog'),
+  recapConfigBus.useArmed,
+)
+const ManageProjectLinksDialog = lazyModule(
+  named(() => import('@/components/settings/manage-project-links-dialog'), 'ManageProjectLinksDialog'),
+  manageProjectLinksBus.useArmed,
+)
+const ManageChatConnectionsDialog = lazyModule(
+  named(() => import('@/components/settings/manage-chat-connections-dialog'), 'ManageChatConnectionsDialog'),
+  manageChatConnectionsBus.useArmed,
+)
+const RenameModal = lazyModule(
+  named(() => import('@/components/rename-modal'), 'RenameModal'),
+  renameModalBus.useArmed,
+)
+const QuickTaskModal = lazyModule(
+  named(() => import('@/components/quick-task-modal'), 'QuickTaskModal'),
+  quickTaskBus.useArmed,
+)
+const TaskBatchSelector = lazyModule(
+  named(() => import('@/components/task-batch-selector'), 'TaskBatchSelector'),
+  taskBatchBus.useArmed,
+)
+const RecapViewer = lazyModule(
+  named(() => import('@/components/recap/recap-viewer'), 'RecapViewer'),
+  recapOpenBus.useArmed,
+)
+const RecapHistoryModal = lazyModule(
+  named(() => import('@/components/recap/recap-history-modal'), 'RecapHistoryModal'),
+  recapHistoryBus.useArmed,
+)
+const LaunchProfileManager = lazyModule(
+  named(() => import('@/components/launch-profiles/manager'), 'LaunchProfileManager'),
+  () => useLaunchProfileManagerState().open,
+)
+// Parent-conditional: gated on showBatchPalette below, so plain React.lazy.
+const BatchModeModal = lazy(() =>
+  import('@/components/command-palette/batch-mode').then(m => ({ default: m.BatchModeModal })),
+)
 
 function Dashboard() {
   const [sheetOpen, setSheetOpen] = useState(
@@ -283,13 +335,6 @@ function Dashboard() {
       {canAdmin && showSwitcher && (
         <CommandPalette
           onSelect={handleSwitcherSelect}
-          onFileSelect={(convId, path) => {
-            const store = useConversationsStore.getState()
-            store.selectConversation(convId)
-            store.setShowSwitcher(false)
-            store.openTab(convId, 'files')
-            store.setPendingFilePath(path)
-          }}
           onClose={() => useConversationsStore.getState().setShowSwitcher(false)}
         />
       )}
@@ -298,10 +343,15 @@ function Dashboard() {
       <MediaLightbox />
       {canAdmin && <QuickTaskModal />}
       <RenameModal />
+      {canAdmin && <DebugControlModal />}
       <MarkdownViewerModal />
       {canAdmin && <TaskBatchSelector />}
       {canAdmin && <ShortcutHelp />}
-      {canAdmin && <BatchModeModal open={showBatchPalette} onClose={() => setShowBatchPalette(false)} />}
+      {canAdmin && showBatchPalette && (
+        <Suspense fallback={null}>
+          <BatchModeModal open={showBatchPalette} onClose={() => setShowBatchPalette(false)} />
+        </Suspense>
+      )}
 
       {showUserAdmin && (
         <Suspense fallback={null}>

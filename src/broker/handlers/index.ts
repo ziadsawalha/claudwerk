@@ -10,8 +10,8 @@ import { registerDashboardActionHandlers } from './control-panel-actions'
 import { registerConversationLifecycleHandlers } from './conversation-lifecycle'
 import { registerConversationReassignHandlers } from './conversation-reassign'
 import { registerDaemonHandlers } from './daemon'
+import { registerDebugControlHandlers } from './debug-control'
 import { registerDialogHandlers } from './dialog'
-import { registerFileHandlers } from './files'
 import { registerGatewayHandlers } from './gateway'
 import { registerInterConversationHandlers } from './inter-conversation'
 import { registerJsonStreamHandlers } from './json-stream'
@@ -30,12 +30,12 @@ import { registerVoiceHandlers } from './voice'
 
 export function registerAllHandlers(): void {
   registerActivityPhraseHandlers()
+  registerDebugControlHandlers()
   registerSentinelHandlers()
   registerBootLifecycleHandlers()
   registerChannelHandlers()
   registerDashboardActionHandlers()
   registerDialogHandlers()
-  registerFileHandlers()
   registerGatewayHandlers()
   registerInterConversationHandlers()
   registerJsonStreamHandlers()
