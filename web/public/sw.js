@@ -47,9 +47,12 @@ self.addEventListener('install', event => {
         let fetched = 0
         await Promise.all(
           urls.map(async url => {
-            // '/' is the HTML shell -- it references the new hashed chunk
-            // names, so it changes every deploy. Never reuse it.
-            if (url !== '/') {
+            // Only /assets/* are content-hashed (identical URL == identical
+            // bytes), so only those are safe to reuse by URL. The HTML shell
+            // ('/') and stable-named files (sw.js, icons, favicon) keep the
+            // same URL while their content changes every deploy -- always
+            // re-fetch those.
+            if (url.startsWith('/assets/')) {
               for (const old of oldCaches) {
                 const hit = await old.match(url)
                 if (hit) {
@@ -59,7 +62,7 @@ self.addEventListener('install', event => {
                 }
               }
             }
-            // New or changed (or the HTML shell): fetch from network. Failures
+            // New or changed (or a stable-named file): fetch from network. Failures
             // are tolerated -- the runtime fetch handler falls back to network,
             // and a partial precache still beats failing the whole install.
             try {
