@@ -37,6 +37,7 @@ import type {
 } from '@/lib/types'
 import { formatRateBucketName, haptic } from '@/lib/utils'
 import { recordActivityPhrase } from './activity-phrase-store'
+import { addDebugTraceEvent, setDebugTraceResult } from './debug-control-store'
 import { clearThinkingProgress, recordThinkingProgress } from './thinking-progress-store'
 import { recordTokenSample } from './token-flow-store'
 import {
@@ -1271,6 +1272,30 @@ function handleActivityPhrase(msg: DashboardMessage): void {
   recordActivityPhrase(conversationId, phrase, (msg.t as number | undefined) || Date.now())
 }
 
+function handleDebugTraceEvent(msg: DashboardMessage): void {
+  const traceId = msg.traceId as string | undefined
+  if (!traceId) return
+  addDebugTraceEvent(traceId, {
+    seam: (msg.seam as string) || 'unknown',
+    t: (msg.t as number | undefined) || Date.now(),
+    ok: typeof msg.ok === 'boolean' ? msg.ok : undefined,
+    detail: typeof msg.detail === 'string' ? msg.detail : undefined,
+    raw: msg.raw,
+  })
+}
+
+function handleDebugControlResult(msg: DashboardMessage): void {
+  const traceId = msg.traceId as string | undefined
+  if (!traceId) return
+  setDebugTraceResult(traceId, {
+    ok: !!msg.ok,
+    response: msg.response,
+    error: typeof msg.error === 'string' ? msg.error : undefined,
+    code: typeof msg.code === 'string' ? msg.code : undefined,
+    elapsedMs: (msg.elapsedMs as number | undefined) || 0,
+  })
+}
+
 function extractRateLimitFields(msg: DashboardMessage): RateLimitFields {
   const info = (msg.raw as Record<string, unknown>)?.rate_limit_info as Record<string, unknown> | undefined
   const sentinelId = (msg.sentinelId as string | undefined) || ''
@@ -1373,6 +1398,8 @@ export const handlers: Record<string, MessageHandler> = {
   token_sample: handleTokenSample,
   thinking_progress: handleThinkingProgress,
   activity_phrase: handleActivityPhrase,
+  debug_trace_event: handleDebugTraceEvent,
+  debug_control_result: handleDebugControlResult,
   claude_health_update: handleClaudeHealthUpdate,
   claude_efficiency_update: handleClaudeEfficiencyUpdate,
   rate_limit_status: handleRateLimitStatus,

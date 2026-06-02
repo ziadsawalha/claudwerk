@@ -21,6 +21,7 @@ import { RecapHistoryModal } from '@/components/recap/recap-history-modal'
 import { RecapViewer } from '@/components/recap/recap-viewer'
 import { RecapConfigDialog } from '@/components/recap-jobs/recap-config-dialog'
 import { RecapJobsWidget } from '@/components/recap-jobs/recap-jobs-widget'
+import { DebugControlModal } from '@/components/debug/debug-control-modal'
 import { RenameModal } from '@/components/rename-modal'
 import { ReviveDialog } from '@/components/revive-dialog'
 import { ManageChatConnectionsDialog } from '@/components/settings/manage-chat-connections-dialog'
@@ -297,6 +298,7 @@ function Dashboard() {
       <MediaLightbox />
       {canAdmin && <QuickTaskModal />}
       <RenameModal />
+      {canAdmin && <DebugControlModal />}
       {canAdmin && <TaskBatchSelector />}
       {canAdmin && <ShortcutHelp />}
       {canAdmin && <BatchModeModal open={showBatchPalette} onClose={() => setShowBatchPalette(false)} />}

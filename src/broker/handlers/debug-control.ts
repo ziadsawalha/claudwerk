@@ -115,6 +115,13 @@ const debugControlSend: MessageHandler = (ctx, data) => {
     emitResult(ctx, conversationId, traceId, channel, command, { ok: false, code: 'unsupported_transport', error: 'daemon_op is only available on a daemon conversation' })
     return
   }
+  if (channel === 'daemon_op') {
+    // daemon_op dispatch (daemon-agent-host raw-op forwarder) is the next
+    // increment. Gate here so the modal returns cleanly instead of hanging.
+    emitTrace(ctx, conversationId, traceId, 'error', { detail: 'not_implemented' })
+    emitResult(ctx, conversationId, traceId, channel, command, { ok: false, code: 'not_implemented', error: 'daemon_op dispatch not wired yet (next increment)' })
+    return
+  }
 
   const ws = resolveConversationSocket(ctx, conversationId)
   if (!ws) {
