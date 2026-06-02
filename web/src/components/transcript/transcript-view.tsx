@@ -27,11 +27,11 @@ import {
   PermissionBanners,
   SpawnApprovalBanners,
 } from '../conversation-detail/conversation-banners'
+import { ActivityPhrasePill } from './activity-phrase-pill'
 import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
 import { StreamingTextBlock, StreamingThinkingBlock, ThinkingSpinner } from './in-flight-decorations'
-import { ActivityPhrasePill } from './activity-phrase-pill'
 import { ThinkingPill } from './thinking-pill'
 import { usePlanContext, useTranscriptSettings } from './use-transcript-derivations'
 

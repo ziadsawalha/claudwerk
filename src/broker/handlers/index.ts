@@ -3,6 +3,7 @@
  * Call registerAllHandlers() once at startup before accepting connections.
  */
 
+import { registerActivityPhraseHandlers } from './activity-phrase'
 import { registerBootLifecycleHandlers } from './boot-lifecycle'
 import { registerChannelHandlers } from './channel'
 import { registerDashboardActionHandlers } from './control-panel-actions'
@@ -20,7 +21,6 @@ import { registerRclaudeConfigHandlers } from './rclaude-config'
 import { registerRecapHandlers } from './recap'
 import { registerSentinelHandlers } from './sentinel'
 import { registerSpawnHandlers } from './spawn'
-import { registerActivityPhraseHandlers } from './activity-phrase'
 import { registerSpawnApprovalHandlers } from './spawn-approval'
 import { registerTerminalHandlers } from './terminal'
 import { registerThinkingProgressHandlers } from './thinking-progress'

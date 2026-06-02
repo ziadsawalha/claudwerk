@@ -448,24 +448,16 @@ const DAEMON_OP_COMMANDS: ControlCommandSpec[] = [
   },
 ]
 
-export const CONTROL_COMMANDS: ControlCommandSpec[] = [
-  ...CC_CONTROL_COMMANDS,
-  ...DAEMON_OP_COMMANDS,
-]
+export const CONTROL_COMMANDS: ControlCommandSpec[] = [...CC_CONTROL_COMMANDS, ...DAEMON_OP_COMMANDS]
 
-const BY_KEY = new Map<string, ControlCommandSpec>(
-  CONTROL_COMMANDS.map((c) => [`${c.channel}:${c.command}`, c]),
-)
+const BY_KEY = new Map<string, ControlCommandSpec>(CONTROL_COMMANDS.map(c => [`${c.channel}:${c.command}`, c]))
 
 /** Look up a command spec by channel + command name. */
-export function getControlCommandSpec(
-  channel: ControlChannel,
-  command: string,
-): ControlCommandSpec | undefined {
+export function getControlCommandSpec(channel: ControlChannel, command: string): ControlCommandSpec | undefined {
   return BY_KEY.get(`${channel}:${command}`)
 }
 
 /** Commands reachable on a given transport (for the modal's filtered picker). */
 export function commandsForTransport(transport: ControlTransport): ControlCommandSpec[] {
-  return CONTROL_COMMANDS.filter((c) => c.transports.includes(transport))
+  return CONTROL_COMMANDS.filter(c => c.transports.includes(transport))
 }

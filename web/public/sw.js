@@ -37,7 +37,9 @@ self.addEventListener('install', event => {
         // changed. Now only genuinely new/changed chunks hit the network.
         const keys = await caches.keys()
         const oldCaches = await Promise.all(
-          keys.filter(k => k.startsWith(PRECACHE) && k !== `${PRECACHE}-${manifest.buildHash}`).map(k => caches.open(k)),
+          keys
+            .filter(k => k.startsWith(PRECACHE) && k !== `${PRECACHE}-${manifest.buildHash}`)
+            .map(k => caches.open(k)),
         )
 
         const urls = manifest.files.filter(f => !f.url.endsWith('.map')).map(f => f.url)
