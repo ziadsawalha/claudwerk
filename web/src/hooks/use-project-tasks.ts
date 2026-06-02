@@ -1,19 +1,16 @@
 /**
  * useProjectTasks - project-keyed task cache with incremental updates.
  *
- * Replaces the per-conversation `useProject` fetch model. The data lives in
- * `{cwd}/.rclaude/project/{status}/*.md` which is project-scoped, not
- * conversation-scoped -- so the cache key is the project URI and all
- * conversations within the same project share one cache entry.
+ * Project files live in `{projectRoot}/.rclaude/project/{status}/*.md`, read +
+ * written THROUGH THE SENTINEL (not a live agent host), so the board works with
+ * zero running conversations. The cache key is the project URI.
  *
- * Wire shape (see .claude/docs/plan-project-tasks-incremental.md):
- *   - project_manifest       cheap full-set fetch (readdir + stat, no parse)
- *   - project_get { refs }   batched lazy hydration
- *   - project_changed { diff } authoritative push from the agent host watcher
- *
- * Routing: any live conversation in the project is a valid wire endpoint.
- * The agent host reads `ctx.cwd`; conversations in the same project all
- * point at the same filesystem.
+ * Wire shape (dashboard <-> broker <-> sentinel):
+ *   - project_board_request { op:'manifest'|'getBatch'|... , project, requestId }
+ *       -> project_board_result { manifest | batch | tasks | task | note | ... }
+ *   - project_subscribe / project_unsubscribe { project }
+ *       -> broker arms/disarms a lease-bound sentinel watch
+ *   - project_changed { project, diff, notes }  live push from the sentinel watch
  */
 
 import type {
@@ -53,7 +50,7 @@ interface ProjectCache {
   subscribers: Set<() => void>
 }
 
-const REQUEST_TIMEOUT_MS = 10_000
+const REQUEST_TIMEOUT_MS = 12_000
 const projectCaches = new Map<string, ProjectCache>()
 const pendingRequests = new Map<
   string,
@@ -65,17 +62,54 @@ const pendingRequests = new Map<
 >()
 let handlerInstalled = false
 
-/**
- * Send a request and resolve on the matching requestId reply. Used by both
- * the manifest/get cache path AND the legacy mutation shim (project_create
- * etc.) so they share one pending-request map -- one source of truth for
- * dispatching `*_response` messages.
- */
-export function sendProjectRequest(
-  conversationId: string,
-  payload: Record<string, unknown>,
+/** Board op params (subset of the wire envelope the dashboard is allowed to set). */
+export interface BoardOpParams {
+  status?: TaskStatus
+  slug?: string
+  filterStatus?: TaskStatus
+  refs?: TaskRef[]
+  input?: { title?: string; body: string; priority?: 'low' | 'medium' | 'high'; tags?: string[] }
+  patch?: { title?: string; body?: string; priority?: 'low' | 'medium' | 'high'; tags?: string[] }
+  fromStatus?: TaskStatus
+  toStatus?: TaskStatus
+}
+
+type BoardOp = 'list' | 'manifest' | 'get' | 'getBatch' | 'create' | 'update' | 'move' | 'delete'
+
+function sendWire(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const requestId = crypto.randomUUID()
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingRequests.delete(requestId)
+      reject(new Error('project request timed out'))
+    }, REQUEST_TIMEOUT_MS)
+    pendingRequests.set(requestId, { resolve, reject, timeout })
+    useConversationsStore.getState().sendWsMessage({ ...payload, requestId })
+  })
+}
+
+/** Send a board op for a project and resolve on the matching result. */
+export function sendBoardOp(
+  projectUri: string,
+  op: BoardOp,
+  params: BoardOpParams = {},
 ): Promise<Record<string, unknown>> {
-  return sendRequest(conversationId, payload)
+  return sendWire({ type: 'project_board_request', project: projectUri, op, ...params })
+}
+
+/** Read a project-relative file through the sentinel (markdown viewer). */
+export async function readProjectFile(
+  projectUri: string,
+  relPath: string,
+  maxBytes?: number,
+): Promise<{ ok: boolean; content?: string; truncated?: boolean; error?: string }> {
+  const resp = await sendWire({ type: 'project_file_request', project: projectUri, relPath, maxBytes })
+  return {
+    ok: !!resp.ok,
+    content: resp.content as string | undefined,
+    truncated: resp.truncated as boolean | undefined,
+    error: resp.error as string | undefined,
+  }
 }
 
 function refKey(ref: { slug: string; status: TaskStatus }): string {
@@ -110,58 +144,10 @@ function notify(cache: ProjectCache): void {
 const cacheVersions = new WeakMap<ProjectCache, number>()
 const snapshotCache = new WeakMap<ProjectCache, { version: number; api: ProjectTasksApi }>()
 
-/**
- * Pick any live (or best-available) conversation in the project to route the
- * request through. The agent host reads from ctx.cwd, so any conv in the
- * same project resolves to the same files.
- */
-function pickConversationForProject(projectUri: string): string | null {
-  const state = useConversationsStore.getState()
-  const candidates = state.conversations.filter(c => c.project === projectUri)
-  if (candidates.length === 0) return null
-  // Prefer active > idle > starting > ended; tiebreak by lastActivity desc.
-  const priority: Record<string, number> = { active: 0, idle: 1, starting: 2, ended: 3 }
-  candidates.sort(
-    (a, b) => (priority[a.status] ?? 9) - (priority[b.status] ?? 9) || (b.lastActivity ?? 0) - (a.lastActivity ?? 0),
-  )
-  return candidates[0]?.id ?? null
-}
-
-function sendRequest(conversationId: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const requestId = crypto.randomUUID()
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingRequests.delete(requestId)
-      reject(new Error('Request timed out'))
-    }, REQUEST_TIMEOUT_MS)
-    pendingRequests.set(requestId, { resolve, reject, timeout })
-    useConversationsStore.getState().sendWsMessage({ ...payload, requestId, conversationId })
-  })
-}
-
-function applyNotesSnapshot(cache: ProjectCache, notes: ProjectTaskMeta[]): void {
-  const nextManifest = new Map<string, ManifestEntry>()
-  const seen = new Set<string>()
-  for (const note of notes) {
-    const k = refKey(note)
-    nextManifest.set(k, { slug: note.slug, status: note.status, mtime: note.mtime })
-    cache.meta.set(k, note)
-    cache.staleMeta.delete(k)
-    seen.add(k)
-  }
-  for (const k of cache.meta.keys()) {
-    if (!seen.has(k)) cache.meta.delete(k)
-  }
-  cache.manifest = nextManifest
-  cache.manifestFetched = true
-  notify(cache)
-}
-
 function applyDiff(cache: ProjectCache, diff: ProjectDiff): void {
   let touched = false
   for (const entry of diff.added) {
-    const k = refKey(entry)
-    cache.manifest.set(k, entry)
+    cache.manifest.set(refKey(entry), entry)
     touched = true
   }
   for (const ref of diff.removed) {
@@ -184,32 +170,23 @@ function installSharedHandler(): void {
   handlerInstalled = true
   useConversationsStore.setState({
     projectHandler: (msg: Record<string, unknown>) => {
-      // project_changed broadcast -- apply diff to the originating project's cache.
+      // Live board push -- keyed by the project URI (sentinel-originated).
       if (msg.type === 'project_changed') {
-        const conversationId = msg.conversationId as string | undefined
-        if (!conversationId) return
-        const conv = useConversationsStore.getState().conversationsById[conversationId]
-        const projectUri = conv?.project
+        const projectUri = msg.project as string | undefined
         if (!projectUri) return
         const cache = projectCaches.get(projectUri)
         if (!cache) return
-        if (msg.diff) {
-          applyDiff(cache, msg.diff as ProjectDiff)
-        } else if (Array.isArray(msg.notes)) {
-          // Back-compat: older agent hosts broadcast `notes` (full snapshot)
-          // without a structured diff. Synthesize a manifest replacement.
-          applyNotesSnapshot(cache, msg.notes as ProjectTaskMeta[])
-        }
+        if (msg.diff) applyDiff(cache, msg.diff as ProjectDiff)
         return
       }
-      // Request-response replies.
+      // Request/response replies (project_board_result, project_*_file_result).
       const requestId = msg.requestId as string | undefined
       if (requestId) {
         const pending = pendingRequests.get(requestId)
         if (pending) {
           clearTimeout(pending.timeout)
           pendingRequests.delete(requestId)
-          if (msg.error) pending.reject(new Error(msg.error as string))
+          if (msg.ok === false && msg.error) pending.reject(new Error(msg.error as string))
           else pending.resolve(msg)
         }
       }
@@ -219,15 +196,12 @@ function installSharedHandler(): void {
 
 async function fetchManifest(cache: ProjectCache): Promise<void> {
   if (cache.manifestInflight) return cache.manifestInflight
-  const conversationId = pickConversationForProject(cache.projectUri)
-  if (!conversationId) return // no live conversation yet; defer
   const promise = (async () => {
     try {
-      const resp = await sendRequest(conversationId, { type: 'project_manifest' })
-      const entries = (resp.entries as ManifestEntry[]) || []
+      const resp = await sendBoardOp(cache.projectUri, 'manifest')
+      const entries = (resp.manifest as ManifestEntry[]) || []
       const nextManifest = new Map<string, ManifestEntry>()
       for (const entry of entries) nextManifest.set(refKey(entry), entry)
-      // Evict meta entries that no longer exist, mark mtime-bumped ones stale.
       for (const k of cache.meta.keys()) {
         const fresh = nextManifest.get(k)
         if (!fresh) cache.meta.delete(k)
@@ -237,30 +211,13 @@ async function fetchManifest(cache: ProjectCache): Promise<void> {
       cache.manifestFetched = true
       notify(cache)
     } catch {
-      // Manifest request failed (most likely an older agent host that
-      // doesn't know `project_manifest`). Fall back to the legacy
-      // project_list shape so the board still renders against old hosts.
-      await fetchManifestFromLegacyList(cache, conversationId)
+      // Leave manifestFetched=false; a later trigger (reconnect / project_changed) retries.
     } finally {
       cache.manifestInflight = null
     }
   })()
   cache.manifestInflight = promise
   return promise
-}
-
-/**
- * Back-compat: derive the manifest + populate meta from a `project_list`
- * response. Used when `project_manifest` is unsupported (older agent host).
- */
-async function fetchManifestFromLegacyList(cache: ProjectCache, conversationId: string): Promise<void> {
-  try {
-    const resp = await sendRequest(conversationId, { type: 'project_list' })
-    const notes = (resp.notes as ProjectTaskMeta[]) || []
-    applyNotesSnapshot(cache, notes)
-  } catch {
-    // Both paths failed. Leave manifestFetched=false; a later trigger retries.
-  }
 }
 
 function scheduleHydrationFlush(cache: ProjectCache): void {
@@ -272,8 +229,6 @@ function scheduleHydrationFlush(cache: ProjectCache): void {
 async function flushHydration(cache: ProjectCache): Promise<void> {
   cache.hydrationFlushScheduled = false
   if (cache.hydrationQueue.size === 0) return
-  const conversationId = pickConversationForProject(cache.projectUri)
-  if (!conversationId) return
   const refs: TaskRef[] = []
   const claimed: string[] = []
   for (const k of cache.hydrationQueue) {
@@ -284,8 +239,8 @@ async function flushHydration(cache: ProjectCache): Promise<void> {
   }
   cache.hydrationQueue.clear()
   if (refs.length === 0) return
-  const promise = sendRequest(conversationId, { type: 'project_get', refs }).then(resp => {
-    const notes = (resp.notes as ProjectTaskMeta[]) || []
+  const promise = sendBoardOp(cache.projectUri, 'getBatch', { refs }).then(resp => {
+    const notes = (resp.batch as ProjectTaskMeta[]) || []
     for (const note of notes) {
       const k = refKey(note)
       cache.meta.set(k, note)
@@ -328,14 +283,7 @@ export interface ProjectTasksApi {
 
 const EMPTY_API: ProjectTasksApi = {
   manifest: [],
-  byStatus: {
-    inbox: [],
-    open: [],
-    'in-progress': [],
-    'in-review': [],
-    done: [],
-    archived: [],
-  },
+  byStatus: { inbox: [], open: [], 'in-progress': [], 'in-review': [], done: [], archived: [] },
   getMeta: () => undefined,
   hydrate: () => {},
   loading: false,
@@ -343,16 +291,17 @@ const EMPTY_API: ProjectTasksApi = {
 
 /**
  * Subscribe to a project's task cache. Returns the manifest synchronously
- * (empty until first fetch resolves) and a `hydrate(refs)` to lazily load
- * full meta for the entries the caller is actually rendering.
+ * (empty until first fetch resolves) and a `hydrate(refs)` to lazily load full
+ * meta for the entries the caller is actually rendering. While mounted it tells
+ * the broker to keep a sentinel watch armed for live updates.
  */
 export function useProjectTasks(projectUri: string | null): ProjectTasksApi {
   useEffect(() => {
     installSharedHandler()
   }, [])
 
-  // Re-fetch on conversation list changes (a new conversation arriving in
-  // this project unblocks deferred manifest fetches).
+  // Re-trigger fetch when connectivity changes (conversations list churns as
+  // the WS (re)connects, unblocking a deferred manifest fetch).
   const conversations = useConversationsStore(s => s.conversations)
 
   const snapshot = useSyncExternalStore<ProjectTasksApi>(
@@ -364,28 +313,30 @@ export function useProjectTasks(projectUri: string | null): ProjectTasksApi {
     },
     () => {
       if (!projectUri) return EMPTY_API
-      const cache = ensureCache(projectUri)
-      return buildSnapshot(cache)
+      return buildSnapshot(ensureCache(projectUri))
     },
     () => EMPTY_API,
   )
 
-  // Kick off manifest fetch as soon as we have a conversation to route through.
+  // Arm the lease-bound sentinel watch while this board is mounted.
+  useEffect(() => {
+    if (!projectUri) return
+    const send = useConversationsStore.getState().sendWsMessage
+    send({ type: 'project_subscribe', project: projectUri })
+    return () => send({ type: 'project_unsubscribe', project: projectUri })
+  }, [projectUri])
+
+  // Kick off (or retry) the manifest fetch.
   useEffect(() => {
     if (!projectUri) return
     const cache = ensureCache(projectUri)
-    if (!cache.manifestFetched && !cache.manifestInflight) {
-      fetchManifest(cache)
-    }
+    if (!cache.manifestFetched && !cache.manifestInflight) fetchManifest(cache)
   }, [projectUri, conversations])
 
   return snapshot
 }
 
 function buildSnapshot(cache: ProjectCache): ProjectTasksApi {
-  // Memoize per cache+version so referential identity is stable between renders.
-  // notify() bumps the version; getSnapshot returns the same object until a
-  // mutation invalidates it.
   const version = cacheVersions.get(cache) ?? 0
   const cached = snapshotCache.get(cache)
   if (cached && cached.version === version) return cached.api
@@ -403,10 +354,7 @@ function buildSnapshot(cache: ProjectCache): ProjectTasksApi {
     manifest,
     byStatus,
     getMeta: ref => cache.meta.get(refKey(ref)),
-    hydrate: refs => {
-      const keys = refs.map(refKey)
-      queueHydration(cache, keys)
-    },
+    hydrate: refs => queueHydration(cache, refs.map(refKey)),
     loading: !cache.manifestFetched,
   }
   snapshotCache.set(cache, { version, api })
