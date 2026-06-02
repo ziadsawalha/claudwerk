@@ -31,6 +31,7 @@ import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
 import { StreamingTextBlock, StreamingThinkingBlock, ThinkingSpinner } from './in-flight-decorations'
+import { ActivityPhrasePill } from './activity-phrase-pill'
 import { ThinkingPill } from './thinking-pill'
 import { usePlanContext, useTranscriptSettings } from './use-transcript-derivations'
 
@@ -1027,6 +1028,7 @@ export const TranscriptView = memo(function TranscriptView({
                     <StreamingThinkingBlock conversationId={selectedConversationId} />
                     <StreamingTextBlock conversationId={selectedConversationId} />
                     <ThinkingPill conversationId={selectedConversationId} />
+                    <ActivityPhrasePill conversationId={selectedConversationId} />
                     <ThinkingSpinner conversationId={selectedConversationId} />
                     <div className="mt-2">
                       <LinkRequestBanners />

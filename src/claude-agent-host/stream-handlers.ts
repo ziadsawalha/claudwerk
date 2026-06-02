@@ -51,6 +51,7 @@ export interface HandlerContext {
     | 'onPlanModeChanged'
     | 'onApiStatus'
     | 'onThinkingProgress'
+    | 'onActivityPhrase'
   >
 }
 
@@ -131,6 +132,17 @@ function handleSystem(hctx: HandlerContext, msg: Record<string, unknown>) {
     const tokens = typeof msg.estimated_tokens === 'number' ? msg.estimated_tokens : 0
     const delta = typeof msg.estimated_tokens_delta === 'number' ? msg.estimated_tokens_delta : undefined
     callbacks.onThinkingProgress?.({ tokens, delta })
+    return
+  }
+
+  // Backend-agnostic live activity phrase. EPHEMERAL, like thinking_tokens:
+  // handed to onActivityPhrase (forwarded as an ActivityPhrase wire message)
+  // and explicitly NOT persisted as a TranscriptEntry. CC emits task_summary
+  // from a debounced classifier (~1.5s) with `detail` as the phrase; `detail`
+  // is null on the idle clear. Persisting these would flood the transcript.
+  if (subtype === 'task_summary') {
+    const detail = typeof msg.detail === 'string' ? msg.detail : null
+    callbacks.onActivityPhrase?.(detail)
     return
   }
 

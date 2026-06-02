@@ -93,6 +93,10 @@ export interface StreamBackendOptions {
    *  EPHEMERAL -- the receiver MUST NOT persist these; see ThinkingProgress
    *  in src/shared/protocol.ts. */
   onThinkingProgress?: (sample: { tokens: number; delta?: number }) => void
+  /** Backend emitted a live activity phrase (CC: `system/task_summary`).
+   *  EPHEMERAL -- never persist; see ActivityPhrase in src/shared/protocol.ts.
+   *  `phrase` is null when CC clears it on idle. */
+  onActivityPhrase?: (phrase: string | null) => void
   onJsonStreamLine?: (line: string) => void
   onExit?: (code: number | null) => void
 }
@@ -171,6 +175,7 @@ export function spawnStreamClaude(options: StreamBackendOptions): StreamProcess 
       onPlanModeChanged: options.onPlanModeChanged,
       onApiStatus: options.onApiStatus,
       onThinkingProgress: options.onThinkingProgress,
+      onActivityPhrase: options.onActivityPhrase,
     },
   }
 

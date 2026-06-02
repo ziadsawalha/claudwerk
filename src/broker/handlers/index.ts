@@ -20,6 +20,7 @@ import { registerRclaudeConfigHandlers } from './rclaude-config'
 import { registerRecapHandlers } from './recap'
 import { registerSentinelHandlers } from './sentinel'
 import { registerSpawnHandlers } from './spawn'
+import { registerActivityPhraseHandlers } from './activity-phrase'
 import { registerSpawnApprovalHandlers } from './spawn-approval'
 import { registerTerminalHandlers } from './terminal'
 import { registerThinkingProgressHandlers } from './thinking-progress'
@@ -27,6 +28,7 @@ import { registerTranscriptHandlers } from './transcript'
 import { registerVoiceHandlers } from './voice'
 
 export function registerAllHandlers(): void {
+  registerActivityPhraseHandlers()
   registerSentinelHandlers()
   registerBootLifecycleHandlers()
   registerChannelHandlers()

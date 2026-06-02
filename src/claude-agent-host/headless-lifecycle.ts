@@ -349,6 +349,19 @@ export function buildHeadlessSpawnOptions(deps: HeadlessCallbackDeps): StreamBac
       } as unknown as AgentHostMessage)
     },
 
+    onActivityPhrase(phrase) {
+      // EPHEMERAL: forward the live "what it's doing now" phrase to the broker
+      // if connected, drop otherwise. No buffer, no replay -- by design.
+      // See ActivityPhrase in src/shared/protocol.ts. phrase=null clears it.
+      if (!ctx.wsClient?.isConnected()) return
+      ctx.wsClient.send({
+        type: 'activity_phrase',
+        conversationId: ctx.conversationId,
+        phrase,
+        t: Date.now(),
+      } as unknown as AgentHostMessage)
+    },
+
     onPlanModeChanged(planMode) {
       if (shouldSuppressStaleStatusPlanMode(ctx, planMode)) return
       ctx.diag('headless', `Plan mode: ${planMode ? 'ON' : 'OFF'} (from status message)`)

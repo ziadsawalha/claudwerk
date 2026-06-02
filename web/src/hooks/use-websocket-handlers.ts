@@ -36,6 +36,7 @@ import type {
   TranscriptEntry,
 } from '@/lib/types'
 import { formatRateBucketName, haptic } from '@/lib/utils'
+import { recordActivityPhrase } from './activity-phrase-store'
 import { clearThinkingProgress, recordThinkingProgress } from './thinking-progress-store'
 import { recordTokenSample } from './token-flow-store'
 import {
@@ -1263,6 +1264,13 @@ function handleThinkingProgress(msg: DashboardMessage): void {
   })
 }
 
+function handleActivityPhrase(msg: DashboardMessage): void {
+  const conversationId = msg.conversationId as string | undefined
+  if (!conversationId) return
+  const phrase = typeof msg.phrase === 'string' ? (msg.phrase as string) : null
+  recordActivityPhrase(conversationId, phrase, (msg.t as number | undefined) || Date.now())
+}
+
 function extractRateLimitFields(msg: DashboardMessage): RateLimitFields {
   const info = (msg.raw as Record<string, unknown>)?.rate_limit_info as Record<string, unknown> | undefined
   const sentinelId = (msg.sentinelId as string | undefined) || ''
@@ -1364,6 +1372,7 @@ export const handlers: Record<string, MessageHandler> = {
   sentinel_usage_report: handleSentinelUsageReport,
   token_sample: handleTokenSample,
   thinking_progress: handleThinkingProgress,
+  activity_phrase: handleActivityPhrase,
   claude_health_update: handleClaudeHealthUpdate,
   claude_efficiency_update: handleClaudeEfficiencyUpdate,
   rate_limit_status: handleRateLimitStatus,
