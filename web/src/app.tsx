@@ -5,14 +5,13 @@ import { AuthExpiredModal } from '@/components/auth-expired-modal'
 import { AuthGate } from '@/components/auth-gate'
 import { ChordOverlay } from '@/components/chord-overlay'
 import { CommandPalette } from '@/components/command-palette'
-import { BatchModeModal } from '@/components/command-palette/batch-mode'
 import { ConversationDetail } from '@/components/conversation-detail'
 import { DebugConsole } from '@/components/debug-console'
 import { Header } from '@/components/header'
 import { JsonInspectorDialog } from '@/components/json-inspector'
 import { LaunchProfileCommands } from '@/components/launch-profiles/launch-profile-commands'
 import { LaunchToastContainer } from '@/components/launch-profiles/launch-toast'
-import { LaunchProfileManager } from '@/components/launch-profiles/manager'
+import { useLaunchProfileManagerState } from '@/components/launch-profiles/manager-state'
 import { MarkdownViewerModal } from '@/components/markdown-viewer-modal'
 import { MediaLightbox } from '@/components/media-lightbox'
 import { ProjectList } from '@/components/project-list'
@@ -106,6 +105,14 @@ const RecapViewer = lazyModule(
 const RecapHistoryModal = lazyModule(
   named(() => import('@/components/recap/recap-history-modal'), 'RecapHistoryModal'),
   recapHistoryBus.useArmed,
+)
+const LaunchProfileManager = lazyModule(
+  named(() => import('@/components/launch-profiles/manager'), 'LaunchProfileManager'),
+  () => useLaunchProfileManagerState().open,
+)
+// Parent-conditional: gated on showBatchPalette below, so plain React.lazy.
+const BatchModeModal = lazy(() =>
+  import('@/components/command-palette/batch-mode').then(m => ({ default: m.BatchModeModal })),
 )
 
 function Dashboard() {
@@ -347,7 +354,11 @@ function Dashboard() {
       <MarkdownViewerModal />
       {canAdmin && <TaskBatchSelector />}
       {canAdmin && <ShortcutHelp />}
-      {canAdmin && <BatchModeModal open={showBatchPalette} onClose={() => setShowBatchPalette(false)} />}
+      {canAdmin && showBatchPalette && (
+        <Suspense fallback={null}>
+          <BatchModeModal open={showBatchPalette} onClose={() => setShowBatchPalette(false)} />
+        </Suspense>
+      )}
 
       {showUserAdmin && (
         <Suspense fallback={null}>
