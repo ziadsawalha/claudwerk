@@ -1,12 +1,14 @@
 import { Settings } from 'lucide-react'
 import { Popover } from 'radix-ui'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { EfficiencyWidget } from '@/components/efficiency-widget'
 import { HealthWidget } from '@/components/health-widget'
-import { NerdModal } from '@/components/nerd-modal'
 import { NotificationBell } from '@/components/notification-bell'
-import { ProjectSettingsEditor } from '@/components/project-settings-editor'
-import { SettingsDialog } from '@/components/settings-page'
+import { ProjectSettingsEditor } from '@/components/project-settings-editor-lazy'
+
+const NerdModal = lazy(() => import('@/components/nerd-modal').then(m => ({ default: m.NerdModal })))
+const SettingsDialog = lazy(() => import('@/components/settings-page').then(m => ({ default: m.SettingsDialog })))
+
 import { TokenFlowBar } from '@/components/token-flow-bar'
 import { UsageBar } from '@/components/usage-bar'
 import { useConversationsStore } from '@/hooks/use-conversations'
@@ -251,8 +253,16 @@ export function Header() {
         <NotificationBell />
       </div>
 
-      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
-      <NerdModal open={showStatsModal} onClose={() => setShowStatsModal(false)} />
+      {showSettings && (
+        <Suspense fallback={null}>
+          <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
+        </Suspense>
+      )}
+      {showStatsModal && (
+        <Suspense fallback={null}>
+          <NerdModal open={showStatsModal} onClose={() => setShowStatsModal(false)} />
+        </Suspense>
+      )}
       {projectSettingsCwd && (
         <ProjectSettingsEditor project={projectSettingsCwd} onClose={() => setProjectSettingsCwd(null)} />
       )}

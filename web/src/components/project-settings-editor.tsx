@@ -1,6 +1,6 @@
 import { projectIdentityKey } from '@shared/project-uri'
 import { OPENCODE_TOOL_PERMISSION_OPTIONS, type OpenCodeToolPermission } from '@shared/spawn-schema'
-import { Check, Pencil, Search, Trash2, X } from 'lucide-react'
+import { Check, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { SecurityPanel } from '@/components/project-settings/security-panel'
 import { GroupHeader, SettingRow } from '@/components/settings/settings-inputs'
@@ -515,15 +515,3 @@ export function ProjectSettingsEditor({ project, onClose }: ProjectSettingsEdito
 }
 
 // Small edit button to open settings editor
-export function ProjectSettingsButton({ onClick }: { onClick: (e: React.MouseEvent) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-muted-foreground hover:text-accent transition-colors p-0.5"
-      title="Edit project settings"
-    >
-      <Pencil className="size-3" />
-    </button>
-  )
-}
