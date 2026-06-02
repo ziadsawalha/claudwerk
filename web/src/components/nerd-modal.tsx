@@ -21,6 +21,7 @@ import {
   type PerfEntry,
   subscribe as subscribePerfMetrics,
 } from '@/lib/perf-metrics'
+import { formatStoreReport, humanBytes, measureStore, type StoreReport } from '@/lib/store-sizeof'
 import { extractProjectLabel } from '@/lib/types'
 import { clearCacheAndReload, cn } from '@/lib/utils'
 
@@ -69,7 +70,7 @@ function StatRow({ label, value, accent, dim }: { label: string; value: string; 
   )
 }
 
-type Tab = 'traffic' | 'cache' | 'sw' | 'log' | 'perf' | 'conns'
+type Tab = 'traffic' | 'cache' | 'sw' | 'log' | 'perf' | 'conns' | 'heap'
 
 function TrafficTab({ serverStats, fetchError }: { serverStats: ServerStats | null; fetchError: string | null }) {
   const clientRates = useSyncExternalStore(subscribeStats, getRates)
@@ -548,6 +549,148 @@ function PerfTab() {
   )
 }
 
+/** One row of the heap breakdown: cells keyed by column so there's no array-index key. */
+function HeapRow({ cells }: { cells: { k: string; text: string; cn: string }[] }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5 border-b border-primary/8 text-[10px] font-mono">
+      {cells.map(c => (
+        <span key={c.k} className={c.cn}>
+          {c.text}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Heap tab -- walks the live Zustand store and estimates retained bytes per
+ * slice + per-conversation, on demand. The walker reads string.length only
+ * (no JSON.stringify), so it is safe to run against a multi-GB store. Built to
+ * diagnose the control-panel memory leak: copy the report, paste for analysis.
+ */
+function HeapTab() {
+  const [report, setReport] = useState<StoreReport | null>(null)
+  const [measuring, setMeasuring] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const measure = useCallback(() => {
+    setMeasuring(true)
+    // Defer one tick so the "measuring…" label paints before the walk blocks
+    // the main thread.
+    setTimeout(() => {
+      try {
+        const state = useConversationsStore.getState() as unknown as Record<string, unknown>
+        setReport(measureStore(state))
+      } finally {
+        setMeasuring(false)
+      }
+    }, 16)
+  }, [])
+
+  const copy = useCallback(() => {
+    if (!report) return
+    // react-doctor-disable-next-line react-doctor/rendering-hydration-mismatch-time
+    navigator.clipboard.writeText(formatStoreReport(report, new Date().toISOString()))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1200)
+  }, [report])
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={measure}
+          disabled={measuring}
+          className="text-[10px] text-primary hover:text-primary px-2 py-0.5 border border-primary/20 rounded disabled:opacity-50"
+        >
+          {measuring ? 'Measuring…' : 'Measure heap'}
+        </button>
+        {report && (
+          <button
+            type="button"
+            onClick={copy}
+            className="text-[10px] text-success hover:text-success px-2 py-0.5 border border-primary/20 rounded"
+          >
+            {copied ? 'Copied!' : 'Copy report'}
+          </button>
+        )}
+        {report && (
+          <span className="text-[10px] text-comment ml-auto tabular-nums">
+            {humanBytes(report.total)} · {report.nodes.toLocaleString()} nodes · {report.elapsedMs}ms
+            {report.truncated && <span className="text-red-400"> · TRUNCATED</span>}
+          </span>
+        )}
+      </div>
+
+      {!report && !measuring && (
+        <div className="text-[11px] text-comment py-4">
+          Walks the live store (transcripts, events, subagents, streaming buffers, …) and estimates retained bytes per
+          slice and per-conversation. Reads string lengths only -- safe on a multi-GB store. Click <em>Measure heap</em>
+          , then <em>Copy report</em>.
+        </div>
+      )}
+
+      {report && (
+        <>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-comment mb-2">Top-level slices</div>
+            <div className="max-h-40 overflow-y-auto">
+              {report.slices
+                .filter(s => s.bytes >= 1024)
+                .map(s => (
+                  <HeapRow
+                    key={s.key}
+                    cells={[
+                      { k: 'key', text: s.key, cn: 'text-foreground truncate flex-1' },
+                      { k: 'kind', text: s.kind, cn: 'text-comment shrink-0 w-10 text-right' },
+                      { k: 'count', text: String(s.count), cn: 'text-comment shrink-0 w-14 text-right tabular-nums' },
+                      {
+                        k: 'size',
+                        text: humanBytes(s.bytes),
+                        cn: 'text-primary shrink-0 w-20 text-right tabular-nums',
+                      },
+                    ]}
+                  />
+                ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-comment mb-2">
+              Per-key (top retainers · maxItem = largest single item)
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {report.subs
+                .filter(s => s.bytes >= 1024)
+                .map(s => (
+                  <HeapRow
+                    key={`${s.slice}:${s.subKey}`}
+                    cells={[
+                      { k: 'slice', text: s.slice, cn: 'text-comment shrink-0 w-20 truncate' },
+                      { k: 'sub', text: s.subKey, cn: 'text-foreground truncate flex-1' },
+                      { k: 'count', text: String(s.count), cn: 'text-comment shrink-0 w-12 text-right tabular-nums' },
+                      {
+                        k: 'size',
+                        text: humanBytes(s.bytes),
+                        cn: 'text-primary shrink-0 w-16 text-right tabular-nums',
+                      },
+                      {
+                        k: 'max',
+                        text: humanBytes(s.maxItemBytes),
+                        cn: 'text-warning shrink-0 w-16 text-right tabular-nums',
+                      },
+                    ]}
+                  />
+                ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function NerdModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('cache')
   const [serverStats, setServerStats] = useState<ServerStats | null>(null)
@@ -576,6 +719,7 @@ export function NerdModal({ open, onClose }: { open: boolean; onClose: () => voi
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'cache', label: 'Cache' },
+    { id: 'heap', label: 'Heap' },
     { id: 'conns', label: 'Conns' },
     { id: 'traffic', label: 'Traffic' },
     { id: 'perf', label: 'Perf' },
@@ -616,6 +760,7 @@ export function NerdModal({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {tab === 'traffic' && <TrafficTab serverStats={serverStats} fetchError={fetchError} />}
           {tab === 'cache' && <CacheTab />}
+          {tab === 'heap' && <HeapTab />}
           {tab === 'conns' && (
             <Suspense fallback={<div className="text-[11px] text-comment py-4 text-center">Loading…</div>}>
               <ConnectionsTab />
