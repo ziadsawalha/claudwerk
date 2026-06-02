@@ -385,10 +385,14 @@ export function useWebSocket() {
             return
           }
 
-          // Project board messages -> direct handler callback
+          // Project board messages -> direct handler callback. The sentinel-backed
+          // path replies with `project_*_result` (board ops + file reads); the
+          // legacy agent-host path used `project_*_response`. `project_changed` is
+          // the live broadcast. Route them all to the project handler.
           if (
             typeof msg.type === 'string' &&
-            ((msg.type.startsWith('project_') && msg.type.endsWith('_response')) || msg.type === 'project_changed')
+            ((msg.type.startsWith('project_') && (msg.type.endsWith('_result') || msg.type.endsWith('_response'))) ||
+              msg.type === 'project_changed')
           ) {
             const handler = useConversationsStore.getState().projectHandler
             handler?.(msg as unknown as Record<string, unknown>)

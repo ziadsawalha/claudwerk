@@ -16,7 +16,10 @@
 import type { TaskStatus } from '@shared/task-statuses'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useConversationsStore } from './use-conversations'
-import { type ProjectTaskMeta, sendProjectRequest, useProjectTasks } from './use-project-tasks'
+import { type ProjectTaskMeta, sendBoardOp, useProjectTasks } from './use-project-tasks'
+
+type Priority = 'low' | 'medium' | 'high'
+const asPriority = (p?: string): Priority | undefined => (p === 'low' || p === 'medium' || p === 'high' ? p : undefined)
 
 export type { TaskStatus } from '@shared/task-statuses'
 export type { ProjectTaskMeta } from './use-project-tasks'
@@ -56,39 +59,41 @@ export function useProject(conversationId: string | null) {
 
   const createTask = useCallback(
     async (input: { title?: string; body: string; priority?: string; tags?: string[] }) => {
-      if (!conversationId) return null
-      const resp = await sendProjectRequest(conversationId, { type: 'project_create', ...input })
+      if (!projectUri) return null
+      const resp = await sendBoardOp(projectUri, 'create', {
+        input: { title: input.title, body: input.body, priority: asPriority(input.priority), tags: input.tags },
+      })
       return (resp.note as ProjectTaskMeta) ?? null
     },
-    [conversationId],
+    [projectUri],
   )
 
   const moveTask = useCallback(
     async (slug: string, from: TaskStatus, to: TaskStatus): Promise<string | false> => {
-      if (!conversationId) return false
-      const resp = await sendProjectRequest(conversationId, { type: 'project_move', slug, from, to })
+      if (!projectUri) return false
+      const resp = await sendBoardOp(projectUri, 'move', { slug, fromStatus: from, toStatus: to })
       if (resp.ok) return (resp.slug as string) || slug
       return false
     },
-    [conversationId],
+    [projectUri],
   )
 
   const deleteTask = useCallback(
     async (slug: string, status: TaskStatus): Promise<boolean> => {
-      if (!conversationId) return false
-      const resp = await sendProjectRequest(conversationId, { type: 'project_delete', slug, status })
-      return !!resp.ok
+      if (!projectUri) return false
+      const resp = await sendBoardOp(projectUri, 'delete', { slug, status })
+      return !!(resp.removed ?? resp.ok)
     },
-    [conversationId],
+    [projectUri],
   )
 
   const readTask = useCallback(
     async (slug: string, status: TaskStatus): Promise<ProjectTask | null> => {
-      if (!conversationId) return null
-      const resp = await sendProjectRequest(conversationId, { type: 'project_read', slug, status })
-      return (resp.note as ProjectTask) ?? null
+      if (!projectUri) return null
+      const resp = await sendBoardOp(projectUri, 'get', { slug, status })
+      return (resp.task as ProjectTask) ?? null
     },
-    [conversationId],
+    [projectUri],
   )
 
   const updateTask = useCallback(
@@ -97,11 +102,15 @@ export function useProject(conversationId: string | null) {
       status: TaskStatus,
       patch: { title?: string; body?: string; priority?: string; tags?: string[] },
     ): Promise<ProjectTask | null> => {
-      if (!conversationId) return null
-      const resp = await sendProjectRequest(conversationId, { type: 'project_update', slug, status, ...patch })
-      return (resp.note as ProjectTask) ?? null
+      if (!projectUri) return null
+      const resp = await sendBoardOp(projectUri, 'update', {
+        slug,
+        status,
+        patch: { title: patch.title, body: patch.body, priority: asPriority(patch.priority), tags: patch.tags },
+      })
+      return (resp.task as ProjectTask) ?? null
     },
-    [conversationId],
+    [projectUri],
   )
 
   return {
