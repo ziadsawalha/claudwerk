@@ -99,6 +99,46 @@ export default defineConfig(({ mode }) => {
       minify: reactDev ? false : undefined,
       rollupOptions: {
         output: {
+          // Foldered, content-hashed asset layout under assets/. The SW routes
+          // on the `/assets/` prefix (public/sw.js), so nesting is transparent
+          // to precache/copy-forward -- it just makes dist navigable.
+          //   assets/code/language/{lang}-{hash}.js  -- shiki grammar packs
+          //   assets/vendor/{name}-{hash}.js          -- vendor + node_modules
+          //   assets/css/{name}-{hash}.css            -- stylesheets
+          //   assets/media/{name}-{hash}.{ext}        -- images / fonts
+          //   assets/{name}-{hash}.js                 -- app code + entry
+          entryFileNames: 'assets/[name]-[hash].js',
+          chunkFileNames(chunk) {
+            const mods = chunk.moduleIds || []
+            const origin = `${chunk.facadeModuleId || ''}\n${mods.join('\n')}`
+            // shiki language grammars: one chunk per lang (shiki/langs/json ->
+            // @shikijs/langs/dist/json.mjs) PLUS shared sub-grammar chunks
+            // (cpp embeds c, html embeds css/js -> a shared `c`/`css` chunk
+            // with NO facadeModuleId). Match on ALL module ids, not just the
+            // facade, or the shared sub-grammars leak to the root. Name, not
+            // origin, would be wrong too: a lang chunk is named `css`/`html`.
+            if (/[\\/](@shikijs[\\/]langs|shiki[\\/]dist[\\/]langs)[\\/]/.test(origin)) {
+              return 'assets/code/language/[name]-[hash].js'
+            }
+            // vendor buckets: the synthetic manualChunks (react-vendor,
+            // utils-vendor, vendor-ui/shiki/misc) match by name; other lazy
+            // pure-dependency chunks (mermaid, codemirror core) are those whose
+            // every module lives in node_modules. App/feature chunks mix src +
+            // node_modules, so `every` keeps them out of vendor/.
+            const allNodeModules = mods.length > 0 && mods.every(m => m.includes('node_modules'))
+            if (/vendor/.test(chunk.name || '') || allNodeModules) {
+              return 'assets/vendor/[name]-[hash].js'
+            }
+            return 'assets/[name]-[hash].js'
+          },
+          assetFileNames(asset) {
+            const name = asset.names?.[0] || ''
+            if (name.endsWith('.css')) return 'assets/css/[name]-[hash][extname]'
+            if (/\.(png|jpe?g|gif|svg|webp|ico|avif|woff2?|ttf|otf|eot)$/i.test(name)) {
+              return 'assets/media/[name]-[hash][extname]'
+            }
+            return 'assets/[name]-[hash][extname]'
+          },
           manualChunks(id) {
             if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
               return 'react-vendor'
