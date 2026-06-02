@@ -293,6 +293,16 @@ const reviveConversation: MessageHandler = (ctx, data) => {
     ctx.conversations.createJob(jobId, conversationId)
   }
 
+  // Sentinel-profile override (FAST revive-profile picker). A literal profile
+  // NAME chosen by the user when the original profile is unusable (e.g. rate
+  // limited). Omitted -> buildReviveMessage pins to conversation.resolvedProfile
+  // (unchanged behavior). Selection-mode tokens (balanced/random) are NEVER
+  // sent on revive -- the dialog only ever sends a concrete name; the sentinel
+  // defensively drops tokens regardless. Reviving on a profile other than the
+  // original means CC's --resume looks in a different $CLAUDE_CONFIG_DIR, so CC
+  // starts fresh -- the user is warned in the dialog before choosing.
+  const profileOverride = (data.profile as string | undefined) || undefined
+
   sentinel.send(
     JSON.stringify(
       buildReviveMessage(conversation, conversationId, {
@@ -300,6 +310,7 @@ const reviveConversation: MessageHandler = (ctx, data) => {
         headless,
         effort,
         model,
+        profile: profileOverride,
         autocompactPct: (data.autocompactPct as number | undefined) || undefined,
         maxBudgetUsd: (data.maxBudgetUsd as number | undefined) || undefined,
         env: (data.env as Record<string, string>) || undefined,
@@ -307,8 +318,11 @@ const reviveConversation: MessageHandler = (ctx, data) => {
     ),
   )
 
+  const profileLog = profileOverride
+    ? ` profile=${profileOverride} (override, original=${conversation.resolvedProfile || 'default'})`
+    : ` profile=${conversation.resolvedProfile || 'default'} (pinned)`
   ctx.log.info(
-    `[revive] ${name} (${conversationId.slice(0, 8)}) via WS, headless=${headless}${jobId ? ` job=${jobId.slice(0, 8)}` : ''}${lc ? ' (launch config restored)' : ''}`,
+    `[revive] ${name} (${conversationId.slice(0, 8)}) via WS, headless=${headless}${profileLog}${jobId ? ` job=${jobId.slice(0, 8)}` : ''}${lc ? ' (launch config restored)' : ''}`,
   )
   ctx.reply({
     type: 'revive_conversation_result',

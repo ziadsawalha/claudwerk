@@ -48,6 +48,12 @@ interface SentinelProfileRadioProps {
    *  pill renders inline `5h X% / 7d Y%` so the user can pick by current
    *  headroom. Errored / unauthed / missing entries render "no data". */
   profileUsage?: Map<string, ProfileUsageSnapshot>
+  /** Hide the "Default" (no-hint / sentinel-picks) pill. Used by the revive
+   *  dialog: revive pins to a concrete literal profile -- the sentinel never
+   *  re-rolls on revive (its transcript lives under the resolved profile's
+   *  $CLAUDE_CONFIG_DIR), so a "sentinel picks" option is meaningless there.
+   *  Defaults to `false` (launch keeps the Default pill). */
+  hideDefault?: boolean
 }
 
 export function SentinelProfileRadio({
@@ -60,6 +66,7 @@ export function SentinelProfileRadio({
   onPoolChange,
   disabled,
   profileUsage,
+  hideDefault,
 }: SentinelProfileRadioProps) {
   if (profiles.length < 2) return null
 
@@ -81,10 +88,10 @@ export function SentinelProfileRadio({
     <div className="space-y-1.5">
       <div className="text-[10px] font-mono text-muted-foreground">
         Sentinel profile
-        {noHint && <span className="ml-1.5 text-[9px] text-comment">(no hint - sentinel picks)</span>}
+        {noHint && !hideDefault && <span className="ml-1.5 text-[9px] text-comment">(no hint - sentinel picks)</span>}
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <DefaultPill active={noHint} disabled={disabled} onClick={onPickDefault} />
+        {!hideDefault && <DefaultPill active={noHint} disabled={disabled} onClick={onPickDefault} />}
         {profiles.map(p => (
           <ProfilePill
             key={p.name}

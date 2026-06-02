@@ -11,7 +11,7 @@ import { projectIdentityKey } from '@shared/project-uri'
  */
 
 import { RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { TogglePill } from '@/components/ui/toggle-pill'
 import { reviveConversation, useConversationsStore } from '@/hooks/use-conversations'
@@ -21,19 +21,25 @@ import { projectPath } from '@/lib/types'
 import { haptic } from '@/lib/utils'
 import { LaunchConfigFields, type LaunchFieldsValue } from './launch-config-fields'
 import { LaunchDialogBottom } from './launch-monitor'
-
 import { type ReviveDialogOptions, reviveDialogBus } from './revive-dialog-trigger'
+import { buildProfileUsageMap, resolveReviveDefaultProfile } from './spawn-dialog/profile-usage'
+import { SentinelProfileRadio } from './spawn-dialog/sentinel-profile-radio'
 
 interface ReviveDialogState {
   open: boolean
   options: ReviveDialogOptions | null
 }
 
+/** 85% auto-unpin threshold. Over this on the original profile's worst usage
+ *  window, the revive dialog pre-selects a fresher profile instead of pinning. */
+const UNPIN_USAGE_PCT = 85
+
 export function ReviveDialog() {
   const [state, setState] = useState<ReviveDialogState>({ open: false, options: null })
   const [headless, setHeadless] = useState(true)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
+  const [sentinelProfile, setSentinelProfile] = useState('')
   const [phase, setPhase] = useState<'config' | 'launching'>('config')
   const [jobId, setJobId] = useState<string | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -42,8 +48,33 @@ export function ReviveDialog() {
   const conversationsById = useConversationsStore(s => s.conversationsById)
   const projectSettings = useConversationsStore(s => s.projectSettings)
   const globalSettings = useConversationsStore(s => s.globalSettings)
+  const sentinelStatuses = useConversationsStore(s => s.sentinels)
+  const profileUsage = useConversationsStore(s => s.profileUsage)
 
   const conversation = state.options ? conversationsById[state.options.conversationId] : undefined
+
+  // The profile this conversation was originally resolved onto. `default` is
+  // the implicit profile when unset. Revive PINS here unless the user picks
+  // another (or the 85% auto-unpin pre-selects a fresher one).
+  const originalProfile = conversation?.resolvedProfile || 'default'
+
+  // Look up the conversation's host sentinel so the picker can offer that
+  // sentinel's reported profiles + their live usage. Profile-Env Boundary:
+  // NAMES + display + usage only -- never configDir / env.
+  const targetSentinel = useMemo(() => {
+    const alias = (conversation?.hostSentinelAlias || 'default').toLowerCase()
+    return sentinelStatuses.find(s => s.alias.toLowerCase() === alias)
+  }, [conversation?.hostSentinelAlias, sentinelStatuses])
+  const targetProfiles = targetSentinel?.profiles ?? []
+  const profileUsageMap = useMemo(
+    () => buildProfileUsageMap(targetSentinel?.sentinelId, profileUsage),
+    [profileUsage, targetSentinel],
+  )
+
+  // Mismatch = user is reviving onto a DIFFERENT profile than the original.
+  // CC's --resume reads the transcript from the original profile's config dir,
+  // so a mismatch means CC starts fresh -- warn (Jonas: warn-on-mismatch).
+  const profileMismatch = !!sentinelProfile && sentinelProfile !== originalProfile
 
   const progress = useLaunchProgress({
     jobId,
@@ -75,6 +106,19 @@ export function ReviveDialog() {
 
       const defaultEffortRaw = lc?.effort || ps?.defaultEffort || (gs.defaultEffort as string) || ''
       setEffort(defaultEffortRaw === 'default' ? '' : defaultEffortRaw)
+
+      // Default profile selection: PIN to the conversation's original profile,
+      // UNLESS that profile is near its rate-limit cap (>85% on its worst
+      // window) -- then auto-unpin to the freshest alternative so a desperate
+      // revive lands on a usable account. Read sentinel + usage from the live
+      // store (getState avoids stale closures). Profile-Env Boundary: the
+      // helpers only touch NAMES + usage snapshots.
+      const store = useConversationsStore.getState()
+      const orig = sess?.resolvedProfile || 'default'
+      const alias = (sess?.hostSentinelAlias || 'default').toLowerCase()
+      const snt = store.sentinels.find(s => s.alias.toLowerCase() === alias)
+      const usageByName = buildProfileUsageMap(snt?.sentinelId, store.profileUsage)
+      setSentinelProfile(resolveReviveDefaultProfile(orig, snt?.profiles ?? [], usageByName, UNPIN_USAGE_PCT))
 
       setPhase('config')
       setJobId(null)
@@ -182,6 +226,9 @@ export function ReviveDialog() {
       jobId: newJobId,
       model: model || undefined,
       effort: effort || undefined,
+      // Only send a profile override when it differs from the original --
+      // otherwise omit so the broker pins to conversation.resolvedProfile.
+      profile: profileMismatch ? sentinelProfile : undefined,
     })
 
     if (!sent) {
@@ -191,7 +238,7 @@ export function ReviveDialog() {
       )
       haptic('error')
     }
-  }, [state.options, phase, conversation, headless, model, effort, progress])
+  }, [state.options, phase, conversation, headless, model, effort, sentinelProfile, profileMismatch, progress])
 
   // Keyboard layer: Enter revives (config) or views conversation (launching).
   // h/p = Headless/PTY (config only).
@@ -231,6 +278,7 @@ export function ReviveDialog() {
       `Headless: ${headless}`,
       `Model: ${model || '(inherited)'}`,
       `Effort: ${effort || '(inherited)'}`,
+      `Profile: ${sentinelProfile || originalProfile}${profileMismatch ? ` (override, original=${originalProfile})` : ' (pinned)'}`,
       '',
       'Steps:',
       ...progress.steps.map(s => {
@@ -310,6 +358,38 @@ export function ReviveDialog() {
                 onChange={applyFieldsPatch}
                 show={{ model: true, effort: true }}
               />
+
+              {/* Sentinel-profile picker -- mirrors the launch dialog. Renders
+                  only when the host sentinel reports >1 profile. Default pins
+                  to the conversation's original profile; the 85% auto-unpin may
+                  pre-select a fresher one. The Default ("sentinel picks") + pool
+                  pills are hidden: revive pins to a concrete literal profile and
+                  never re-rolls (transcript lives under the resolved configDir). */}
+              {targetProfiles.length > 1 && (
+                <div className="space-y-2">
+                  <SentinelProfileRadio
+                    profiles={targetProfiles}
+                    pools={[]}
+                    value={sentinelProfile}
+                    onChange={v => {
+                      setSentinelProfile(v)
+                      haptic('tick')
+                    }}
+                    poolValue=""
+                    onPoolChange={() => {}}
+                    profileUsage={profileUsageMap}
+                    hideDefault
+                  />
+                  {profileMismatch && (
+                    <div className="text-[9px] text-amber-400/90 leading-snug border border-amber-400/30 bg-amber-400/5 rounded px-2 py-1.5">
+                      Reviving on <span className="font-bold">{sentinelProfile}</span> instead of the original{' '}
+                      <span className="font-bold">{originalProfile}</span>. Claude Code resumes its transcript from the
+                      original profile's config dir -- on a different profile it starts fresh (no in-model context). The
+                      panel transcript here is unaffected.
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="text-[9px] text-comment leading-snug">
                 Other settings (permission mode, env, budget, worktree, etc.) are restored from the original launch

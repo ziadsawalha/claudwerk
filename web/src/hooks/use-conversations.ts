@@ -1483,16 +1483,23 @@ interface ReviveConversationOptions {
   jobId?: string
   model?: string
   effort?: string
+  /** Sentinel-profile override -- a literal profile NAME. When the user picks
+   *  a profile other than the conversation's original `resolvedProfile`, the
+   *  revive pins to THIS profile instead. Omitted = pin to the original
+   *  (broker falls back to `conversation.resolvedProfile`). Never a
+   *  selection-mode token: revive never re-rolls. */
+  profile?: string
 }
 
 export function reviveConversation(conversationId: string, options: ReviveConversationOptions = {}): boolean {
-  const { headless, jobId, model, effort } = options
+  const { headless, jobId, model, effort, profile } = options
   return wsSend('revive_conversation', {
     conversationId,
     ...(headless !== undefined && { headless }),
     ...(jobId && { jobId }),
     ...(model && { model }),
     ...(effort && { effort }),
+    ...(profile && { profile }),
   })
 }
 
