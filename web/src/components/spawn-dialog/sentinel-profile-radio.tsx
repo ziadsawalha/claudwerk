@@ -17,7 +17,7 @@
  */
 
 import type { ProfileUsageSnapshot, SentinelProfileInfo } from '@shared/protocol'
-import { Hash, User } from 'lucide-react'
+import { Check, Hash, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 function usageTextColor(pct: number): string {
@@ -163,15 +163,23 @@ function ProfilePill({ profile, active, disabled, onClick, usage }: ProfilePillP
       title={title}
       className={cn(
         'px-2 py-1 text-[10px] font-mono border rounded flex items-center gap-1.5 cursor-pointer transition-colors',
+        // Active must DOMINATE: a vivid inactive profile-color border otherwise
+        // out-shouts the real selection. Strong fill + bold + ring lifts it
+        // above any colored border; the profile-color tint is dropped so the
+        // pill reads as "selected" (primary), not merely "colored".
         active
-          ? 'border-primary bg-primary/15 text-foreground'
+          ? 'border-primary bg-primary/25 text-primary font-bold ring-2 ring-primary/50'
           : 'border-primary/20 bg-surface-inset text-muted-foreground hover:text-foreground hover:bg-primary/5',
         disabled && 'opacity-50 cursor-not-allowed',
       )}
       style={active ? undefined : colorStyle}
     >
-      <User className={cn('w-3 h-3', profile.authed ? '' : 'text-amber-400/80')} style={fgColor} />
-      <span style={fgColor}>{profile.label ?? profile.name}</span>
+      {active ? (
+        <Check className="w-3 h-3 text-primary" />
+      ) : (
+        <User className={cn('w-3 h-3', profile.authed ? '' : 'text-amber-400/80')} style={fgColor} />
+      )}
+      <span style={active ? undefined : fgColor}>{profile.label ?? profile.name}</span>
       {hasUsage && (
         <span className={cn('text-[9px] tabular-nums', usageTextColor(worstPct))}>{Math.round(worstPct)}%</span>
       )}
@@ -201,12 +209,14 @@ function DefaultPill({ active, disabled, onClick }: DefaultPillProps) {
       title="No hint -- sentinel picks across all profiles"
       className={cn(
         'px-2 py-1 text-[10px] font-mono border rounded flex items-center gap-1.5 cursor-pointer transition-colors',
+        // Mirror ProfilePill's dominant active treatment for consistency.
         active
-          ? 'border-primary bg-primary/15 text-foreground'
+          ? 'border-primary bg-primary/25 text-primary font-bold ring-2 ring-primary/50'
           : 'border-primary/20 bg-surface-inset text-muted-foreground hover:text-foreground hover:bg-primary/5',
         disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
+      {active && <Check className="w-3 h-3 text-primary" />}
       <span>Default</span>
     </button>
   )
