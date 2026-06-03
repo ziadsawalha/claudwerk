@@ -485,6 +485,17 @@ function handleStreamDelta(msg: DashboardMessage) {
   if (!(sid && event)) return
   const eventType = event.type as string
   if (eventType === 'content_block_delta') {
+    // Drop stale content deltas: a delta for a non-active conversation is a
+    // late tail arriving after the turn already committed. Classic on cold
+    // load -- the isInitial HTTP snapshot already carries the committed
+    // assistant entry (which clears the buffer), then a trailing live delta
+    // repopulates streamingText with no further committed entry coming to
+    // clear it, leaving an orphaned duplicate bubble below the final text.
+    // Only an ACTIVE turn grows the buffer -- the same 'active' signal the
+    // thinking cursor + verb spinner already gate on (in-flight-decorations).
+    // message_start / message_stop are NOT gated below: they reset/clear the
+    // buffer and must run regardless of status.
+    if (useConversationsStore.getState().conversationsById[sid]?.status !== 'active') return
     const delta = event.delta as Record<string, unknown> | undefined
     if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
       const text = delta.text as string
