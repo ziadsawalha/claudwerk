@@ -26,7 +26,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir, hostname as osHostname } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { Subprocess } from 'bun'
 import { dispatch, has, ping } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
@@ -52,6 +52,10 @@ import type {
   SentinelIdentify,
   SentinelPatchConfig,
   SentinelPatchConfigAck,
+  ShellActivity,
+  ShellClose,
+  ShellExit,
+  ShellOpen,
   SpawnConversation,
   SpawnFailed,
   SpawnResult,
@@ -96,6 +100,8 @@ import {
   resolveProfile,
   type SentinelConfig,
 } from './sentinel-config'
+import { ShellDataWs } from './shell-data-ws'
+import { ACTIVITY_COALESCE_MS, ShellRegistry } from './shell-pty'
 import { headlessNdjsonPath, parseHookStage, RingBuffer, tailHeadlessNdjson } from './spawn-error'
 import { buildSentinelUsageReport, pollProfileUsage, snapshotToLegacyUsageUpdate } from './usage-poller'
 
@@ -1427,6 +1433,10 @@ function parseArgs() {
   let spawnRoot = process.env.HOME || '/root'
   let noSpawn = false
   let configPath: string | undefined
+  // Host-shell feature gate. Default ON; off via `--no-shell` or
+  // `CLAUDWERK_NO_SHELL=1` (plan-host-shell.md 3.1 / 4.4). A raw `$SHELL` is
+  // RCE as the host user, so the operator can hard-disable it per host.
+  let noShell = process.env.CLAUDWERK_NO_SHELL === '1'
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
@@ -1440,6 +1450,8 @@ function parseArgs() {
       spawnRoot = resolve(args[++i])
     } else if (arg === '--no-spawn') {
       noSpawn = true
+    } else if (arg === '--no-shell') {
+      noShell = true
     } else if (arg === '--config') {
       configPath = resolve(args[++i])
     } else if (arg === '-v' || arg === '--verbose') {
@@ -1458,7 +1470,7 @@ function parseArgs() {
       process.env.RCLAUDE_SECRET
   }
 
-  return { brokerUrl, secret, verbose, reviveScript, spawnRoot, noSpawn, configPath }
+  return { brokerUrl, secret, verbose, reviveScript, spawnRoot, noSpawn, configPath, noShell }
 }
 
 function printHelp() {
@@ -1479,6 +1491,7 @@ OPTIONS:
   --revive-script <path> Path to revive-session.sh (default: auto-detected)
   --spawn-root <path>    Root directory for relative spawn paths (default: $HOME)
   --config <path>        Sentinel config (default: ${defaultConfigPath()})
+  --no-shell             Disable the host-shell feature (CLAUDWERK_NO_SHELL=1)
   -v, --verbose          Enable verbose logging
   -h, --help             Show this help
 
@@ -1490,6 +1503,18 @@ the target path to allow spawning. Only one sentinel can be connected at a time.
 // Module-level WS ref for diag()
 let activeWs: WebSocket | null = null
 let ccVersionWatcher: CcVersionWatcher | null = null
+
+// --- Host-shell infrastructure (plan-host-shell.md phase 2) -----------------
+// The registry is process-lifetime (shells are FLOATING -- they survive control
+// WS reconnects), the data WS + activity coalescer are lazy (open on the first
+// shell, torn down when the last exits).
+
+/** Whether this sentinel advertises `features.shell`. Set once at startup from
+ *  `--no-shell` / `CLAUDWERK_NO_SHELL`. */
+let shellFeatureEnabled = true
+const shellRegistry = new ShellRegistry()
+let shellDataWs: ShellDataWs | null = null
+let shellActivityTimer: ReturnType<typeof setInterval> | null = null
 
 function log(msg: string) {
   console.log(`[sentinel] ${msg}`)
@@ -1522,6 +1547,127 @@ function launchLog(jobId: string | undefined, step: string, status: 'info' | 'ok
       activeWs.send(JSON.stringify({ type: 'launch_log', jobId, step, status, detail, t: Date.now() }))
     } catch {}
   }
+}
+
+/** Send a sentinel -> broker message over the control WS, dropping it if the
+ *  socket is down. Used by the host-shell control plane (`shell_exit`,
+ *  `shell_activity`). */
+function sendControl(msg: ShellExit | ShellActivity): void {
+  if (activeWs?.readyState !== WebSocket.OPEN) return
+  try {
+    activeWs.send(JSON.stringify(msg))
+  } catch {}
+}
+
+/**
+ * Lazily bring up the dedicated shell-data WS + the activity coalescer on the
+ * first live shell. The data WS carries the byte firehose (so it never
+ * head-of-line-blocks the control WS); the coalescer flushes one
+ * `shell_activity` per dirty shell at most ~4/sec (plan 4.3). Idempotent.
+ */
+function ensureShellInfra(brokerUrl: string, secret: string): ShellDataWs {
+  if (!shellDataWs) {
+    shellDataWs = new ShellDataWs({
+      brokerUrl,
+      secret,
+      sentinelId: getMachineId(),
+      log,
+      handlers: {
+        onInput: (shellId, data) => shellRegistry.write(shellId, data),
+        onResize: (shellId, cols, rows) => shellRegistry.resize(shellId, cols, rows),
+        onAttach: (shellId, cols, rows, replay) => {
+          const dump = shellRegistry.attach(shellId, cols, rows)
+          // Always emit a replay frame on attach so the client clears + repaints
+          // to a known state, even when the ring is empty (done:true marks the
+          // single/final chunk). Skip only when the broker did not request it.
+          if (replay && dump !== null) shellDataWs?.sendReplay(shellId, dump, true)
+        },
+        onDetach: shellId => shellRegistry.detach(shellId),
+      },
+    })
+  }
+  shellDataWs.ensureOpen()
+  if (!shellActivityTimer) {
+    shellActivityTimer = setInterval(() => {
+      const dirty = shellRegistry.drainActivity()
+      const ts = Date.now()
+      for (const shellId of dirty) sendControl({ type: 'shell_activity', shellId, ts })
+    }, ACTIVITY_COALESCE_MS)
+  }
+  return shellDataWs
+}
+
+/** Tear down the data WS + coalescer once the last shell is gone (the data WS
+ *  is opened on first shell, closed when the last exits -- plan section 3). */
+function maybeTeardownShellInfra(): void {
+  if (shellRegistry.count > 0) return
+  if (shellActivityTimer) {
+    clearInterval(shellActivityTimer)
+    shellActivityTimer = null
+  }
+  if (shellDataWs) {
+    shellDataWs.close()
+    shellDataWs = null
+  }
+}
+
+/**
+ * Control-plane `shell_open`: spawn a scrubbed `$SHELL` PTY at the URI path.
+ * The broker has already perm-checked URI write access + built the optimistic
+ * roster entry from the request, so the sentinel just spawns and streams. On
+ * spawn failure it emits `shell_exit` so the broker drops the roster entry.
+ * The shell is FLOATING -- `conversationId` is transcript/grouping metadata
+ * only, never an ownership key (broker boundary: route on projectUri/shellId).
+ */
+function handleShellOpen(m: ShellOpen, brokerUrl: string, secret: string): void {
+  if (!shellFeatureEnabled) {
+    log(`[shell] open REJECTED shellId=${m.shellId} -- shell feature disabled on this host`)
+    sendControl({ type: 'shell_exit', shellId: m.shellId, code: 1 })
+    return
+  }
+  const path = parseProjectUri(m.projectUri).path
+  const title = m.title && m.title.length > 0 ? m.title : basename(path) || path
+  ensureShellInfra(brokerUrl, secret)
+  try {
+    shellRegistry.spawn(
+      {
+        shellId: m.shellId,
+        projectUri: m.projectUri,
+        path,
+        title,
+        cols: m.cols,
+        rows: m.rows,
+        createdBy: m.conversationId ?? '',
+      },
+      {
+        onData: (shellId, data) => shellDataWs?.sendData(shellId, data),
+        onExit: (shellId, code) => {
+          log(`[shell] exit shellId=${shellId} code=${code} projectUri=${m.projectUri}`)
+          sendControl({ type: 'shell_exit', shellId, code })
+          maybeTeardownShellInfra()
+        },
+      },
+    )
+    log(
+      `[shell] open shellId=${m.shellId} projectUri=${m.projectUri} path=${path} title="${title}" count=${shellRegistry.count}`,
+    )
+    diag('shell', 'open', { shellId: m.shellId, projectUri: m.projectUri, path })
+  } catch (e) {
+    log(`[shell] open FAILED shellId=${m.shellId} projectUri=${m.projectUri} error=${(e as Error).message}`)
+    sendControl({ type: 'shell_exit', shellId: m.shellId, code: 1 })
+    maybeTeardownShellInfra()
+  }
+}
+
+/** Control-plane `shell_close`: kill the PTY. The roster removal happens via the
+ *  resulting `shell_exit` (process exit -> onExit -> shell_exit). */
+function handleShellClose(m: ShellClose): void {
+  if (!shellRegistry.has(m.shellId)) {
+    log(`[shell] close shellId=${m.shellId} -- unknown (already exited?)`)
+    return
+  }
+  log(`[shell] close shellId=${m.shellId}`)
+  shellRegistry.kill(m.shellId)
 }
 
 /**
@@ -2279,6 +2425,10 @@ function buildSentinelIdentify(config: SentinelConfig, spawnRoot: string): Senti
     defaultSelection: config.defaultSelection,
     pools: getPools(config),
     defaultPool: config.defaultPool,
+    // Host-level capabilities. `shell` is the host-shell feature (plan 3.1) --
+    // off when `--no-shell` / `CLAUDWERK_NO_SHELL=1`. The broker joins this onto
+    // `ConversationSummary.shellCapable` per conversation (phase 3).
+    features: { shell: shellFeatureEnabled },
   }
 }
 
@@ -3565,6 +3715,16 @@ function connect(
           ws.send(JSON.stringify(ack))
           break
         }
+
+        case 'shell_open': {
+          handleShellOpen(msg as ShellOpen, url, secret)
+          break
+        }
+
+        case 'shell_close': {
+          handleShellClose(msg as ShellClose)
+          break
+        }
       }
     } catch (err) {
       log(`Failed to handle message: ${err}`)
@@ -3612,7 +3772,8 @@ if (process.argv[2] === 'profile') {
   process.exit(exitCode)
 }
 
-const { brokerUrl, secret, verbose, reviveScript, spawnRoot, noSpawn, configPath } = parseArgs()
+const { brokerUrl, secret, verbose, reviveScript, spawnRoot, noSpawn, configPath, noShell } = parseArgs()
+shellFeatureEnabled = !noShell
 
 let config: SentinelConfig
 try {
@@ -3662,7 +3823,11 @@ loadAndCheckPidRegistry()
 
 // SIGTERM handler: unref all children so they survive sentinel restart, write PID registry
 process.on('SIGTERM', () => {
-  log(`SIGTERM received. ${trackedChildren.size} tracked children.`)
+  log(`SIGTERM received. ${trackedChildren.size} tracked children, ${shellRegistry.count} host shells.`)
+  // Host shells are NOT unref'd -- they are the sentinel's own children and die
+  // with it (floating across conversation churn, not across sentinel restart).
+  // Kill them cleanly so no orphaned PTY lingers; the broker marks them removed.
+  shellRegistry.killAll()
   for (const child of trackedChildren.values()) {
     try {
       child.proc.unref()
@@ -3678,7 +3843,8 @@ process.on('SIGTERM', () => {
 
 // Also handle SIGINT for graceful Ctrl-C shutdown
 process.on('SIGINT', () => {
-  log(`SIGINT received. ${trackedChildren.size} tracked children.`)
+  log(`SIGINT received. ${trackedChildren.size} tracked children, ${shellRegistry.count} host shells.`)
+  shellRegistry.killAll()
   for (const child of trackedChildren.values()) {
     try {
       child.proc.unref()
@@ -3689,6 +3855,7 @@ process.on('SIGINT', () => {
 })
 
 log('Starting sentinel (single instance)')
+log(`Host shell: ${shellFeatureEnabled ? 'enabled' : 'DISABLED (--no-shell / CLAUDWERK_NO_SHELL)'}`)
 log(`Revive script: ${reviveScript}`)
 log(`Spawn root: ${spawnRoot}${noSpawn ? ' (DISABLED)' : ''}`)
 // Resolve the on-disk config path the live patch handler writes to. When no

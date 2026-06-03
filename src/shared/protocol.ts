@@ -296,6 +296,30 @@ export interface ShellReplay {
   done: boolean
 }
 
+/** First viewer subscribed: the broker tells the sentinel to start forwarding
+ *  live `shell_data` for this shell and (when `replay`) to dump the ring buffer
+ *  as `shell_replay` first. `cols`/`rows` are the broker-computed min-size
+ *  across all current viewers (the broker owns the per-viewer size map because
+ *  viewer identity only exists at the broker; the sentinel applies the
+ *  authoritative size verbatim -- see plan-host-shell.md 4.1). The sentinel
+ *  buffers PTY output into the ring at all times, but only streams while
+ *  attached, honoring "no bytes until expanded" (0.1). (broker -> sentinel) */
+export interface ShellAttach {
+  type: 'shell_attach'
+  shellId: string
+  cols: number
+  rows: number
+  replay: boolean
+}
+
+/** Last viewer unsubscribed: the broker tells the sentinel to stop forwarding
+ *  live `shell_data`. The PTY keeps running (floating) and the ring buffer
+ *  keeps filling; only the stream pauses. (broker -> sentinel) */
+export interface ShellDetach {
+  type: 'shell_detach'
+  shellId: string
+}
+
 // --- Control plane: sentinel-targeted (existing sentinel control WS) ---
 
 /** Open a shell. Broker perm-checks URI WRITE access, routes to the sentinel
@@ -3789,6 +3813,8 @@ export type BrokerSentinelMessage =
   | ShellClose
   | ShellInput
   | ShellResize
+  | ShellAttach
+  | ShellDetach
 
 // Dashboard broadcast: sentinel status
 export interface SentinelStatus {
@@ -4523,6 +4549,14 @@ export interface RecapMcpListResult {
 
 // Configuration
 export const DEFAULT_BROKER_URL = 'ws://localhost:9999'
+
+/** Query params the sentinel sets on its DEDICATED shell-data WebSocket so the
+ *  broker can tell that socket apart from the control WS and pair it back to the
+ *  owning sentinel (plan-host-shell.md 2/3, the "dedicated data plane" pick).
+ *  `SHELL_DATA_WS_FLAG=1` marks the socket; `SHELL_DATA_WS_SENTINEL` carries the
+ *  sentinel's stable machine id. Auth reuses the usual `?secret=` param. */
+export const SHELL_DATA_WS_FLAG = 'shellData'
+export const SHELL_DATA_WS_SENTINEL = 'shellDataSentinel'
 export const DEFAULT_BROKER_PORT = 9999
 export const HEARTBEAT_INTERVAL_MS = 30000
 // Conversation status is driven by hooks (active/idle/ended), no configurable timeout

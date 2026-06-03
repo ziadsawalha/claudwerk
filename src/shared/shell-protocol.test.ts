@@ -6,8 +6,10 @@ import type {
   SentinelMessage,
   ShellActivity,
   ShellAdded,
+  ShellAttach,
   ShellClose,
   ShellData,
+  ShellDetach,
   ShellExit,
   ShellInput,
   ShellOpen,
@@ -150,7 +152,23 @@ describe('host-shell union membership', () => {
     const close: BrokerSentinelMessage = { type: 'shell_close', shellId: SHELL_ID }
     const input: BrokerSentinelMessage = { type: 'shell_input', shellId: SHELL_ID, data: 'x' }
     const resize: BrokerSentinelMessage = { type: 'shell_resize', shellId: SHELL_ID, cols: 1, rows: 1 }
-    expect([open.type, close.type, input.type, resize.type]).toContain('shell_open')
+    const attach: BrokerSentinelMessage = { type: 'shell_attach', shellId: SHELL_ID, cols: 80, rows: 24, replay: true }
+    const detach: BrokerSentinelMessage = { type: 'shell_detach', shellId: SHELL_ID }
+    expect([open.type, close.type, input.type, resize.type, attach.type, detach.type]).toContain('shell_open')
+  })
+
+  test('attach / detach data-plane lifecycle discriminators', () => {
+    const attach = {
+      type: 'shell_attach',
+      shellId: SHELL_ID,
+      cols: 100,
+      rows: 30,
+      replay: false,
+    } satisfies ShellAttach
+    const detach = { type: 'shell_detach', shellId: SHELL_ID } satisfies ShellDetach
+    expect(attach.type).toBe('shell_attach')
+    expect(attach.replay).toBe(false)
+    expect(detach.type).toBe('shell_detach')
   })
 })
 
