@@ -432,6 +432,38 @@ describe('pickProfile -- Smart Balance v3', () => {
     expect(r.reason).toBe('smart-balance')
   })
 
+  test('the sawtooth fix: 5h headroom steers away from a near-gate profile despite better 7d drain', () => {
+    // The live popover that started this: default 5h=70% (eligible, climbing
+    // toward the 75% gate) with a sooner-resetting, emptier 7d window (16% used,
+    // resets 1d12h -> 2.33%/h drain pressure); work 5h=34% with a later, fuller
+    // 7d (38% used, resets 4d3h -> 0.63%/h). The OLD ranker ignored 5h inside
+    // the eligible band, so default's bigger drain pressure won EVERY pick and
+    // raced its 5h to the cap while work idled (the sawtooth). With 5h headroom
+    // dominant, default's near-gate 5h sheds enough rank that work wins -- the
+    // two co-drain instead of one slamming the gate.
+    const usage = (name: string) => {
+      if (name === 'default') return fresh({ fiveHour: 70, sevenDay: 16, ms7d: DAY_MS + 12 * HOUR_MS })
+      if (name === 'work') return fresh({ fiveHour: 34, sevenDay: 38, ms7d: 4 * DAY_MS + 3 * HOUR_MS })
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('work')
+    expect(r.reason).toBe('smart-balance')
+  })
+
+  test('5h headroom defers to 7d drain when both profiles share the same 5h level', () => {
+    // Equal 5h (both 30%) neutralises the dominant signal, so the secondary 7d
+    // drain pressure decides: work resets its weekly in 2d (1.44%/h) vs
+    // default in ~6.4d (0.52%/h). work wins -- drain still works underneath.
+    const usage = (name: string) => {
+      if (name === 'default') return fresh({ fiveHour: 30, sevenDay: 19, ms7d: 6 * DAY_MS + 10 * HOUR_MS })
+      if (name === 'work') return fresh({ fiveHour: 30, sevenDay: 28, ms7d: 2 * DAY_MS })
+      return undefined
+    }
+    const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: () => 0 })
+    expect(r.profile.name).toBe('work')
+  })
+
   test('7d drain pressure: soonest-resetting weekly budget wins among eligible', () => {
     // Both under the 5h gate. work resets its 7d in ~2d with 72% headroom
     // (1.44%/h); default resets in ~6.4d with 81% headroom (0.52%/h). Spend
@@ -494,8 +526,8 @@ describe('pickProfile -- Smart Balance v3', () => {
   })
 
   test('eligible: load damps the pick when drain pressure ties', () => {
-    // Identical 7d windows -> identical drain pressure. The 0.2 live-load
-    // term breaks it toward the less-loaded profile.
+    // Identical 5h + 7d windows -> identical headroom + drain ranks. The
+    // live-load term breaks it toward the less-loaded profile.
     const usage = () => fresh({ fiveHour: 30, sevenDay: 40, ms7d: 3 * DAY_MS })
     const load = (name: string) => (name === 'default' ? 4 : 0)
     const r = pickProfile(cfg, { input: 'balanced', usage, liveLoad: load })

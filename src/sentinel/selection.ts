@@ -5,11 +5,12 @@
  *   - Fixed:    a literal profile name. Short-circuits to that profile.
  *   - Balanced: from profiles whose `pool` matches the requested pool (or
  *               the sentinel's `defaultPool`), pick by Smart Balance v3 (see
- *               `rankCandidate`): the 5h window is a HARD GATE (skip profiles
- *               near their 5h cap) and the 7d window is a SOFT PREFERENCE
- *               (favour the most "drain pressure" -- headroom per hour until
- *               the weekly budget resets). Falls back to fewest live agent
- *               hosts when telemetry is stale or missing. Ties broken by name.
+ *               `rankCandidate`): the 5h window is a HARD GATE at the cap AND
+ *               the dominant within-band signal (preference decays as a profile
+ *               fills, so load co-drains instead of racing ONE to the cliff);
+ *               the 7d window is a secondary drain-pressure preference (favour
+ *               the soonest-resetting weekly budget). Falls back to fewest live
+ *               agent hosts when telemetry is stale or missing. Ties by name.
  *   - Random:   uniform pick over the same pool-filtered profiles.
  *
  * No-input spawn falls through to `config.defaultSelection` (default, balanced,
@@ -100,11 +101,18 @@ export interface UsageHeadroom {
  *  per-sentinel override (future work). */
 export const GATE_FIVE_HOUR_PCT = 75
 
-/** Weight of 7d drain pressure vs. live-load damping inside the eligible
- *  band. Drain-pressure-dominant (0.8) with a small load term so a burst of
- *  spawns between usage polls doesn't dog-pile one profile before its
- *  telemetry catches up. The remainder (0.2) is live-load. */
-const DRAIN_WEIGHT = 0.8
+/** Eligible-band rank is a weighted blend of three signals (weights sum to 1):
+ *    - 5h headroom (FIVE_HOUR_WEIGHT): the binding DAILY constraint and, these
+ *      days, the limit that actually blocks. Dominant so preference decays as a
+ *      profile fills toward the 5h gate -- load co-drains across profiles
+ *      instead of racing ONE to the gate while the other idles (the sawtooth).
+ *    - 7d drain pressure (DRAIN_WEIGHT): secondary "use it or lose it" weekly
+ *      tiebreaker -- spend the soonest-resetting weekly quota first.
+ *    - live load (LOAD_WEIGHT): between-poll dog-pile damping so a burst of
+ *      spawns doesn't pile on one profile before telemetry catches up. */
+const FIVE_HOUR_WEIGHT = 0.6
+const DRAIN_WEIGHT = 0.3
+const LOAD_WEIGHT = 0.1
 
 /** Reset-clock denominator floor (1min). Prevents division-by-near-zero when
  *  a usage window is seconds away from resetting. */
@@ -263,10 +271,12 @@ function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[]
  * Three disjoint bands on a unified `[0, 1]` axis:
  *
  *   Eligible  (fresh telemetry, fiveHour% < GATE_FIVE_HOUR_PCT):  [0.5, 1.0]
- *     rank = 0.5 + 0.5 * (DRAIN_WEIGHT*drainRank + (1-DRAIN_WEIGHT)*loadRank)
- *     drainPressure = sevenDayHeadroom% / hoursUntil7dReset   ("%/hour")
- *     drainRank     = drainPressure / (1 + drainPressure)     -- squash (0,1)
- *     loadRank      = 1 / (1 + load/weight)                   -- weight=capacity
+ *     rank = 0.5 + 0.5 * (FIVE_HOUR_WEIGHT*fiveHeadroomRank
+ *                         + DRAIN_WEIGHT*drainRank + LOAD_WEIGHT*loadRank)
+ *     fiveHeadroomRank = (GATE - fiveHour%) / GATE            -- 5h room, (0,1]
+ *     drainPressure    = sevenDayHeadroom% / hoursUntil7dReset ("%/hour")
+ *     drainRank        = drainPressure / (1 + drainPressure)  -- squash (0,1)
+ *     loadRank         = 1 / (1 + load/weight)                -- weight=capacity
  *
  *   Unknown   (no source / errored / stale):                       [0.25, 0.5)
  *     rank = 0.25 + 0.25 * loadRank
@@ -280,10 +290,11 @@ function profilesInPool(config: SentinelConfig, pool: string): ResolvedProfile[]
  *
  * Invariants:
  *   - Any eligible profile beats any unknown one beats any gated one.
- *   - Within eligible, the soonest-resetting 7d window with the most headroom
- *     wins -- "use it or lose it": weekly budget about to refresh is drained
- *     first so it isn't wasted at reset. The headroom% numerator self-limits
- *     (as a profile drains, its pressure falls and selection rotates away).
+ *   - Within eligible, 5h headroom dominates: a profile filling toward the gate
+ *     sheds rank smoothly, so spawns co-drain across profiles instead of racing
+ *     one to the 5h cliff while the other idles. 7d drain pressure is the
+ *     secondary tiebreaker -- the soonest-resetting weekly window with the most
+ *     headroom wins ("use it or lose it"), self-limiting as it drains.
  *   - With NO fresh telemetry anywhere, every candidate lands in the unknown
  *     band ranked by load -> degrades cleanly to legacy least-active.
  *   - Tie-breaking is by name (stable; see `pickBalanced`).
@@ -312,17 +323,26 @@ function rankCandidate(profile: ResolvedProfile, liveLoad: LiveLoadSource, usage
     return 0.25 * soonRank
   }
 
-  // ELIGIBLE -- 5h has headroom. Rank by 7d DRAIN PRESSURE: headroom% per
-  // hour-until-7d-reset. A profile whose weekly budget refreshes in 2 days
-  // with 70% unused (35%/h) outranks one resetting in 6 days with 80% unused
-  // (~13%/h) -- spend the soon-to-reset quota before it's wasted. Live-load
-  // damps the pick so a burst between polls doesn't dog-pile one profile.
+  // ELIGIBLE -- 5h has headroom. Three signals (see the weight block above):
+  //
+  //   1. 5h HEADROOM (dominant) -- fraction of the way from the gate back to
+  //      empty: (GATE - used) / GATE, in (0, 1]. As a profile fills toward the
+  //      gate this shrinks, so its rank decays SMOOTHLY before the cliff and
+  //      load steers to the emptier profile. This is the sawtooth fix: the 5h
+  //      gate was binary, so within the band 5h=10% and 5h=74% ranked the same
+  //      and one profile raced to the gate alone while the other sat idle.
+  //   2. 7d DRAIN PRESSURE -- headroom% per hour-until-7d-reset. A weekly
+  //      budget refreshing in 2 days with 70% unused (35%/h) outranks one
+  //      resetting in 6 days with 80% unused (~13%/h): spend the soon-to-reset
+  //      quota before it's wasted. Squashed to (0, 1) via x/(1+x).
+  //   3. LIVE LOAD -- damps the pick so a burst between polls doesn't dog-pile.
+  const fiveHour = Math.max(0, Math.min(100, u.fiveHourUsedPercent))
+  const fiveHeadroomRank = Math.max(0, (GATE_FIVE_HOUR_PCT - fiveHour) / GATE_FIVE_HOUR_PCT)
   const headroom7d = 100 - Math.max(0, Math.min(100, u.sevenDayUsedPercent))
   const hoursTo7dReset = Math.max(MIN_RESET_MS, u.msUntilSevenDayReset) / (60 * 60 * 1000)
   const drainPressure = headroom7d / hoursTo7dReset
-  // Squash to (0, 1): `x / (1 + x)`. Smooth, monotonic, asymptotic to 1.
   const drainRank = drainPressure / (1 + drainPressure)
-  return 0.5 + 0.5 * (DRAIN_WEIGHT * drainRank + (1 - DRAIN_WEIGHT) * loadRank)
+  return 0.5 + 0.5 * (FIVE_HOUR_WEIGHT * fiveHeadroomRank + DRAIN_WEIGHT * drainRank + LOAD_WEIGHT * loadRank)
 }
 
 /** Smart Balance picker. Returns the chosen profile + whether ANY candidate
