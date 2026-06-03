@@ -145,7 +145,7 @@ export function useGlobalCommands(toggleSidebar: () => void) {
     },
     {
       label: 'Open host shell',
-      key: 'h',
+      key: '.',
       group: 'Navigation',
       when: () => {
         const store = useConversationsStore.getState()
