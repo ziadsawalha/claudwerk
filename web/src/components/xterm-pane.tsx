@@ -55,6 +55,7 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const webglAddonRef = useRef<WebglAddon | null>(null)
   // Keep the latest callbacks in refs so the heavy setup effect runs ONCE
   // (mount) and never tears down xterm just because a parent re-rendered.
   const onDataRef = useRef(onData)
@@ -124,6 +125,7 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
       const webglAddon = new WebglAddon()
       webglAddon.onContextLoss(() => webglAddon.dispose())
       terminal.loadAddon(webglAddon)
+      webglAddonRef.current = webglAddon
     } catch {
       // WebGL not available
     }
@@ -165,6 +167,13 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
       resizeObserver.disconnect()
       dataDisposable.dispose()
       el?.removeEventListener('keydown', handleKeyPaste)
+      // Explicitly drop the WebGL context/texture-atlas before tearing down the
+      // terminal. terminal.dispose() does cascade addon disposal, but browsers
+      // cap live WebGL contexts (~16) and an orphaned context holds GPU-backed
+      // RSS until GC -- dispose it deterministically so churning panes can't
+      // exhaust the context pool.
+      webglAddonRef.current?.dispose()
+      webglAddonRef.current = null
       terminal.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
