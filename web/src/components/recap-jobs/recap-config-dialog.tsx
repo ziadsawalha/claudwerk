@@ -44,6 +44,9 @@ export function RecapConfigDialog() {
   const [retrospect, setRetrospect] = useState(true)
   // Once the user toggles retrospect by hand, stop auto-following the preset.
   const [retrospectTouched, setRetrospectTouched] = useState(false)
+  // Customer-friendly tone: sanitize the recap for sharing outside the team. Off
+  // by default -- an internal recap keeps the unfiltered frustration signal.
+  const [customerFriendly, setCustomerFriendly] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -56,6 +59,7 @@ export function RecapConfigDialog() {
       setEndStr(isoLocalDay(now))
       setRetrospect(retrospectDefault('last_7'))
       setRetrospectTouched(false)
+      setCustomerFriendly(false)
       setError(null)
       setOpen(true)
     })
@@ -110,10 +114,10 @@ export function RecapConfigDialog() {
         return
       }
       haptic('success')
-      createRecap({ projectUri, label: 'custom', start: startMs, end: endMs, retrospect })
+      createRecap({ projectUri, label: 'custom', start: startMs, end: endMs, retrospect, customerFriendly })
     } else {
       haptic('success')
-      createRecap({ projectUri, label, retrospect })
+      createRecap({ projectUri, label, retrospect, customerFriendly })
     }
     close()
   }
@@ -217,6 +221,21 @@ export function RecapConfigDialog() {
                 <span className="text-foreground">Include retrospective</span>
                 <span className="block text-[11px] text-muted-foreground">
                   went well / went badly / recommendations -- on by default for a week or more
+                </span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2 text-xs cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={customerFriendly}
+                onChange={() => setCustomerFriendly(v => !v)}
+                className="mt-0.5 size-3.5 rounded border-input accent-accent"
+              />
+              <span>
+                <span className="text-foreground">Make it customer friendly</span>
+                <span className="block text-[11px] text-muted-foreground">
+                  drop frustrations and soften harsh language for sharing outside the team
                 </span>
               </span>
             </label>

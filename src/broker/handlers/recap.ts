@@ -48,6 +48,9 @@ function recapCreate(ctx: HandlerContext, data: MessageData): void {
   // Pillar F: retrospect is a top-level product mode (NOT benevolent-gated, NOT
   // in tuning) -- anyone who can create a recap can ask for the retrospective.
   const retrospect = data.retrospect === true
+  // customerFriendly is a top-level product mode like retrospect (NOT gated, NOT
+  // in tuning): sanitize the recap's tone for sharing outside the team.
+  const customerFriendly = data.customerFriendly === true
   // inform_on_complete: the target conversation is the CALLER's own
   // conversation, derived from the WS connection -- never passed by the agent.
   const informOnComplete = data.inform_on_complete === true
@@ -65,6 +68,7 @@ function recapCreate(ctx: HandlerContext, data: MessageData): void {
       force: Boolean(data.force),
       ...(audience ? { audience } : {}),
       ...(retrospect ? { retrospect: true } : {}),
+      ...(customerFriendly ? { customerFriendly: true } : {}),
       ...(tuning ? { tuning } : {}),
       ...(informConversationId ? { informConversationId } : {}),
     })

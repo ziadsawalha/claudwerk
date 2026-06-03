@@ -16,6 +16,7 @@ import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
 import type { ForgottenThreadDigest } from '../gather/types'
 import {
   AGENT_BODY_SPEC,
+  CUSTOMER_FRIENDLY_SPEC,
   FRONTMATTER_SPEC,
   HUMAN_BODY_SPEC,
   RETRO_BODY_SPEC,
@@ -43,12 +44,15 @@ export function buildSynthesizePrompt(
   ctx: SynthesizeContext,
   audience: RecapAudience = 'human',
   retrospect = false,
+  customerFriendly = false,
 ): SynthesizePrompt {
   // Pillar F: retrospect appends the evaluative frontmatter + body section on
   // top of the audience body. Opus-only (this stage) -- never the map stage.
+  // Customer-friendly tone is appended LAST so it overrides the body spec's
+  // "do not sanitise the frustrations" instruction.
   const bodySpec = `${audience === 'agent' ? AGENT_BODY_SPEC : HUMAN_BODY_SPEC}${
     retrospect ? `\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : ''
-  }`
+  }${customerFriendly ? `\n\n${CUSTOMER_FRIENDLY_SPEC}` : ''}`
   const reader =
     audience === 'agent'
       ? 'a fresh Claude Code agent session with zero prior context, about to do real work in this project'

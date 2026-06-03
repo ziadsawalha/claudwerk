@@ -34,11 +34,19 @@ export interface BuiltPrompt {
   inputChars: number
 }
 
-export function buildPrompt(inputs: PromptInputs, audience: RecapAudience = 'human', retrospect = false): BuiltPrompt {
+export function buildPrompt(
+  inputs: PromptInputs,
+  audience: RecapAudience = 'human',
+  retrospect = false,
+  customerFriendly = false,
+): BuiltPrompt {
   const base = audience === 'agent' ? agentSystemPrompt(inputs) : humanSystemPrompt(inputs)
   // Pillar F: retrospect is ADDITIVE -- append the evaluative frontmatter fields
   // + body section on top of whichever audience body was chosen.
-  const system = retrospect ? `${base}\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : base
+  const withRetro = retrospect ? `${base}\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : base
+  // Customer-friendly tone is appended LAST so it OVERRIDES the body spec's
+  // "Frustrations ... do not sanitise" instruction with the opposite directive.
+  const system = customerFriendly ? `${withRetro}\n\n${CUSTOMER_FRIENDLY_SPEC}` : withRetro
   const user = userPayload(inputs)
   return { system, user, inputChars: system.length + user.length }
 }
@@ -68,6 +76,20 @@ export const RETRO_BODY_SPEC = `ADDITIONAL RETROSPECT BODY SECTION (append AFTER
   ### Recommendations
   Concrete changes for next period, most impactful first. Prioritise rules / tools /
   CLAUDE.md / process -- each one actionable enough to apply directly.`
+
+/**
+ * Customer-friendly tone directive. APPENDED LAST (after the body + any
+ * retrospect spec) to the Opus synthesis prompt (oneshot + chunked reduce) when
+ * customerFriendly:true, so it overrides the body spec's "do not sanitise the
+ * frustrations" line. Opus-only -- the cheap map stage still extracts raw facts;
+ * sanitising the VOICE is a judgment the reduce/oneshot pass makes. Never alters
+ * the facts, citations, or inferred flags.
+ */
+export const CUSTOMER_FRIENDLY_SPEC = `CUSTOMER-FRIENDLY TONE (this recap will be shared OUTSIDE the team -- sanitise the VOICE, never the facts):
+  - OMIT the \`frustrations\` frontmatter list AND the "## Frustrations" body section ENTIRELY. This OVERRIDES the earlier instruction to include them -- a customer-facing recap carries no venting.
+  - REFRAME went_badly / dead_ends / "## What went badly" / "## Dead ends" as neutral, blameless, constructive notes: state what changed or was learned, not who suffered ("the auth flow was reworked after the first approach proved brittle", NOT "wasted a day fighting broken auth").
+  - STRIP profanity, sarcasm, exasperation, and blame toward tools, vendors, or people. Use a calm, professional, external-facing voice throughout.
+  - PRESERVE every fact, citation (conversation ids, commit hashes), and \`inferred\` flag exactly. Only the TONE changes -- never drop technical content to soften it.`
 
 /**
  * YAML frontmatter contract -- IDENTICAL for both audiences. The frontmatter

@@ -61,6 +61,21 @@ describe('buildSynthesizePrompt', () => {
     expect(on).toContain('recommendations')
     expect(on).toContain('## Retrospective')
   })
+
+  it('appends the customer-friendly tone spec only when customerFriendly=true', () => {
+    const off = buildSynthesizePrompt(merged(), ctx, 'human', false, false).system
+    const on = buildSynthesizePrompt(merged(), ctx, 'human', false, true).system
+    expect(off).not.toContain('CUSTOMER-FRIENDLY TONE')
+    expect(on).toContain('CUSTOMER-FRIENDLY TONE')
+    expect(on).toContain('OMIT the `frustrations`')
+  })
+
+  it('customer-friendly tone composes with retrospect, appended last (override ordering)', () => {
+    const on = buildSynthesizePrompt(merged(), ctx, 'human', true, true).system
+    expect(on).toContain('## Retrospective')
+    expect(on).toContain('CUSTOMER-FRIENDLY TONE')
+    expect(on.indexOf('CUSTOMER-FRIENDLY TONE')).toBeGreaterThan(on.indexOf('## Retrospective'))
+  })
 })
 
 describe('synthesize output contract round-trips parseRecapOutput', () => {

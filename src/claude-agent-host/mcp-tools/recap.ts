@@ -277,6 +277,13 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
             'went_well / went_badly / recommendations frontmatter) on top of the chosen audience. ' +
             'recommendations are actionable feeds for CLAUDE.md / rules / tools. Opt-in; off by default.',
         },
+        customerFriendly: {
+          type: 'boolean',
+          description:
+            'When true, the recap is sanitized for sharing OUTSIDE the team: the frustrations ' +
+            'section is omitted and harsh / blaming / profane language is reframed neutral and ' +
+            'constructive. Facts and citations are preserved; only the tone changes. Opt-in; off by default.',
+        },
         inform_on_complete: {
           type: 'boolean',
           description:
@@ -355,6 +362,7 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
       // audience to 'agent'. 'human' must be asked for explicitly.
       const audience = raw.audience === 'human' ? 'human' : 'agent'
       const retrospect = raw.retrospect === true
+      const customerFriendly = raw.customerFriendly === true
       const informOnComplete = raw.inform_on_complete === true
 
       try {
@@ -366,6 +374,7 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
             timeZone,
             audience,
             ...(retrospect ? { retrospect: true } : {}),
+            ...(customerFriendly ? { customerFriendly: true } : {}),
             ...(signals ? { signals } : {}),
             ...(force ? { force: true } : {}),
             ...(raw.tuning && typeof raw.tuning === 'object' ? { tuning: raw.tuning } : {}),

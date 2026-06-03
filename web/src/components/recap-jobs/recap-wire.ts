@@ -27,6 +27,9 @@ export interface CreateRecapOptions {
   /** Opt into the evaluative retrospective (went well / badly / recommendations).
    *  Top-level product mode on recap_create -- NOT a tuning knob. */
   retrospect?: boolean
+  /** Sanitize the recap's tone for sharing outside the team (drop frustrations,
+   *  reframe harsh language). Top-level product mode -- NOT a tuning knob. */
+  customerFriendly?: boolean
 }
 
 /** Send recap_create over the dashboard WS. Returns whether the send was
@@ -45,6 +48,7 @@ export function createRecap(opts: CreateRecapOptions): boolean {
     ...(opts.signals?.length ? { signals: opts.signals } : {}),
     ...(opts.force ? { force: true } : {}),
     ...(opts.retrospect ? { retrospect: true } : {}),
+    ...(opts.customerFriendly ? { customerFriendly: true } : {}),
   })
 }
 

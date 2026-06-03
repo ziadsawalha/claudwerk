@@ -4354,6 +4354,11 @@ export interface RecapCreateMessage {
    *  retrospective (went_well/went_badly/recommendations + a body section) on top
    *  of the chosen audience. Opt-in, NOT benevolent-gated; a product mode. */
   retrospect?: boolean
+  /** When true, the Opus synthesis sanitizes the recap for sharing OUTSIDE the
+   *  team: the frustrations section is dropped and harsh/blaming/profane language
+   *  is reframed neutral + constructive. Facts + citations are preserved; only the
+   *  voice changes. Opt-in, NOT benevolent-gated; a product mode like retrospect. */
+  customerFriendly?: boolean
   /** When true, the broker records the calling conversation and pushes a
    *  recap-completed channel message to it when the run finishes, instead of
    *  the caller polling recap_get. The conversationId is derived broker-side

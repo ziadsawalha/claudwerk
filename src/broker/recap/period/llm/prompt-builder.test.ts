@@ -58,6 +58,32 @@ describe('buildPrompt', () => {
     expect(on.system).toContain('## Retrospective') // + retro appended
   })
 
+  test('customerFriendly appends the sanitize-tone directive (off by default)', () => {
+    const inputs = makePromptInputs('small')
+    const off = buildPrompt(inputs, 'human', false, false)
+    const on = buildPrompt(inputs, 'human', false, true)
+    expect(off.system).not.toContain('CUSTOMER-FRIENDLY TONE')
+    expect(on.system).toContain('CUSTOMER-FRIENDLY TONE')
+    expect(on.system).toContain('OMIT the `frustrations`')
+    expect(on.system.length).toBeGreaterThan(off.system.length)
+  })
+
+  test('customerFriendly is appended LAST so it overrides the retrospect + body spec', () => {
+    const inputs = makePromptInputs('small')
+    const on = buildPrompt(inputs, 'human', true, true)
+    expect(on.system).toContain('## Retrospective')
+    expect(on.system).toContain('CUSTOMER-FRIENDLY TONE')
+    // tone directive must come AFTER the retrospect spec (override ordering)
+    expect(on.system.indexOf('CUSTOMER-FRIENDLY TONE')).toBeGreaterThan(on.system.indexOf('## Retrospective'))
+  })
+
+  test('customerFriendly threads through the agent audience too', () => {
+    const inputs = makePromptInputs('small')
+    const on = buildPrompt(inputs, 'agent', false, true)
+    expect(on.system).toContain('## Pick up here') // agent body still present
+    expect(on.system).toContain('CUSTOMER-FRIENDLY TONE')
+  })
+
   test('huge fixture is large but stays under the 1M-ctx ceiling (rides Opus)', () => {
     const out = buildPrompt(makePromptInputs('huge'))
     expect(out.inputChars).toBeGreaterThan(600_000)

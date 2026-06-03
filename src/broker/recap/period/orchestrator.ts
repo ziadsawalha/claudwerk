@@ -98,9 +98,17 @@ export async function startRecap(deps: OrchestratorDeps, args: StartArgs): Promi
   const period = resolvePeriod(args.period, args.timeZone, deps.now?.())
   const audience: RecapAudience = args.audience ?? 'human'
   const signals = resolveSignals(args, audience)
-  // audience is folded into the cache key: a human and an agent recap for
-  // the same project+period+signals are different documents.
-  const signalsHash = sha256([args.projectUri, period.start, period.end, audience, signals.join(',')].join('|'))
+  // audience + customerFriendly are folded into the cache key: a human vs agent
+  // recap, and a sanitized vs raw recap, for the same project+period+signals are
+  // different documents -- they must not collide in the 5-min cache.
+  const signalsHash = recapCacheKey({
+    projectUri: args.projectUri,
+    periodStart: period.start,
+    periodEnd: period.end,
+    audience,
+    customerFriendly: args.customerFriendly ?? false,
+    signals,
+  })
 
   if (!args.force) {
     const hit = deps.store.findCacheHit({
@@ -395,6 +403,12 @@ export function resumeRecap(deps: OrchestratorDeps, recapId: string): ResumeResu
     ...(((jsonParseOr(row.signalsJson) as RecapSignal[] | undefined) ?? undefined) && {
       signals: jsonParseOr(row.signalsJson) as RecapSignal[],
     }),
+    // Product modes live in the bundle manifest, not args_json (which is the
+    // tuning recipe). Restore them so a resumed run keeps its retrospect layer
+    // and its customer-friendly tone -- both were Opus-only and would otherwise
+    // be silently dropped on resume.
+    ...(manifest.retrospect ? { retrospect: true } : {}),
+    ...(manifest.customerFriendly ? { customerFriendly: true } : {}),
     tuning,
     force: true,
     ...(row.informConversationId ? { informConversationId: row.informConversationId } : {}),
@@ -558,6 +572,7 @@ async function replayStage(
       },
       audience,
       manifest.retrospect ?? false,
+      manifest.customerFriendly ?? false,
     )
     const content = await runLlmCall(deps, targetId, ledger, 'reduce', {
       model,
@@ -611,6 +626,7 @@ async function runRecap(
     },
     audience,
     ...(args.retrospect ? { retrospect: true } : {}),
+    ...(args.customerFriendly ? { customerFriendly: true } : {}),
     ...(args.batchId ? { batchId: args.batchId } : {}),
     createdAt: startedAt,
     ...(args.createdBy ? { createdBy: args.createdBy } : {}),
@@ -666,7 +682,7 @@ async function runRecap(
   )
   emit.setProgress(35, 'gather/done')
 
-  const built = buildPrompt(promptInputs, audience, args.retrospect ?? false)
+  const built = buildPrompt(promptInputs, audience, args.retrospect ?? false, args.customerFriendly ?? false)
   emit.setStatus('rendering')
   // ONESHOT for small periods (one Opus pass), CHUNKED map-reduce for big ones
   // (parallel cheap extraction -> code merge -> one Opus synthesis). Both feed
@@ -1252,6 +1268,7 @@ async function runChunked(
     },
     audience,
     p.args.retrospect ?? false,
+    p.args.customerFriendly ?? false,
   )
   const content = await runLlmCall(deps, recapId, ledger, 'reduce', {
     model: models.reduceModel,
@@ -1404,6 +1421,33 @@ function defaultLabel(projectUri: string): string {
   if (projectUri === '*') return 'all projects'
   const match = projectUri.match(/[^/]+$/)
   return match ? match[0] : projectUri
+}
+
+/**
+ * Cache key for a recap run. Two recaps sharing this key (within the 5-min
+ * window) are the same document and dedupe. audience + customerFriendly are part
+ * of the key: a human vs agent recap, and a sanitized (customer-friendly) vs raw
+ * recap, are DISTINCT documents even for the same project+period+signals, so they
+ * must hash differently or one would serve the other from cache.
+ */
+export function recapCacheKey(args: {
+  projectUri: string
+  periodStart: number
+  periodEnd: number
+  audience: RecapAudience
+  customerFriendly: boolean
+  signals: RecapSignal[]
+}): string {
+  return sha256(
+    [
+      args.projectUri,
+      args.periodStart,
+      args.periodEnd,
+      args.audience,
+      args.customerFriendly ? 'cf' : 'raw',
+      args.signals.join(','),
+    ].join('|'),
+  )
 }
 
 function sha256(input: string): string {
