@@ -26,6 +26,11 @@ interface ShellsState {
   activity: Record<string, number>
   /** shellId -> true while THIS client is subscribed (expanded). Set-like. */
   subscribed: Record<string, true>
+  /** A shell THIS client just opened and wants auto-maximized the moment its
+   *  `shell_added` round-trips into the roster. null = nothing pending. Cleared
+   *  by ShellDock once it expands the overlay. Client-local: only set by our own
+   *  open-shell action, so other clients' shells never yank our view open. */
+  autoExpandId: string | null
 
   setRoster(shells: ShellRosterEntry[]): void
   addShell(shell: ShellRosterEntry): void
@@ -33,6 +38,7 @@ interface ShellsState {
   markActivity(shellId: string, ts: number): void
   markSubscribed(shellId: string): void
   markUnsubscribed(shellId: string): void
+  setAutoExpandId(shellId: string | null): void
   reset(): void
 }
 
@@ -40,6 +46,7 @@ export const useShellsStore = create<ShellsState>(set => ({
   roster: {},
   activity: {},
   subscribed: {},
+  autoExpandId: null,
 
   setRoster: shells =>
     set(() => {
@@ -70,7 +77,9 @@ export const useShellsStore = create<ShellsState>(set => ({
       return { subscribed }
     }),
 
-  reset: () => set({ roster: {}, activity: {}, subscribed: {} }),
+  setAutoExpandId: shellId => set({ autoExpandId: shellId }),
+
+  reset: () => set({ roster: {}, activity: {}, subscribed: {}, autoExpandId: null }),
 }))
 
 // ─── per-field selector hooks (primitive / stable-ref only) ──────────────────
@@ -80,6 +89,7 @@ export const useShellRoster = () => useShellsStore(s => s.roster)
 export const useIsShellSubscribed = (shellId: string) => useShellsStore(s => !!s.subscribed[shellId])
 export const useShellActivityTs = (shellId: string) => useShellsStore(s => s.activity[shellId])
 export const useShellEntry = (shellId: string) => useShellsStore(s => s.roster[shellId])
+export const useShellAutoExpandId = () => useShellsStore(s => s.autoExpandId)
 
 // ─── data-plane handler registry (latency-critical, bypasses zustand) ────────
 // One ShellPane per shellId registers a handler on mount; the WS dispatcher

@@ -18,10 +18,13 @@ import { XtermPane, type XtermPaneHandle } from './xterm-pane'
 
 interface ShellPaneProps {
   shellId: string
+  /** App-specific key interception (overlay minimize/detach chords), run before
+   *  xterm. Return false to swallow. Forwarded to XtermPane verbatim. */
+  customKeyHandler?: (e: KeyboardEvent) => boolean
   className?: string
 }
 
-export function ShellPane({ shellId, className }: ShellPaneProps) {
+export function ShellPane({ shellId, customKeyHandler, className }: ShellPaneProps) {
   const paneRef = useRef<XtermPaneHandle | null>(null)
   const subscribedRef = useRef(false)
   const isConnected = useConversationsStore(s => s.isConnected)
@@ -72,7 +75,17 @@ export function ShellPane({ shellId, className }: ShellPaneProps) {
     [shellId],
   )
 
+  // Shells always show a blinking cursor (a raw zsh prompt would otherwise sit
+  // cursorless until its first repaint). The claude PTY keeps its own default.
   return (
-    <XtermPane ref={paneRef} onData={handleData} onResize={handleResize} settings={settings} className={className} />
+    <XtermPane
+      ref={paneRef}
+      onData={handleData}
+      onResize={handleResize}
+      settings={settings}
+      customKeyHandler={customKeyHandler}
+      cursorBlink
+      className={className}
+    />
   )
 }

@@ -105,3 +105,25 @@ export function resizeShell(shellId: string, cols: number, rows: number): void {
 export function closeShell(shellId: string): void {
   wsSend('shell_close', { shellId })
 }
+
+// ─── detach ───────────────────────────────────────────────────────────────────
+
+/** Open a shell in its own detached browser window (the `#popout-shell` route).
+ *  Reuses the same-origin session cookie, so the popout WS authenticates exactly
+ *  like the dashboard. Shared by the overlay header + the dock tile so the detach
+ *  affordance behaves identically wherever it's triggered. */
+export function popoutShell(shellId: string): void {
+  window.open(`/#popout-shell/${shellId}`, '_blank', 'width=900,height=600,menubar=no,toolbar=no')
+}
+
+/** Map a key event to the overlay chord it triggers, or null. Both use Ctrl+Cmd
+ *  -- the Cmd half is invisible to the PTY, so the shell (vim/less/etc.) still
+ *  gets every plain key incl. Esc; Ctrl makes it deliberate, avoids macOS Cmd+M.
+ *  Pure (no event-type gating -- the handler fires once on keydown). */
+export function shellOverlayChord(e: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'key'>): 'minimize' | 'detach' | null {
+  if (!e.ctrlKey || !e.metaKey) return null
+  const k = e.key.toLowerCase()
+  if (k === 'm') return 'minimize'
+  if (k === 'd') return 'detach'
+  return null
+}

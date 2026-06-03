@@ -9,10 +9,16 @@
  *
  * Self-hides when the roster is empty.
  */
-import { SquareTerminal, X } from 'lucide-react'
+import { ExternalLink, SquareTerminal, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { useIsShellSubscribed, useShellActivityTs, useShellRoster } from '@/hooks/use-shells'
-import { closeShell, shellLightClass, shellTitle } from '@/lib/shell-commands'
+import {
+  useIsShellSubscribed,
+  useShellActivityTs,
+  useShellAutoExpandId,
+  useShellRoster,
+  useShellsStore,
+} from '@/hooks/use-shells'
+import { closeShell, popoutShell, shellLightClass, shellTitle } from '@/lib/shell-commands'
 import { cn } from '@/lib/utils'
 
 // xterm.js is heavy -- keep it out of the index chunk; pulled on first expand.
@@ -73,6 +79,14 @@ function ShellTile({ shellId, onExpand }: { shellId: string; onExpand: () => voi
       </button>
       <button
         type="button"
+        onClick={() => popoutShell(shellId)}
+        className="shrink-0 text-white/30 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+        title="Detach to its own window"
+      >
+        <ExternalLink className="size-3" />
+      </button>
+      <button
+        type="button"
         onClick={() => closeShell(shellId)}
         className="shrink-0 text-white/30 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
         title="Kill shell"
@@ -85,6 +99,7 @@ function ShellTile({ shellId, onExpand }: { shellId: string; onExpand: () => voi
 
 export function ShellDock() {
   const roster = useShellRoster()
+  const autoExpandId = useShellAutoExpandId()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Newest first -- the freshest shell is the most likely target.
@@ -100,6 +115,16 @@ export function ShellDock() {
   useEffect(() => {
     if (expandedId && !roster[expandedId]) setExpandedId(null)
   }, [expandedId, roster])
+
+  // Auto-maximize a shell THIS client just opened, once it lands in the roster
+  // (the `shell_added` round-trip arrives a tick after open-shell). Clear the
+  // pending id so it fires exactly once and never re-expands after a minimize.
+  useEffect(() => {
+    if (autoExpandId && roster[autoExpandId]) {
+      setExpandedId(autoExpandId)
+      useShellsStore.getState().setAutoExpandId(null)
+    }
+  }, [autoExpandId, roster])
 
   if (shellIds.length === 0) return null
 

@@ -40,11 +40,16 @@ interface XtermPaneProps {
    *  attachCustomKeyEventHandler). Generic terminal keys (Shift+Enter newline,
    *  Cmd/Ctrl+V paste) are handled internally and take precedence. */
   customKeyHandler?: (e: KeyboardEvent) => boolean
+  /** Blink the cursor AND keep it visible (don't hide-cursor prime). Default
+   *  false so the claude PTY (web-terminal) stays byte-identical -- it renders
+   *  its own cursor and primes hidden. Host shells set this so a raw zsh prompt
+   *  shows a blinking block immediately, before the shell first repaints. */
+  cursorBlink?: boolean
   className?: string
 }
 
 export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function XtermPane(
-  { onData, onResize, settings, customKeyHandler, className },
+  { onData, onResize, settings, customKeyHandler, cursorBlink = false, className },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -59,13 +64,20 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
   onResizeRef.current = onResize
   customKeyRef.current = customKeyHandler
 
+  // RIS (reset) + clear + cursor home, optionally + hide cursor. The claude PTY
+  // renders its own cursor so it primes hidden (`?25l`); host shells want the
+  // cursor visible immediately, so cursorBlink omits the hide. Stored in a ref
+  // so the mount-only handle/effect read the current value without a rebuild.
+  const primeRef = useRef('')
+  primeRef.current = cursorBlink ? '\x1bc\x1b[2J\x1b[H' : '\x1bc\x1b[2J\x1b[H\x1b[?25l'
+
   useImperativeHandle(
     ref,
     () => ({
       write: (data: string) => xtermRef.current?.write(data),
-      // RIS (reset) + clear + cursor home + hide cursor -- a clean slate before
-      // a (re)paint. Claude Code / shells render their own cursor.
-      clear: () => xtermRef.current?.write('\x1bc\x1b[2J\x1b[H\x1b[?25l'),
+      // RIS (reset) + clear + cursor home (+ hide cursor unless cursorBlink) --
+      // a clean slate before a (re)paint.
+      clear: () => xtermRef.current?.write(primeRef.current),
       focus: () => xtermRef.current?.focus(),
       fit: () => fitAddonRef.current?.fit(),
       getSize: () => ({ cols: xtermRef.current?.cols ?? 80, rows: xtermRef.current?.rows ?? 24 }),
@@ -84,7 +96,7 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
       fontFamily: font.family,
       fontSize: settings.fontSize,
       lineHeight: 1.2,
-      cursorBlink: false,
+      cursorBlink,
       cursorStyle: 'block',
       allowProposedApi: true,
       scrollback: 5000,
@@ -121,7 +133,7 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
     fitAddonRef.current = fitAddon
 
     // Prime with a clean state before PTY data flows in.
-    terminal.write('\x1bc\x1b[2J\x1b[H\x1b[?25l')
+    terminal.write(primeRef.current)
 
     const dataDisposable = terminal.onData(d => onDataRef.current(d))
 

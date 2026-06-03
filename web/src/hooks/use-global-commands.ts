@@ -9,6 +9,7 @@ import { openSpawnDialog } from '@/components/spawn-dialog-trigger'
 import { openTerminateConfirm } from '@/components/terminate-confirm-trigger'
 import { openTerminateLineageConfirm } from '@/components/terminate-lineage-confirm-trigger'
 import { fetchTranscript, sendInput, useConversationsStore, wsSend } from '@/hooks/use-conversations'
+import { useShellsStore } from '@/hooks/use-shells'
 import { formatShortcut, useChordCommand, useCommand, validateChordBindings } from '@/lib/commands'
 import { canRespawnStaleDaemon } from '@/lib/daemon-control'
 import { focusInputEditor } from '@/lib/focus-input'
@@ -136,12 +137,15 @@ export function useGlobalCommands(toggleSidebar: () => void) {
       if (!sid) return
       const conversation = store.conversationsById[sid]
       if (!conversation || !canShell(conversation)) return
-      openShell({
+      const shellId = openShell({
         projectUri: conversation.project,
         cols: 80,
         rows: 24,
         conversationId: sid,
       })
+      // Maximize the moment the broker echoes it into the roster (one tick
+      // later). ShellDock watches autoExpandId and expands + clears it.
+      useShellsStore.getState().setAutoExpandId(shellId)
     },
     {
       label: 'Open host shell',

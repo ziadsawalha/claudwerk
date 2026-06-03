@@ -88,6 +88,22 @@ describe('activity + subscription', () => {
   })
 })
 
+describe('autoExpand (maximize-on-open)', () => {
+  it('starts null and records / clears the pending id', () => {
+    expect(useShellsStore.getState().autoExpandId).toBeNull()
+    useShellsStore.getState().setAutoExpandId('sh_a')
+    expect(useShellsStore.getState().autoExpandId).toBe('sh_a')
+    useShellsStore.getState().setAutoExpandId(null)
+    expect(useShellsStore.getState().autoExpandId).toBeNull()
+  })
+
+  it('reset() clears a pending auto-expand id', () => {
+    useShellsStore.getState().setAutoExpandId('sh_a')
+    useShellsStore.getState().reset()
+    expect(useShellsStore.getState().autoExpandId).toBeNull()
+  })
+})
+
 describe('data-handler registry', () => {
   afterEach(() => {
     setShellDataHandler('sh_a', null)

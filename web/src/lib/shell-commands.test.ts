@@ -17,6 +17,7 @@ import {
   resizeShell,
   shellDisplayPath,
   shellLightClass,
+  shellOverlayChord,
   shellTitle,
   subscribeShell,
   unsubscribeShell,
@@ -60,6 +61,20 @@ describe('pure helpers', () => {
     expect(shellLightClass(false, false, true)).toBe('bg-amber-500/50')
     // never emitted
     expect(shellLightClass(false, false, false)).toBe('bg-white/20')
+  })
+
+  it('shellOverlayChord maps Ctrl+Cmd+M/D, ignores everything else', () => {
+    const chord = (k: string, ctrlKey = true, metaKey = true) => shellOverlayChord({ key: k, ctrlKey, metaKey })
+    expect(chord('m')).toBe('minimize')
+    expect(chord('M')).toBe('minimize') // case-insensitive (shift held)
+    expect(chord('d')).toBe('detach')
+    expect(chord('D')).toBe('detach')
+    // Missing either modifier -> not a chord (so the PTY gets the raw key).
+    expect(chord('m', true, false)).toBeNull()
+    expect(chord('m', false, true)).toBeNull()
+    // Esc must reach the PTY -- never a chord.
+    expect(chord('Escape')).toBeNull()
+    expect(chord('x')).toBeNull()
   })
 })
 
