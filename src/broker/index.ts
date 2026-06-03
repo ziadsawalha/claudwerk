@@ -26,6 +26,7 @@ import {
   setShareValidator,
 } from './auth-routes'
 import { buildReviveMessage } from './build-revive'
+import { recordInboundForSocket, registerConnection, unregisterConnection } from './connection-registry'
 import { createConversationStore } from './conversation-store'
 import { type ContextDeps, createContext } from './create-context'
 import { startExternalStatusPolling, stopExternalStatusPolling } from './external-status'
@@ -682,6 +683,16 @@ async function main() {
           req.headers.get('upgrade')?.toLowerCase() === 'websocket' &&
           (url.pathname === '/' || url.pathname === '/ws')
         ) {
+          // Live-connection registry metadata, stamped onto every socket at
+          // upgrade (the per-socket id + dial-time + peer info the Nerd "Conns"
+          // tab reads). Role-specific fields are filled in later by handlers.
+          const connMeta: Pick<WsData, 'wsConnId' | 'connectedAt' | 'remoteAddr' | 'userAgent'> = {
+            wsConnId: `conn_${crypto.randomUUID().slice(0, 8)}`,
+            connectedAt: Date.now(),
+            remoteAddr: server.requestIP(req)?.address,
+            userAgent: req.headers.get('user-agent') ?? undefined,
+          }
+
           // Share token auth (link-based guest access)
           const shareToken = url.searchParams.get('share')
           if (shareToken) {
@@ -689,6 +700,7 @@ async function main() {
             if (!share) return new Response('Invalid or expired share link', { status: 401 })
             const success = server.upgrade(req, {
               data: {
+                ...connMeta,
                 isShare: true,
                 shareToken,
                 shareConversationId: share.conversationId,
@@ -715,7 +727,7 @@ async function main() {
           const authToken = tokenMatch?.[1]
           // Load grants for permission enforcement on WS messages
           const wsUser = wsUserName ? getUser(wsUserName) : undefined
-          const wsData: WsData = { userName: wsUserName, authToken, grants: wsUser?.grants }
+          const wsData: WsData = { ...connMeta, userName: wsUserName, authToken, grants: wsUser?.grants }
           if (authResult?.role === 'sentinel') {
             wsData.sentinelId = authResult.sentinelId
             wsData.sentinelAlias = authResult.alias
@@ -741,6 +753,8 @@ async function main() {
         idleTimeout: 120, // seconds - close after 120s of no data
         sendPings: true, // auto-send WebSocket pings to keep alive
         open(ws) {
+          // Track every socket in the live-connection registry (Nerd "Conns" tab).
+          registerConnection(ws)
           // Pair a sentinel's dedicated shell-data socket + re-issue shell_attach
           // for any shell that still has viewers (broker restart recovery).
           const machineId = ws.data.isShellData ? ws.data.shellDataMachineId : undefined
@@ -765,6 +779,7 @@ async function main() {
           try {
             const msgStr = message as string
             conversationStore.recordTraffic('in', msgStr.length)
+            recordInboundForSocket(ws, msgStr.length)
             const data = JSON.parse(msgStr)
 
             // Route to registered handler
@@ -782,6 +797,9 @@ async function main() {
           }
         },
         close(ws, code, reason) {
+          // Drop from the live-connection registry first -- close() has many
+          // early returns below, so this must run before any of them.
+          unregisterConnection(ws)
           // Always log -- per the LOG EVERYTHING covenant a bare close line
           // hidden behind `verbose` is a bug. Include all routing context we
           // have so the post-mortem grep is one line. Note: ccSessionId is
