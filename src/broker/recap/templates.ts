@@ -61,6 +61,10 @@ const RECAP_SIGNALS = [
   'turn_internals',
 ] as const
 
+/** One gather signal a template may default-on or an option may flip. Structurally
+ *  equal to the protocol's RecapSignal (RECAP_SIGNALS mirrors it). */
+export type RecapTemplateSignal = (typeof RECAP_SIGNALS)[number]
+
 const optionSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
@@ -233,6 +237,42 @@ export function loadTemplates(log: TemplateLogger = defaultLogger): LoadTemplate
  */
 export function renderTemplateBody(template: RecapTemplate, context: Record<string, unknown>): string {
   return liquid.parseAndRenderSync(template.body, context)
+}
+
+/**
+ * Resolve every declared option to a concrete boolean: the per-option `default`,
+ * overridden by a matching user entry in `overrides`. Unknown override keys are
+ * ignored (only declared options resolve). The result is the `options.<id>`
+ * boolean map fed into the Liquid render context (PLAN section 4, "prompt-tweak"
+ * wire). Resolution order: template option `default` <- user `overrides`.
+ */
+export function resolveOptionFlags(
+  template: RecapTemplate,
+  overrides: Record<string, boolean> = {},
+): Record<string, boolean> {
+  const flags: Record<string, boolean> = {}
+  for (const opt of template.options) {
+    flags[opt.id] = Object.hasOwn(overrides, opt.id) ? overrides[opt.id] : opt.default
+  }
+  return flags
+}
+
+/**
+ * Resolve the gather signal set a template + its resolved option flags imply
+ * (PLAN section 4, "technical" wire). The base set is the template's
+ * `defaults.signals`; each option that declares a `signal` then ADDS that signal
+ * when its resolved flag is true and REMOVES it when false. An option may be BOTH
+ * a technical and a prompt-tweak wire -- it flips its signal here AND exposes its
+ * boolean via {@link resolveOptionFlags}. Returns a sorted, de-duplicated set.
+ */
+export function resolveTemplateSignals(template: RecapTemplate, flags: Record<string, boolean>): RecapTemplateSignal[] {
+  const set = new Set<RecapTemplateSignal>(template.defaults.signals)
+  for (const opt of template.options) {
+    if (!opt.signal) continue
+    if (flags[opt.id]) set.add(opt.signal)
+    else set.delete(opt.signal)
+  }
+  return [...set].sort()
 }
 
 /**

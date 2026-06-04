@@ -16,11 +16,11 @@ import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
 import type { ForgottenThreadDigest } from '../gather/types'
 import {
   AGENT_BODY_SPEC,
-  CUSTOMER_FRIENDLY_SPEC,
+  AGENT_SYNTHESIZE_READER,
+  applyRetroCf,
   FRONTMATTER_SPEC,
-  HUMAN_BODY_SPEC,
-  RETRO_BODY_SPEC,
-  RETRO_FRONTMATTER_SPEC,
+  renderHumanBody,
+  synthesizeFraming,
 } from '../llm/prompt-builder'
 import { renderForgottenSection } from '../llm/render-forgotten'
 
@@ -46,40 +46,24 @@ export function buildSynthesizePrompt(
   retrospect = false,
   customerFriendly = false,
 ): SynthesizePrompt {
-  // Pillar F: retrospect appends the evaluative frontmatter + body section on
-  // top of the audience body. Opus-only (this stage) -- never the map stage.
-  // Customer-friendly tone is appended LAST so it overrides the body spec's
-  // "do not sanitise the frustrations" instruction.
-  const bodySpec = `${audience === 'agent' ? AGENT_BODY_SPEC : HUMAN_BODY_SPEC}${
-    retrospect ? `\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : ''
-  }${customerFriendly ? `\n\n${CUSTOMER_FRIENDLY_SPEC}` : ''}`
-  const reader =
+  // The HUMAN body is rendered through the SAME template seam the oneshot path
+  // uses (renderHumanBody, `path: 'synthesize'`), so the deliverable contract
+  // (frontmatter + body spec) cannot drift between the two paths -- only the
+  // framing differs (synthesize: refine merged facts; oneshot: extract from
+  // transcripts). The AGENT body is not templated yet (agent-handoff = phase 4),
+  // so it is assembled in code below. Pillar F (retrospect, Opus-only) + the
+  // customer-friendly tone are layered on by the SHARED helper applyRetroCf --
+  // identical ordering to the oneshot path, so the layering cannot drift either.
+  const base =
     audience === 'agent'
-      ? 'a fresh Claude Code agent session with zero prior context, about to do real work in this project'
-      : 'a human reading a development recap'
-  const system = `You are SYNTHESIZING the final recap for project ${ctx.projectLabel},
-covering ${ctx.periodHuman} (${ctx.periodIsoRange}). The reader is ${reader}.
-
-The facts below were already EXTRACTED from the period's transcripts in parallel
-(map stage) and MERGED + de-duplicated IN CODE. Your job is JUDGMENT and PROSE,
-NOT extraction:
-  - REFINE the merged items: collapse near-duplicates the code merge missed
-    (same thing, different wording), keep the most specific title, merge details.
-  - PRESERVE every citation (conversation ids, commit hashes) and every
-    "inferred" flag exactly as given -- never upgrade an inference to a fact.
-  - DO NOT invent items, citations, or facts that are not in the merged input
-    OR the FORGOTTEN_THREADS block below (the latter is authoritative,
-    deterministic data -- render it, don't second-guess it).
-    You have no transcripts here; everything else you state must trace to the input.
-  - DROP anything genuinely empty; never pad to fill a section.
-
-Output format: a YAML frontmatter block (between --- lines) followed by the
-markdown body. The frontmatter is parsed and indexed -- carry the merged facts
-into it faithfully.
-
-${FRONTMATTER_SPEC}
-
-${bodySpec}`
+      ? agentSynthesizeBody(ctx)
+      : renderHumanBody({
+          path: 'synthesize',
+          scopeLabel: ctx.projectLabel,
+          periodHuman: ctx.periodHuman,
+          periodIsoRange: ctx.periodIsoRange,
+        })
+  const system = applyRetroCf(base, retrospect, customerFriendly)
 
   const forgottenBlock = ctx.forgotten ? renderForgottenSection(ctx.forgotten) : ''
   const user = `MERGED FACTS (already extracted + code-deduped across all chunks of the period):
@@ -90,4 +74,15 @@ Synthesize the final recap now: refine + de-duplicate the above, then write the
 frontmatter and body per the contract. Output the frontmatter block and body only.`
 
   return { system, user }
+}
+
+/**
+ * The agent orientation-brief synthesize body: the shared synthesize framing
+ * (agent reader) + the frontmatter contract + the agent body spec. Not templated
+ * yet -- the agent-handoff template lands in phase 4, at which point this routes
+ * through {@link renderHumanBody}'s sibling like the human path does today.
+ */
+function agentSynthesizeBody(ctx: SynthesizeContext): string {
+  const framing = synthesizeFraming(ctx.projectLabel, ctx.periodHuman, ctx.periodIsoRange, AGENT_SYNTHESIZE_READER)
+  return `${framing}\n\n${FRONTMATTER_SPEC}\n\n${AGENT_BODY_SPEC}`
 }

@@ -11,11 +11,36 @@ sections: [features, bugs, fixes, incidents, decisions, dead_ends, gotchas, frus
 options: []
 
 # ANCHOR TEMPLATE -- reproduces today's all-projects HUMAN recap BYTE-IDENTICALLY.
-# The two large fixed specs (the indexed frontmatter contract + the human body
-# contract) are supplied by the engine as `frontmatter_spec` / `body_spec` so they
-# stay single-sourced (no drift, no retyping). The header + ground rules are the
-# presentation framing the template owns; scope_label / period are interpolated.
+# ONE body, TWO framings: the `path` discriminator selects the oneshot framing
+# (extract from transcripts) or the synthesize framing (refine merged facts), but
+# the deliverable CONTRACT -- the two large fixed specs injected as
+# `{{ frontmatter_spec }}` / `{{ body_spec }}` -- is emitted ONCE after the branch.
+# That single injection is what makes the oneshot and synthesize paths share an
+# identical contract (they cannot drift). The framing text is the presentation the
+# template owns; scope_label / period are interpolated. `body: |-` strips the
+# trailing newline so the rendered string ends exactly at the body spec.
 body: |-
+  {%- if path == "synthesize" -%}
+  You are SYNTHESIZING the final recap for project {{ scope_label }},
+  covering {{ period.human }} ({{ period.iso_range }}). The reader is a human reading a development recap.
+
+  The facts below were already EXTRACTED from the period's transcripts in parallel
+  (map stage) and MERGED + de-duplicated IN CODE. Your job is JUDGMENT and PROSE,
+  NOT extraction:
+    - REFINE the merged items: collapse near-duplicates the code merge missed
+      (same thing, different wording), keep the most specific title, merge details.
+    - PRESERVE every citation (conversation ids, commit hashes) and every
+      "inferred" flag exactly as given -- never upgrade an inference to a fact.
+    - DO NOT invent items, citations, or facts that are not in the merged input
+      OR the FORGOTTEN_THREADS block below (the latter is authoritative,
+      deterministic data -- render it, don't second-guess it).
+      You have no transcripts here; everything else you state must trace to the input.
+    - DROP anything genuinely empty; never pad to fill a section.
+
+  Output format: a YAML frontmatter block (between --- lines) followed by the
+  markdown body. The frontmatter is parsed and indexed -- carry the merged facts
+  into it faithfully.
+  {%- else -%}
   You are writing a comprehensive development recap for project {{ scope_label }}
   covering {{ period.human }} ({{ period.iso_range }}).
 
@@ -31,6 +56,7 @@ body: |-
       from transcript text only is an INFERENCE -- mark it inferred (frontmatter
       `inferred: true`, or [inferred] in prose). Never dress inference as fact.
     - Vague, abstracted summaries are a failure. Be concrete and specific.
+  {%- endif %}
 
   {{ frontmatter_spec }}
 

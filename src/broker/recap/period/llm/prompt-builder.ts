@@ -5,6 +5,7 @@ import {
   pickTemplate,
   type RecapTemplate,
   renderTemplateBody,
+  resolveOptionFlags,
 } from '../../templates'
 import type {
   CommitDigest,
@@ -47,15 +48,41 @@ export function buildPrompt(
   retrospect = false,
   customerFriendly = false,
 ): BuiltPrompt {
-  const base = audience === 'agent' ? agentSystemPrompt(inputs) : renderHumanPrompt(inputs)
-  // Pillar F: retrospect is ADDITIVE -- append the evaluative frontmatter fields
-  // + body section on top of whichever audience body was chosen.
-  const withRetro = retrospect ? `${base}\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : base
-  // Customer-friendly tone is appended LAST so it OVERRIDES the body spec's
-  // "Frustrations ... do not sanitise" instruction with the opposite directive.
-  const system = customerFriendly ? `${withRetro}\n\n${CUSTOMER_FRIENDLY_SPEC}` : withRetro
+  const base =
+    audience === 'agent'
+      ? agentSystemPrompt(inputs)
+      : renderHumanBody({
+          path: 'oneshot',
+          scopeLabel: inputs.projectLabel,
+          periodHuman: inputs.periodHuman,
+          periodIsoRange: inputs.periodIsoRange,
+          stats: humanStats(inputs),
+        })
+  const system = applyRetroCf(base, retrospect, customerFriendly)
   const user = userPayload(inputs)
   return { system, user, inputChars: system.length + user.length }
+}
+
+/**
+ * Append the retrospect + customer-friendly layers on top of an audience body.
+ * SHARED by the oneshot ({@link buildPrompt}) and synthesize
+ * (`buildSynthesizePrompt`) paths so the two cannot drift in ordering:
+ *   - Pillar F: retrospect is ADDITIVE -- the evaluative frontmatter + body
+ *     section append on top of whichever audience body was chosen.
+ *   - Customer-friendly tone appends LAST so it OVERRIDES the body spec's
+ *     "Frustrations ... do not sanitise" instruction with the opposite directive.
+ */
+export function applyRetroCf(base: string, retrospect: boolean, customerFriendly: boolean): string {
+  const withRetro = retrospect ? `${base}\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : base
+  return customerFriendly ? `${withRetro}\n\n${CUSTOMER_FRIENDLY_SPEC}` : withRetro
+}
+
+function humanStats(inputs: PromptInputs): RenderStats {
+  return {
+    conversations: inputs.conversations.length,
+    commits: inputs.commits.perProject.reduce((sum, p) => sum + p.commits.length, 0),
+    projects: inputs.commits.perProject.map(p => p.cwd),
+  }
 }
 
 // The default (anchor) template, loaded once. The templates dir is tiny and
@@ -72,44 +99,85 @@ function getDefaultTemplate(): RecapTemplate | undefined {
   return defaultTemplate
 }
 
+/** Render path: which wrapper is asking for the body. The CONTRACT
+ *  (frontmatter + body sections) is path-independent; only the framing differs. */
+export type RecapRenderPath = 'oneshot' | 'synthesize'
+
+/** Data counts a template body may surface; unused by the anchor but part of the
+ *  shared render-context shape so a future template gets them on BOTH paths. */
+export interface RenderStats {
+  conversations: number
+  commits: number
+  projects: string[]
+}
+
+/** Inputs to the SHARED human-body renderer -- the one seam both the oneshot and
+ *  synthesize wrappers feed from (PLAN section 3). The synthesize path has no
+ *  conversation list, so `stats` is optional. */
+export interface HumanBodyArgs {
+  path: RecapRenderPath
+  scopeLabel: string
+  periodHuman: string
+  periodIsoRange: string
+  /** User option overrides; resolved against the default template's declared
+   *  options before entering the Liquid context (PLAN section 4). */
+  options?: Record<string, boolean>
+  stats?: RenderStats
+}
+
 /**
  * The Liquid render context shared by every template body (PLAN section 4):
- * resolved `options`, `audience`, `scope_label`, `period`, and data `stats`.
- * The two large FIXED specs are supplied here too so a template body injects
- * them as `{{ frontmatter_spec }}` / `{{ body_spec }}` instead of duplicating
- * the indexed-frontmatter contract -- keeping it single-sourced across paths.
+ * resolved `options`, `audience`, render `path`, `scope_label`, `period`, and
+ * data `stats`. The two large FIXED specs are supplied here too so a template
+ * body injects them ONCE as `{{ frontmatter_spec }}` / `{{ body_spec }}` -- which
+ * is what makes the CONTRACT identical across the oneshot and synthesize paths
+ * (only the path-branched framing differs). Single-sourced, cannot drift.
  */
-function humanRenderContext(inputs: PromptInputs): Record<string, unknown> {
+function humanRenderContext(args: HumanBodyArgs, optionFlags: Record<string, boolean>): Record<string, unknown> {
   return {
-    options: {},
+    options: optionFlags,
     audience: 'human' as const,
-    scope_label: inputs.projectLabel,
-    period: { human: inputs.periodHuman, iso_range: inputs.periodIsoRange },
+    path: args.path,
+    scope_label: args.scopeLabel,
+    period: { human: args.periodHuman, iso_range: args.periodIsoRange },
     frontmatter_spec: FRONTMATTER_SPEC,
     body_spec: HUMAN_BODY_SPEC,
-    stats: {
-      conversations: inputs.conversations.length,
-      commits: inputs.commits.perProject.reduce((sum, p) => sum + p.commits.length, 0),
-      projects: inputs.commits.perProject.map(p => p.cwd),
-    },
+    stats: args.stats ?? { conversations: 0, commits: 0, projects: [] },
   }
 }
 
 /**
- * Render the human recap presentation. Phase 1: the default `project-recap`
- * template reproduces {@link humanSystemPrompt} byte-for-byte (guarded by the
- * anchor snapshot test). Falls back to the in-code spec if the template is
- * absent or fails to render -- a recap must never break on a template error.
+ * Render the human recap presentation body for the given path. This is the ONE
+ * seam both the oneshot wrapper ({@link buildPrompt}) and the synthesize wrapper
+ * (`buildSynthesizePrompt`) feed from: the default `project-recap` template
+ * branches its framing on `path` but injects the frontmatter + body contract
+ * exactly once, so the two paths cannot drift (guarded by the anchor byte-identity
+ * test for oneshot + the path-parity test). Falls back to the in-code spec if the
+ * template is absent or fails to render -- a recap must never break on a template error.
  */
-function renderHumanPrompt(inputs: PromptInputs): string {
+export function renderHumanBody(args: HumanBodyArgs): string {
   const template = getDefaultTemplate()
-  if (!template) return humanSystemPrompt(inputs)
-  try {
-    return renderTemplateBody(template, humanRenderContext(inputs))
-  } catch (err) {
-    console.warn(`[recap-templates] render failed for "${template.id}", using in-code fallback: ${describeError(err)}`)
-    return humanSystemPrompt(inputs)
+  if (template) {
+    const optionFlags = resolveOptionFlags(template, args.options ?? {})
+    try {
+      return renderTemplateBody(template, humanRenderContext(args, optionFlags))
+    } catch (err) {
+      console.warn(
+        `[recap-templates] render failed for "${template.id}" (${args.path}), using in-code fallback: ${describeError(err)}`,
+      )
+    }
   }
+  return humanBodyFallback(args)
+}
+
+/** In-code body for when the template is missing/broken. Mirrors the template's
+ *  two framing branches so a recap still renders correctly without the .yml. */
+function humanBodyFallback(args: HumanBodyArgs): string {
+  const framing =
+    args.path === 'synthesize'
+      ? synthesizeFraming(args.scopeLabel, args.periodHuman, args.periodIsoRange, HUMAN_SYNTHESIZE_READER)
+      : humanOneshotFraming(args.scopeLabel, args.periodHuman, args.periodIsoRange)
+  return `${framing}\n\n${FRONTMATTER_SPEC}\n\n${HUMAN_BODY_SPEC}`
 }
 
 function describeError(err: unknown): string {
@@ -117,13 +185,14 @@ function describeError(err: unknown): string {
 }
 
 /**
- * Pillar F -- retrospect frontmatter + body. APPENDED to either audience's
- * prompt when retrospect:true, and reused by the chunked CHUNKED:Final stage.
- * Emitted ONLY by Opus (oneshot/synthesize), NEVER the cheap map stage. The
- * three lists are JUDGMENT (evaluation), so they may be inferred -- unlike the
- * extraction sections, an inferred retrospect item is expected.
+ * Pillar F -- retrospect frontmatter + body. APPENDED to either audience's prompt
+ * when retrospect:true via the shared {@link applyRetroCf} helper (so the oneshot
+ * and synthesize paths layer it identically). Emitted ONLY by Opus
+ * (oneshot/synthesize), NEVER the cheap map stage. The three lists are JUDGMENT
+ * (evaluation), so they may be inferred -- unlike the extraction sections, an
+ * inferred retrospect item is expected.
  */
-export const RETRO_FRONTMATTER_SPEC = `ADDITIONAL RETROSPECT FRONTMATTER (this recap is also a RETROSPECTIVE -- EVALUATE the period, don't just report it):
+const RETRO_FRONTMATTER_SPEC = `ADDITIONAL RETROSPECT FRONTMATTER (this recap is also a RETROSPECTIVE -- EVALUATE the period, don't just report it):
 
   went_well: [<things that went WELL this period, as {title, detail?, conversations?, commits?}>]
   went_badly: [<things that went BADLY -- friction, relitigated decisions, recurring dead-ends, wasted effort -- as {title, detail?, conversations?}>]
@@ -131,7 +200,7 @@ export const RETRO_FRONTMATTER_SPEC = `ADDITIONAL RETROSPECT FRONTMATTER (this r
 
 These three are your JUDGMENT, grounded in the period's evidence. They MAY be inferred (set inferred: true). Cite conversations/commits where you can. OMIT a list if there is genuinely nothing for it; never pad.`
 
-export const RETRO_BODY_SPEC = `ADDITIONAL RETROSPECT BODY SECTION (append AFTER the sections above):
+const RETRO_BODY_SPEC = `ADDITIONAL RETROSPECT BODY SECTION (append AFTER the sections above):
 
   ## Retrospective
   ### What went well
@@ -143,14 +212,14 @@ export const RETRO_BODY_SPEC = `ADDITIONAL RETROSPECT BODY SECTION (append AFTER
   CLAUDE.md / process -- each one actionable enough to apply directly.`
 
 /**
- * Customer-friendly tone directive. APPENDED LAST (after the body + any
- * retrospect spec) to the Opus synthesis prompt (oneshot + chunked reduce) when
- * customerFriendly:true, so it overrides the body spec's "do not sanitise the
- * frustrations" line. Opus-only -- the cheap map stage still extracts raw facts;
+ * Customer-friendly tone directive. APPENDED LAST (after the body + any retrospect
+ * spec) via the shared {@link applyRetroCf} helper when customerFriendly:true, so
+ * it overrides the body spec's "do not sanitise the frustrations" line. Opus-only
+ * (oneshot + chunked reduce) -- the cheap map stage still extracts raw facts;
  * sanitising the VOICE is a judgment the reduce/oneshot pass makes. Never alters
  * the facts, citations, or inferred flags.
  */
-export const CUSTOMER_FRIENDLY_SPEC = `CUSTOMER-FRIENDLY TONE (this recap will be shared OUTSIDE the team -- sanitise the VOICE, never the facts):
+const CUSTOMER_FRIENDLY_SPEC = `CUSTOMER-FRIENDLY TONE (this recap will be shared OUTSIDE the team -- sanitise the VOICE, never the facts):
   - OMIT the \`frustrations\` frontmatter list AND the "## Frustrations" body section ENTIRELY. This OVERRIDES the earlier instruction to include them -- a customer-facing recap carries no venting.
   - REFRAME went_badly / dead_ends / "## What went badly" / "## Dead ends" as neutral, blameless, constructive notes: state what changed or was learned, not who suffered ("the auth flow was reworked after the first approach proved brittle", NOT "wasted a day fighting broken auth").
   - STRIP profanity, sarcasm, exasperation, and blame toward tools, vendors, or people. Use a calm, professional, external-facing voice throughout.
@@ -309,9 +378,15 @@ export const AGENT_BODY_SPEC = `MARKDOWN BODY (after the closing --- of frontmat
 DO NOT include greetings, sign-offs, an H1 title, or a cost table.
 DO NOT pad. Use the project's actual terms verbatim.`
 
-function humanSystemPrompt(inputs: PromptInputs): string {
-  return `You are writing a comprehensive development recap for project ${inputs.projectLabel}
-covering ${inputs.periodHuman} (${inputs.periodIsoRange}).
+/**
+ * Oneshot framing for the human recap (header + ground rules) -- the text the
+ * default template's `path != 'synthesize'` branch reproduces. Kept here as the
+ * canonical source for the in-code fallback; the anchor byte-identity test pins
+ * the template render to it.
+ */
+function humanOneshotFraming(scopeLabel: string, periodHuman: string, periodIsoRange: string): string {
+  return `You are writing a comprehensive development recap for project ${scopeLabel}
+covering ${periodHuman} (${periodIsoRange}).
 
 Output format: a YAML frontmatter block (between --- lines) followed by markdown body.
 The frontmatter is parsed and indexed -- be specific so future searches find this recap.
@@ -324,11 +399,47 @@ GROUND RULES:
   - FACT vs INFERENCE. A claim backed by a commit/task is a FACT. A claim read
     from transcript text only is an INFERENCE -- mark it inferred (frontmatter
     \`inferred: true\`, or [inferred] in prose). Never dress inference as fact.
-  - Vague, abstracted summaries are a failure. Be concrete and specific.
+  - Vague, abstracted summaries are a failure. Be concrete and specific.`
+}
 
-${FRONTMATTER_SPEC}
+/** The human reader description in the synthesize framing. */
+export const HUMAN_SYNTHESIZE_READER = 'a human reading a development recap'
+/** The agent reader description in the synthesize framing. */
+export const AGENT_SYNTHESIZE_READER =
+  'a fresh Claude Code agent session with zero prior context, about to do real work in this project'
 
-${HUMAN_BODY_SPEC}`
+/**
+ * CHUNKED:Final framing -- the synthesize/reduce header + ground rules, shared by
+ * the human path (default template's `path == 'synthesize'` branch + the in-code
+ * fallback) and the agent path (`buildSynthesizePrompt`). Only the `reader` clause
+ * differs between audiences. The DELIVERABLE contract (frontmatter + body spec) is
+ * appended by the caller from the SAME single source the oneshot path uses.
+ */
+export function synthesizeFraming(
+  scopeLabel: string,
+  periodHuman: string,
+  periodIsoRange: string,
+  reader: string,
+): string {
+  return `You are SYNTHESIZING the final recap for project ${scopeLabel},
+covering ${periodHuman} (${periodIsoRange}). The reader is ${reader}.
+
+The facts below were already EXTRACTED from the period's transcripts in parallel
+(map stage) and MERGED + de-duplicated IN CODE. Your job is JUDGMENT and PROSE,
+NOT extraction:
+  - REFINE the merged items: collapse near-duplicates the code merge missed
+    (same thing, different wording), keep the most specific title, merge details.
+  - PRESERVE every citation (conversation ids, commit hashes) and every
+    "inferred" flag exactly as given -- never upgrade an inference to a fact.
+  - DO NOT invent items, citations, or facts that are not in the merged input
+    OR the FORGOTTEN_THREADS block below (the latter is authoritative,
+    deterministic data -- render it, don't second-guess it).
+    You have no transcripts here; everything else you state must trace to the input.
+  - DROP anything genuinely empty; never pad to fill a section.
+
+Output format: a YAML frontmatter block (between --- lines) followed by the
+markdown body. The frontmatter is parsed and indexed -- carry the merged facts
+into it faithfully.`
 }
 
 /**

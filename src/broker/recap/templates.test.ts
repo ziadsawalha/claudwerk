@@ -6,7 +6,11 @@ import {
   loadTemplates,
   loadTemplatesFromDir,
   pickTemplate,
+  type RecapTemplate,
   type RecapTemplateOption,
+  renderTemplateBody,
+  resolveOptionFlags,
+  resolveTemplateSignals,
   resolveTemplatesDir,
   type TemplateLoadEvent,
   templateManifestSchema,
@@ -184,6 +188,106 @@ describe('pickTemplate', () => {
   it('returns undefined when even the default is absent', () => {
     const { templates } = loadTemplatesFromDir(TEST_DIR, () => {})
     expect(pickTemplate(templates, undefined, () => {})).toBeUndefined()
+  })
+})
+
+// Build a fully-defaulted template object inline (no file I/O).
+function tmpl(partial: Record<string, unknown>): RecapTemplate {
+  return templateManifestSchema.parse({ label: 'L', description: 'D', body: 'B', ...partial })
+}
+
+describe('resolveOptionFlags (PLAN section 4: prompt-tweak wire)', () => {
+  it('applies each option default when there is no override', () => {
+    const t = tmpl({
+      id: 'x',
+      options: [
+        { id: 'terse', label: 'Terse', default: true },
+        { id: 'group', label: 'Group', default: false },
+      ],
+    })
+    expect(resolveOptionFlags(t)).toEqual({ terse: true, group: false })
+  })
+
+  it('lets a user override win over the option default', () => {
+    const t = tmpl({
+      id: 'x',
+      options: [
+        { id: 'terse', label: 'Terse', default: true },
+        { id: 'group', label: 'Group', default: false },
+      ],
+    })
+    expect(resolveOptionFlags(t, { terse: false, group: true })).toEqual({ terse: false, group: true })
+  })
+
+  it('ignores override keys that are not declared options', () => {
+    const t = tmpl({ id: 'x', options: [{ id: 'terse', label: 'Terse', default: false }] })
+    expect(resolveOptionFlags(t, { terse: true, bogus: true })).toEqual({ terse: true })
+  })
+
+  it('a prompt-tweak option flips the matching Liquid boolean in the rendered body', () => {
+    const t = tmpl({
+      id: 'x',
+      body: '{% if options.terse %}TERSE{% else %}NARRATIVE{% endif %}',
+      options: [{ id: 'terse', label: 'Terse', default: false }],
+    })
+    expect(renderTemplateBody(t, { options: resolveOptionFlags(t) })).toBe('NARRATIVE')
+    expect(renderTemplateBody(t, { options: resolveOptionFlags(t, { terse: true }) })).toBe('TERSE')
+  })
+})
+
+describe('resolveTemplateSignals (PLAN section 4: technical wire)', () => {
+  it('returns the template default signal set when no technical options fire', () => {
+    const t = tmpl({ id: 'x', defaults: { signals: ['user_prompts', 'commits'] } })
+    expect(resolveTemplateSignals(t, resolveOptionFlags(t))).toEqual(['commits', 'user_prompts'])
+  })
+
+  it('a technical option ADDS its signal when its resolved flag is true', () => {
+    const t = tmpl({
+      id: 'x',
+      defaults: { signals: ['user_prompts'] },
+      options: [{ id: 'include_cost', label: 'Cost', default: false, signal: 'cost' }],
+    })
+    // default false -> signal absent
+    expect(resolveTemplateSignals(t, resolveOptionFlags(t))).toEqual(['user_prompts'])
+    // user turns it on -> signal added
+    expect(resolveTemplateSignals(t, resolveOptionFlags(t, { include_cost: true }))).toEqual(['cost', 'user_prompts'])
+  })
+
+  it('a technical option REMOVES its signal from the defaults when its flag is false', () => {
+    const t = tmpl({
+      id: 'x',
+      defaults: { signals: ['user_prompts', 'commits'] },
+      options: [{ id: 'commit_stats', label: 'Commits', default: true, signal: 'commits' }],
+    })
+    // default true -> commits stays
+    expect(resolveTemplateSignals(t, resolveOptionFlags(t))).toEqual(['commits', 'user_prompts'])
+    // user turns it off -> commits removed
+    expect(resolveTemplateSignals(t, resolveOptionFlags(t, { commit_stats: false }))).toEqual(['user_prompts'])
+  })
+
+  it('a prompt-tweak option (no signal) never touches the signal set', () => {
+    const t = tmpl({
+      id: 'x',
+      defaults: { signals: ['user_prompts'] },
+      options: [{ id: 'terse', label: 'Terse', default: true }],
+    })
+    expect(resolveTemplateSignals(t, resolveOptionFlags(t, { terse: false }))).toEqual(['user_prompts'])
+  })
+
+  it('a combined option flips BOTH its signal AND its Liquid boolean', () => {
+    const t = tmpl({
+      id: 'x',
+      body: '{% if options.commit_stats %}STATS{% else %}NO-STATS{% endif %}',
+      defaults: { signals: ['user_prompts', 'commits'] },
+      options: [{ id: 'commit_stats', label: 'Commits', default: true, signal: 'commits' }],
+    })
+    const onFlags = resolveOptionFlags(t)
+    expect(resolveTemplateSignals(t, onFlags)).toEqual(['commits', 'user_prompts'])
+    expect(renderTemplateBody(t, { options: onFlags })).toBe('STATS')
+
+    const offFlags = resolveOptionFlags(t, { commit_stats: false })
+    expect(resolveTemplateSignals(t, offFlags)).toEqual(['user_prompts'])
+    expect(renderTemplateBody(t, { options: offFlags })).toBe('NO-STATS')
   })
 })
 
