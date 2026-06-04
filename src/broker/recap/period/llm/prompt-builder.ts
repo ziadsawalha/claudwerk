@@ -1,4 +1,11 @@
 import type { RecapAudience } from '../../../../shared/protocol'
+import {
+  DEFAULT_TEMPLATE_ID,
+  loadTemplates,
+  pickTemplate,
+  type RecapTemplate,
+  renderTemplateBody,
+} from '../../templates'
 import type {
   CommitDigest,
   ConversationDigest,
@@ -40,7 +47,7 @@ export function buildPrompt(
   retrospect = false,
   customerFriendly = false,
 ): BuiltPrompt {
-  const base = audience === 'agent' ? agentSystemPrompt(inputs) : humanSystemPrompt(inputs)
+  const base = audience === 'agent' ? agentSystemPrompt(inputs) : renderHumanPrompt(inputs)
   // Pillar F: retrospect is ADDITIVE -- append the evaluative frontmatter fields
   // + body section on top of whichever audience body was chosen.
   const withRetro = retrospect ? `${base}\n\n${RETRO_FRONTMATTER_SPEC}\n\n${RETRO_BODY_SPEC}` : base
@@ -49,6 +56,64 @@ export function buildPrompt(
   const system = customerFriendly ? `${withRetro}\n\n${CUSTOMER_FRIENDLY_SPEC}` : withRetro
   const user = userPayload(inputs)
   return { system, user, inputChars: system.length + user.length }
+}
+
+// The default (anchor) template, loaded once. The templates dir is tiny and
+// read-mostly; per PLAN section 5 there is no hot-reload machinery. `undefined`
+// means the templates dir was missing/broken -- the human path then falls back
+// to the in-code HUMAN spec (below), so a recap never breaks on a template error.
+let defaultTemplate: RecapTemplate | undefined
+let defaultTemplateLoaded = false
+function getDefaultTemplate(): RecapTemplate | undefined {
+  if (!defaultTemplateLoaded) {
+    defaultTemplate = pickTemplate(loadTemplates().templates, DEFAULT_TEMPLATE_ID)
+    defaultTemplateLoaded = true
+  }
+  return defaultTemplate
+}
+
+/**
+ * The Liquid render context shared by every template body (PLAN section 4):
+ * resolved `options`, `audience`, `scope_label`, `period`, and data `stats`.
+ * The two large FIXED specs are supplied here too so a template body injects
+ * them as `{{ frontmatter_spec }}` / `{{ body_spec }}` instead of duplicating
+ * the indexed-frontmatter contract -- keeping it single-sourced across paths.
+ */
+function humanRenderContext(inputs: PromptInputs): Record<string, unknown> {
+  return {
+    options: {},
+    audience: 'human' as const,
+    scope_label: inputs.projectLabel,
+    period: { human: inputs.periodHuman, iso_range: inputs.periodIsoRange },
+    frontmatter_spec: FRONTMATTER_SPEC,
+    body_spec: HUMAN_BODY_SPEC,
+    stats: {
+      conversations: inputs.conversations.length,
+      commits: inputs.commits.perProject.reduce((sum, p) => sum + p.commits.length, 0),
+      projects: inputs.commits.perProject.map(p => p.cwd),
+    },
+  }
+}
+
+/**
+ * Render the human recap presentation. Phase 1: the default `project-recap`
+ * template reproduces {@link humanSystemPrompt} byte-for-byte (guarded by the
+ * anchor snapshot test). Falls back to the in-code spec if the template is
+ * absent or fails to render -- a recap must never break on a template error.
+ */
+function renderHumanPrompt(inputs: PromptInputs): string {
+  const template = getDefaultTemplate()
+  if (!template) return humanSystemPrompt(inputs)
+  try {
+    return renderTemplateBody(template, humanRenderContext(inputs))
+  } catch (err) {
+    console.warn(`[recap-templates] render failed for "${template.id}", using in-code fallback: ${describeError(err)}`)
+    return humanSystemPrompt(inputs)
+  }
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 /**

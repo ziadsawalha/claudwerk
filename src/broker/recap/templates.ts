@@ -227,6 +227,15 @@ export function loadTemplates(log: TemplateLogger = defaultLogger): LoadTemplate
 }
 
 /**
+ * Render a template body to its final prompt string. Uses the same sandboxed
+ * Liquid instance the loader parse-checks with, so a body that loaded cleanly
+ * renders without surprises. Synchronous -- the recap prompt builder is sync.
+ */
+export function renderTemplateBody(template: RecapTemplate, context: Record<string, unknown>): string {
+  return liquid.parseAndRenderSync(template.body, context)
+}
+
+/**
  * Pick the requested template, falling back to {@link DEFAULT_TEMPLATE_ID} when
  * it is missing. Returns undefined only if the default itself is absent (an
  * empty/broken template set). The fallback is logged as a structured event.

@@ -154,11 +154,12 @@ describe('resolveTemplatesDir / loadTemplates', () => {
     expect(resolveTemplatesDir().endsWith('/recap-templates')).toBe(true)
   })
 
-  it('loads the resolved dir without throwing (repo dir is empty in v1)', () => {
+  it('loads the committed built-ins without throwing, including the anchor', () => {
     const { templates, skipped } = loadTemplates(() => {})
-    // The committed dir holds only .gitkeep until later phases add built-ins.
-    expect(templates.size).toBe(0)
+    // Phase 1 committed the default `project-recap` anchor template.
     expect(skipped).toHaveLength(0)
+    expect(templates.has(DEFAULT_TEMPLATE_ID)).toBe(true)
+    expect(templates.get(DEFAULT_TEMPLATE_ID)?.audience).toBe('human')
   })
 })
 

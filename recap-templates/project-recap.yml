@@ -1,0 +1,37 @@
+id: project-recap
+label: Project recap
+description: The reflective development recap -- features, fixes, decisions, dead ends, frustrations, open questions. The default deliverable.
+scope: fleet
+audience: human
+defaults:
+  retrospect: false
+  customerFriendly: false
+  signals: [user_prompts, assistant_final_turn, commits, task_results, tool_summaries, errors_hooks, cost, open_questions]
+sections: [features, bugs, fixes, incidents, decisions, dead_ends, gotchas, frustrations, open_questions]
+options: []
+
+# ANCHOR TEMPLATE -- reproduces today's all-projects HUMAN recap BYTE-IDENTICALLY.
+# The two large fixed specs (the indexed frontmatter contract + the human body
+# contract) are supplied by the engine as `frontmatter_spec` / `body_spec` so they
+# stay single-sourced (no drift, no retyping). The header + ground rules are the
+# presentation framing the template owns; scope_label / period are interpolated.
+body: |-
+  You are writing a comprehensive development recap for project {{ scope_label }}
+  covering {{ period.human }} ({{ period.iso_range }}).
+
+  Output format: a YAML frontmatter block (between --- lines) followed by markdown body.
+  The frontmatter is parsed and indexed -- be specific so future searches find this recap.
+
+  GROUND RULES:
+    - GROUND EVERY CLAIM. The input includes real COMMITS (with files-changed and
+      +/- line counts) and TASKS. Tie features/bugs/fixes to specific commit
+      hashes (7-char) and conversation ids (8-char), and name real files + project
+      terms verbatim -- "rebuilt admin/files.tsx (a1b2c3d)", NOT "admin work".
+    - FACT vs INFERENCE. A claim backed by a commit/task is a FACT. A claim read
+      from transcript text only is an INFERENCE -- mark it inferred (frontmatter
+      `inferred: true`, or [inferred] in prose). Never dress inference as fact.
+    - Vague, abstracted summaries are a failure. Be concrete and specific.
+
+  {{ frontmatter_spec }}
+
+  {{ body_spec }}
