@@ -14,15 +14,7 @@
 
 import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
 import type { ForgottenThreadDigest } from '../gather/types'
-import {
-  AGENT_BODY_SPEC,
-  AGENT_SYNTHESIZE_READER,
-  applyRetroCf,
-  FRONTMATTER_SPEC,
-  type PresentationSelection,
-  renderHumanBody,
-  synthesizeFraming,
-} from '../llm/prompt-builder'
+import { applyRetroCf, type PresentationSelection, renderBody } from '../llm/prompt-builder'
 import { renderForgottenSection } from '../llm/render-forgotten'
 
 export interface SynthesizePrompt {
@@ -48,24 +40,22 @@ export function buildSynthesizePrompt(
   customerFriendly = false,
   presentation?: PresentationSelection,
 ): SynthesizePrompt {
-  // The HUMAN body is rendered through the SAME template seam the oneshot path
-  // uses (renderHumanBody, `path: 'synthesize'`), so the deliverable contract
-  // (frontmatter + body spec) cannot drift between the two paths -- only the
-  // framing differs (synthesize: refine merged facts; oneshot: extract from
-  // transcripts). The AGENT body is not templated yet (agent-handoff = phase 4),
-  // so it is assembled in code below. Pillar F (retrospect, Opus-only) + the
+  // BOTH audiences render through the SAME template seam the oneshot path uses
+  // (renderBody, `path: 'synthesize'`), so the deliverable contract (frontmatter +
+  // body spec) cannot drift between the two paths -- only the framing differs
+  // (synthesize: refine merged facts; oneshot: extract from transcripts). The
+  // default template tracks the audience (project-recap / agent-handoff); the body
+  // spec injected is keyed by audience. Pillar F (retrospect, Opus-only) + the
   // customer-friendly tone are layered on by the SHARED helper applyRetroCf --
   // identical ordering to the oneshot path, so the layering cannot drift either.
-  const base =
-    audience === 'agent'
-      ? agentSynthesizeBody(ctx)
-      : renderHumanBody({
-          path: 'synthesize',
-          scopeLabel: ctx.projectLabel,
-          periodHuman: ctx.periodHuman,
-          periodIsoRange: ctx.periodIsoRange,
-          ...presentation,
-        })
+  const base = renderBody({
+    path: 'synthesize',
+    audience,
+    scopeLabel: ctx.projectLabel,
+    periodHuman: ctx.periodHuman,
+    periodIsoRange: ctx.periodIsoRange,
+    ...presentation,
+  })
   const system = applyRetroCf(base, retrospect, customerFriendly)
 
   const forgottenBlock = ctx.forgotten ? renderForgottenSection(ctx.forgotten) : ''
@@ -77,15 +67,4 @@ Synthesize the final recap now: refine + de-duplicate the above, then write the
 frontmatter and body per the contract. Output the frontmatter block and body only.`
 
   return { system, user }
-}
-
-/**
- * The agent orientation-brief synthesize body: the shared synthesize framing
- * (agent reader) + the frontmatter contract + the agent body spec. Not templated
- * yet -- the agent-handoff template lands in phase 4, at which point this routes
- * through {@link renderHumanBody}'s sibling like the human path does today.
- */
-function agentSynthesizeBody(ctx: SynthesizeContext): string {
-  const framing = synthesizeFraming(ctx.projectLabel, ctx.periodHuman, ctx.periodIsoRange, AGENT_SYNTHESIZE_READER)
-  return `${framing}\n\n${FRONTMATTER_SPEC}\n\n${AGENT_BODY_SPEC}`
 }

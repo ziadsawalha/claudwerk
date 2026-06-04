@@ -1,8 +1,8 @@
 import type { RecapAudience } from '../../../../shared/protocol'
 import {
+  AGENT_TEMPLATE_ID,
   DEFAULT_TEMPLATE_ID,
   loadTemplates,
-  pickTemplate,
   type RecapTemplate,
   renderTemplateBody,
   resolveOptionFlags,
@@ -61,17 +61,15 @@ export function buildPrompt(
   customerFriendly = false,
   presentation?: PresentationSelection,
 ): BuiltPrompt {
-  const base =
-    audience === 'agent'
-      ? agentSystemPrompt(inputs)
-      : renderHumanBody({
-          path: 'oneshot',
-          scopeLabel: inputs.projectLabel,
-          periodHuman: inputs.periodHuman,
-          periodIsoRange: inputs.periodIsoRange,
-          stats: humanStats(inputs),
-          ...presentation,
-        })
+  const base = renderBody({
+    path: 'oneshot',
+    audience,
+    scopeLabel: inputs.projectLabel,
+    periodHuman: inputs.periodHuman,
+    periodIsoRange: inputs.periodIsoRange,
+    stats: humanStats(inputs),
+    ...presentation,
+  })
   const system = applyRetroCf(base, retrospect, customerFriendly)
   const user = userPayload(inputs)
   return { system, user, inputChars: system.length + user.length }
@@ -99,18 +97,22 @@ function humanStats(inputs: PromptInputs): RenderStats {
   }
 }
 
-// The default (anchor) template, loaded once. The templates dir is tiny and
-// read-mostly; per PLAN section 5 there is no hot-reload machinery. `undefined`
-// means the templates dir was missing/broken -- the human path then falls back
-// to the in-code HUMAN spec (below), so a recap never breaks on a template error.
-let defaultTemplate: RecapTemplate | undefined
-let defaultTemplateLoaded = false
-function getDefaultTemplate(): RecapTemplate | undefined {
-  if (!defaultTemplateLoaded) {
-    defaultTemplate = pickTemplate(loadTemplates().templates, DEFAULT_TEMPLATE_ID)
-    defaultTemplateLoaded = true
+// The default (anchor) templates, loaded once per audience. The templates dir is
+// tiny and read-mostly; per PLAN section 5 there is no hot-reload machinery. The
+// default tracks the resolved audience -- human -> project-recap, agent ->
+// agent-handoff -- so a default agent recap renders the agent brief, not the human
+// recap with the agent body spec. `undefined` means the audience's template is
+// missing/broken; the path then falls back to the in-code spec for that audience
+// (below), so a recap never breaks on a template error. We read the map by id
+// DIRECTLY (not via pickTemplate) so a missing agent-handoff degrades to the
+// agent in-code fallback rather than silently rendering the human anchor.
+const defaultTemplateCache = new Map<RecapAudience, RecapTemplate | undefined>()
+function getDefaultTemplate(audience: RecapAudience): RecapTemplate | undefined {
+  if (!defaultTemplateCache.has(audience)) {
+    const id = audience === 'agent' ? AGENT_TEMPLATE_ID : DEFAULT_TEMPLATE_ID
+    defaultTemplateCache.set(audience, loadTemplates().templates.get(id))
   }
-  return defaultTemplate
+  return defaultTemplateCache.get(audience)
 }
 
 /** Render path: which wrapper is asking for the body. The CONTRACT
@@ -125,17 +127,22 @@ export interface RenderStats {
   projects: string[]
 }
 
-/** Inputs to the SHARED human-body renderer -- the one seam both the oneshot and
- *  synthesize wrappers feed from (PLAN section 3). The synthesize path has no
- *  conversation list, so `stats` is optional. */
-export interface HumanBodyArgs {
+/** Inputs to the SHARED recap-body renderer -- the one seam both the oneshot and
+ *  synthesize wrappers feed from (PLAN section 3), for BOTH audiences. The
+ *  synthesize path has no conversation list, so `stats` is optional. */
+export interface BodyArgs {
   path: RecapRenderPath
+  /** Which deliverable shape to render. Selects the audience-appropriate default
+   *  template (human -> project-recap, agent -> agent-handoff), the body spec
+   *  injected into the Liquid context (HUMAN_BODY_SPEC vs AGENT_BODY_SPEC), and
+   *  the in-code fallback framing + body spec. */
+  audience: RecapAudience
   scopeLabel: string
   periodHuman: string
   periodIsoRange: string
-  /** The selected presentation template. Defaults to the memoized anchor
-   *  (`project-recap`) when omitted -- this is what keeps the existing callers
-   *  and the byte-identical anchor path unchanged (PLAN phase 3). */
+  /** The selected presentation template. Defaults to the memoized anchor for the
+   *  audience (`project-recap` / `agent-handoff`) when omitted -- this is what
+   *  keeps the existing callers and the byte-identical anchor paths unchanged. */
   template?: RecapTemplate
   /** Already-resolved option flags (id -> boolean) for the Liquid `options.<id>`
    *  context. The orchestrator resolves these once (so the same flags drive the
@@ -148,65 +155,92 @@ export interface HumanBodyArgs {
   stats?: RenderStats
 }
 
+/** The body contract spec for an audience (the markdown-body section the template
+ *  injects ONCE as `{{ body_spec }}`). Frontmatter is audience-independent. */
+function bodySpecFor(audience: RecapAudience): string {
+  return audience === 'agent' ? AGENT_BODY_SPEC : HUMAN_BODY_SPEC
+}
+
+/** The synthesize-framing reader clause for an audience. */
+function synthesizeReaderFor(audience: RecapAudience): string {
+  return audience === 'agent' ? AGENT_SYNTHESIZE_READER : HUMAN_SYNTHESIZE_READER
+}
+
 /**
  * The Liquid render context shared by every template body (PLAN section 4):
  * resolved `options`, `audience`, render `path`, `scope_label`, `period`, and
  * data `stats`. The two large FIXED specs are supplied here too so a template
  * body injects them ONCE as `{{ frontmatter_spec }}` / `{{ body_spec }}` -- which
  * is what makes the CONTRACT identical across the oneshot and synthesize paths
- * (only the path-branched framing differs). Single-sourced, cannot drift.
+ * (only the path-branched framing differs). `body_spec` is keyed by audience
+ * (HUMAN_BODY_SPEC vs AGENT_BODY_SPEC), so the agent-handoff template injects the
+ * agent body and the project-recap template the human body. Single-sourced.
  */
-function humanRenderContext(args: HumanBodyArgs, optionFlags: Record<string, boolean>): Record<string, unknown> {
+function renderContext(args: BodyArgs, optionFlags: Record<string, boolean>): Record<string, unknown> {
   return {
     options: optionFlags,
-    audience: 'human' as const,
+    audience: args.audience,
     path: args.path,
     scope_label: args.scopeLabel,
     period: { human: args.periodHuman, iso_range: args.periodIsoRange },
     frontmatter_spec: FRONTMATTER_SPEC,
-    body_spec: HUMAN_BODY_SPEC,
+    body_spec: bodySpecFor(args.audience),
     stats: args.stats ?? { conversations: 0, commits: 0, projects: [] },
   }
 }
 
 /**
- * Render the human recap presentation body for the given path. This is the ONE
- * seam both the oneshot wrapper ({@link buildPrompt}) and the synthesize wrapper
- * (`buildSynthesizePrompt`) feed from: the default `project-recap` template
- * branches its framing on `path` but injects the frontmatter + body contract
- * exactly once, so the two paths cannot drift (guarded by the anchor byte-identity
- * test for oneshot + the path-parity test). Falls back to the in-code spec if the
- * template is absent or fails to render -- a recap must never break on a template error.
+ * Render the recap presentation body for the given path + audience. This is the
+ * ONE seam both the oneshot wrapper ({@link buildPrompt}) and the synthesize
+ * wrapper (`buildSynthesizePrompt`) feed from, for BOTH audiences: the default
+ * template (project-recap / agent-handoff) branches its framing on `path` but
+ * injects the frontmatter + body contract exactly once, so the two paths cannot
+ * drift (guarded by the anchor + agent byte-identity tests + the path-parity
+ * test). Falls back to the in-code spec if the template is absent or fails to
+ * render -- a recap must never break on a template error.
  */
-export function renderHumanBody(args: HumanBodyArgs): string {
-  const template = args.template ?? getDefaultTemplate()
+export function renderBody(args: BodyArgs): string {
+  const template = args.template ?? getDefaultTemplate(args.audience)
   if (template) {
     try {
-      return renderTemplateBody(template, humanRenderContext(args, resolveBodyFlags(template, args)))
+      return renderTemplateBody(template, renderContext(args, resolveBodyFlags(template, args)))
     } catch (err) {
       console.warn(
-        `[recap-templates] render failed for "${template.id}" (${args.path}), using in-code fallback: ${describeError(err)}`,
+        `[recap-templates] render failed for "${template.id}" (${args.path}/${args.audience}), using in-code fallback: ${describeError(err)}`,
       )
     }
   }
-  return humanBodyFallback(args)
+  return bodyFallback(args)
 }
 
 /** Resolve the `options.<id>` Liquid booleans for a body render: the orchestrator's
  *  already-resolved flags when supplied, otherwise resolved from the raw user
  *  overrides against the chosen template's declared options. */
-function resolveBodyFlags(template: RecapTemplate, args: HumanBodyArgs): Record<string, boolean> {
+function resolveBodyFlags(template: RecapTemplate, args: BodyArgs): Record<string, boolean> {
   return args.optionFlags ?? resolveOptionFlags(template, args.options ?? {})
 }
 
 /** In-code body for when the template is missing/broken. Mirrors the template's
- *  two framing branches so a recap still renders correctly without the .yml. */
-function humanBodyFallback(args: HumanBodyArgs): string {
+ *  two framing branches (per audience) so a recap still renders correctly without
+ *  the .yml. */
+function bodyFallback(args: BodyArgs): string {
   const framing =
     args.path === 'synthesize'
-      ? synthesizeFraming(args.scopeLabel, args.periodHuman, args.periodIsoRange, HUMAN_SYNTHESIZE_READER)
-      : humanOneshotFraming(args.scopeLabel, args.periodHuman, args.periodIsoRange)
-  return `${framing}\n\n${FRONTMATTER_SPEC}\n\n${HUMAN_BODY_SPEC}`
+      ? synthesizeFraming(args.scopeLabel, args.periodHuman, args.periodIsoRange, synthesizeReaderFor(args.audience))
+      : oneshotFraming(args.audience, args.scopeLabel, args.periodHuman, args.periodIsoRange)
+  return `${framing}\n\n${FRONTMATTER_SPEC}\n\n${bodySpecFor(args.audience)}`
+}
+
+/** Oneshot framing for the in-code fallback, per audience. */
+function oneshotFraming(
+  audience: RecapAudience,
+  scopeLabel: string,
+  periodHuman: string,
+  periodIsoRange: string,
+): string {
+  return audience === 'agent'
+    ? agentOneshotFraming(scopeLabel, periodHuman, periodIsoRange)
+    : humanOneshotFraming(scopeLabel, periodHuman, periodIsoRange)
 }
 
 function describeError(err: unknown): string {
@@ -354,10 +388,12 @@ DO NOT include greetings, sign-offs, or the H1 title (templated).
 Be concrete. Use the project's actual terms verbatim.`
 
 /**
- * Agent orientation-brief body contract. EXPORTED so the chunked reduce stage
- * emits the identical body structure for agent-audience recaps.
+ * Agent orientation-brief body contract. Injected into the Liquid render context
+ * as `{{ body_spec }}` for agent-audience recaps (so the agent-handoff template
+ * single-sources it), and used by the in-code agent fallback. Internal to this
+ * module since the agent path now renders through the shared {@link renderBody} seam.
  */
-export const AGENT_BODY_SPEC = `MARKDOWN BODY (after the closing --- of frontmatter):
+const AGENT_BODY_SPEC = `MARKDOWN BODY (after the closing --- of frontmatter):
 
   ## TL;DR
   One or two lines. The single most important thing a fresh agent must know
@@ -431,10 +467,13 @@ GROUND RULES:
   - Vague, abstracted summaries are a failure. Be concrete and specific.`
 }
 
-/** The human reader description in the synthesize framing. */
+/** The human reader description in the synthesize framing. EXPORTED for the
+ *  path-parity test (the human synthesize framing is pinned against it). */
 export const HUMAN_SYNTHESIZE_READER = 'a human reading a development recap'
-/** The agent reader description in the synthesize framing. */
-export const AGENT_SYNTHESIZE_READER =
+/** The agent reader description in the synthesize framing. Internal -- the agent
+ *  synthesize framing is single-sourced via the agent-handoff template + the
+ *  in-code fallback, both inside this module. */
+const AGENT_SYNTHESIZE_READER =
   'a fresh Claude Code agent session with zero prior context, about to do real work in this project'
 
 /**
@@ -472,14 +511,17 @@ into it faithfully.`
 }
 
 /**
- * The agent recap: a terse orientation brief for a fresh Claude Code session
- * with zero context. High signal, low noise -- every line must change what
- * the reader does next. Carries what git cannot: dead ends, in-flight state,
- * decisions + rationale. See .claude/docs/plan-recap-audience.md section 4.
+ * Oneshot framing for the agent orientation brief (header + the bar + ground
+ * rules) -- the text the default `agent-handoff` template's `path != 'synthesize'`
+ * branch reproduces. Kept here as the canonical source for the in-code fallback;
+ * the agent byte-identity test pins the template render to it. A terse brief for a
+ * fresh Claude Code session with zero context: high signal, low noise -- every
+ * line must change what the reader does next. Carries what git cannot: dead ends,
+ * in-flight state, decisions + rationale. See plan-recap-audience.md section 4.
  */
-function agentSystemPrompt(inputs: PromptInputs): string {
-  return `You are writing an ORIENTATION BRIEF for project ${inputs.projectLabel},
-covering ${inputs.periodHuman} (${inputs.periodIsoRange}).
+function agentOneshotFraming(scopeLabel: string, periodHuman: string, periodIsoRange: string): string {
+  return `You are writing an ORIENTATION BRIEF for project ${scopeLabel},
+covering ${periodHuman} (${periodIsoRange}).
 
 THE READER IS NOT A HUMAN. It is a fresh Claude Code agent session with zero
 prior context, about to do real work in this project. It reads this brief
@@ -507,11 +549,7 @@ GROUND RULES:
   - OMIT empty sections entirely. Never write a section just to say "none".
 
 Output format: a YAML frontmatter block (between --- lines) followed by the
-markdown body. The frontmatter is parsed and indexed for search.
-
-${FRONTMATTER_SPEC}
-
-${AGENT_BODY_SPEC}`
+markdown body. The frontmatter is parsed and indexed for search.`
 }
 
 function userPayload(inputs: PromptInputs): string {

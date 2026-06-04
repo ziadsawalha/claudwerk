@@ -17,7 +17,7 @@ import {
   FRONTMATTER_SPEC,
   HUMAN_BODY_SPEC,
   HUMAN_SYNTHESIZE_READER,
-  renderHumanBody,
+  renderBody,
   synthesizeFraming,
 } from './prompt-builder'
 
@@ -32,9 +32,14 @@ function expectSharedContract(oneshot: string, synthesize: string): void {
 
 describe('oneshot/synthesize shared body', () => {
   test('both paths render the IDENTICAL frontmatter + body contract (only framing differs)', () => {
-    const args = { scopeLabel: 'remote-claude', periodHuman: 'this week', periodIsoRange: '2026-05-22..2026-05-29' }
-    const oneshot = renderHumanBody({ ...args, path: 'oneshot' })
-    const synthesize = renderHumanBody({ ...args, path: 'synthesize' })
+    const args = {
+      audience: 'human' as const,
+      scopeLabel: 'remote-claude',
+      periodHuman: 'this week',
+      periodIsoRange: '2026-05-22..2026-05-29',
+    }
+    const oneshot = renderBody({ ...args, path: 'oneshot' })
+    const synthesize = renderBody({ ...args, path: 'synthesize' })
 
     expectSharedContract(oneshot, synthesize)
 
@@ -45,8 +50,9 @@ describe('oneshot/synthesize shared body', () => {
   })
 
   test('the template synthesize branch reproduces the canonical TS framing byte-for-byte', () => {
-    const rendered = renderHumanBody({
+    const rendered = renderBody({
       path: 'synthesize',
+      audience: 'human',
       scopeLabel: 'remote-claude',
       periodHuman: 'this week',
       periodIsoRange: '2026-05-22..2026-05-29',

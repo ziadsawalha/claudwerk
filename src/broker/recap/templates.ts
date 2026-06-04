@@ -22,6 +22,11 @@ import { z } from 'zod/v4'
 /** The default template id -- ports today's all-projects human recap byte-for-byte. */
 export const DEFAULT_TEMPLATE_ID = 'project-recap'
 
+/** The default AGENT-audience template id -- ports today's all-projects agent
+ *  orientation brief byte-for-byte. The default template tracks the resolved
+ *  audience (human -> project-recap, agent -> agent-handoff). */
+export const AGENT_TEMPLATE_ID = 'agent-handoff'
+
 /** Prod path -- bind-mounted (`./recap-templates:/srv/recap-templates:ro`). */
 const PROD_TEMPLATES_DIR = '/srv/recap-templates'
 /** Dev fallback -- the committed built-ins at the repo root. */

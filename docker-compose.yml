@@ -22,6 +22,9 @@ services:
       - ${BACKUP_DIR:-./backups}:/data/backups
       # Frontend assets (mount over baked-in copy for hot rebuilds: bun run build:web)
       - ./web/dist:/srv/web:ro
+      # Recap templates (mount over baked-in copy so .yml edits are live without a
+      # rebuild -- the loader prefers /srv/recap-templates when present)
+      - ./recap-templates:/srv/recap-templates:ro
     command:
       - "--web-dir"
       - "/srv/web"

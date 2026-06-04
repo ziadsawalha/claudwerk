@@ -1,0 +1,79 @@
+id: agent-handoff
+label: Agent handoff
+description: A terse orientation brief for a fresh Claude Code agent session -- state now, decisions + why, dead ends not to retry, what to pick up next.
+scope: fleet
+audience: agent
+defaults:
+  retrospect: false
+  customerFriendly: false
+  signals: [user_prompts, assistant_final_turn, commits, task_results, tool_summaries, errors_hooks, cost, open_questions]
+sections: [features, bugs, fixes, decisions, dead_ends, gotchas, open_questions]
+options: []
+
+# AGENT-AUDIENCE ANCHOR -- reproduces today's all-projects AGENT orientation brief
+# BYTE-IDENTICALLY (the agent twin of project-recap.yml). ONE body, TWO framings:
+# the `path` discriminator selects the oneshot framing (extract from transcripts)
+# or the synthesize framing (refine merged facts), but the deliverable CONTRACT --
+# the two large fixed specs injected as `{{ frontmatter_spec }}` / `{{ body_spec }}`
+# (the latter is AGENT_BODY_SPEC, keyed by audience in the render context) -- is
+# emitted ONCE after the branch, so the oneshot and synthesize paths cannot drift.
+# `body: |-` strips the trailing newline so the rendered string ends exactly at the
+# body spec. Byte-identity is pinned by agent-prompt.test.ts against a golden
+# captured from the PRE-template agent buildPrompt / buildSynthesizePrompt output.
+body: |-
+  {%- if path == "synthesize" -%}
+  You are SYNTHESIZING the final recap for project {{ scope_label }},
+  covering {{ period.human }} ({{ period.iso_range }}). The reader is a fresh Claude Code agent session with zero prior context, about to do real work in this project.
+
+  The facts below were already EXTRACTED from the period's transcripts in parallel
+  (map stage) and MERGED + de-duplicated IN CODE. Your job is JUDGMENT and PROSE,
+  NOT extraction:
+    - REFINE the merged items: collapse near-duplicates the code merge missed
+      (same thing, different wording), keep the most specific title, merge details.
+    - PRESERVE every citation (conversation ids, commit hashes) and every
+      "inferred" flag exactly as given -- never upgrade an inference to a fact.
+    - DO NOT invent items, citations, or facts that are not in the merged input
+      OR the FORGOTTEN_THREADS block below (the latter is authoritative,
+      deterministic data -- render it, don't second-guess it).
+      You have no transcripts here; everything else you state must trace to the input.
+    - DROP anything genuinely empty; never pad to fill a section.
+
+  Output format: a YAML frontmatter block (between --- lines) followed by the
+  markdown body. The frontmatter is parsed and indexed -- carry the merged facts
+  into it faithfully.
+  {%- else -%}
+  You are writing an ORIENTATION BRIEF for project {{ scope_label }},
+  covering {{ period.human }} ({{ period.iso_range }}).
+
+  THE READER IS NOT A HUMAN. It is a fresh Claude Code agent session with zero
+  prior context, about to do real work in this project. It reads this brief
+  once, then acts. Every line costs the reader context budget and may change
+  what it does next. Write for that reader and no other.
+
+  THE BAR -- apply to every single bullet:
+    "Would a fresh agent do something DIFFERENT because of this line?"
+    If no -- DELETE the line. A short brief that is all signal beats a
+    complete one padded with noise. Target: body under ~400 words.
+
+  GROUND RULES:
+    - FACT vs INFERENCE. A claim backed by a commit hash or a closed task is
+      a FACT -- state it plainly. A claim concluded from transcript text is
+      an INFERENCE -- prefix it literally with "[inferred]". NEVER present
+      inference as fact. The reader will act on this; a confident wrong claim
+      is the worst output you can produce.
+    - CITE EVERYTHING. Every claim names its source: commit hash (7 char),
+      conversation id (8 char), or task name. A claim with no citation and no
+      [inferred] tag does not belong here -- drop it.
+    - NO NARRATIVE. Do not tell the story of the period. State what is TRUE
+      NOW and what to DO NEXT.
+    - The reader already has 'git log'. Do NOT reproduce a commit changelog.
+      Mention a commit ONLY when the WHY behind it is not visible in its diff.
+    - OMIT empty sections entirely. Never write a section just to say "none".
+
+  Output format: a YAML frontmatter block (between --- lines) followed by the
+  markdown body. The frontmatter is parsed and indexed for search.
+  {%- endif %}
+
+  {{ frontmatter_spec }}
+
+  {{ body_spec }}

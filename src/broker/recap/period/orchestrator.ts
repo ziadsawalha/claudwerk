@@ -11,6 +11,7 @@ import type { StoreDriver } from '../../store/types'
 import { type ChatRequest, chat } from '../shared/openrouter-client'
 import type { NormalizedUsage } from '../shared/pricing'
 import {
+  AGENT_TEMPLATE_ID,
   DEFAULT_TEMPLATE_ID,
   loadTemplates,
   pickTemplate,
@@ -1567,16 +1568,28 @@ export interface ResolvedRecipe {
  * signalsJson) and runRecap (prompt build + includeInternals) agree.
  */
 export function resolveRecipe(args: StartArgs): ResolvedRecipe {
-  const template = pickTemplate(loadTemplates().templates, args.template)
+  // When no template is named, the default tracks the REQUESTED audience: an agent
+  // recap (e.g. MCP recap_create's audience=agent default) resolves to agent-handoff,
+  // a human recap to project-recap. An explicit args.template always wins. This keeps
+  // the default agent brief rendering through the agent template (byte-identical to
+  // the old in-code agent prompt) instead of the human anchor with the agent body.
+  const requestedId = args.template ?? defaultTemplateIdFor(args.audience)
+  const template = pickTemplate(loadTemplates().templates, requestedId)
   const audience = recipeAudience(args, template)
   const optionFlags = template ? resolveOptionFlags(template, args.options ?? {}) : {}
   const signals = resolveSignals(args, audience, template, optionFlags)
   return { template, templateId: recipeTemplateId(args, template), audience, optionFlags, signals }
 }
 
+/** The default template id for a requested audience: agent -> agent-handoff,
+ *  human (or unspecified) -> project-recap. Used only when no template is named. */
+function defaultTemplateIdFor(audience: RecapAudience | undefined): string {
+  return audience === 'agent' ? AGENT_TEMPLATE_ID : DEFAULT_TEMPLATE_ID
+}
+
 /** The template OWNS audience (PLAN s4); an explicit caller audience still wins,
- *  and the anchor template's audience is 'human' so the untemplated default path
- *  is unchanged. Falls back to 'human' when no template loaded. */
+ *  and the anchor templates carry the matching audience so the untemplated default
+ *  path is unchanged. Falls back to 'human' when no template loaded. */
 function recipeAudience(args: StartArgs, template: RecapTemplate | undefined): RecapAudience {
   return args.audience ?? template?.audience ?? 'human'
 }

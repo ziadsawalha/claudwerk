@@ -1,0 +1,103 @@
+id: shipped-report
+label: Shipped Report
+description: What the fleet shipped this period -- features, fixes, refactors + commit hashes and conversation attribution, blameless tone.
+scope: fleet
+audience: human
+defaults:
+  retrospect: false
+  customerFriendly: true
+  signals: [user_prompts, assistant_final_turn, commits, task_results]
+# Subset + order of the FIXED frontmatter vocabulary (no new INDEXED fields).
+sections: [features, bugs, fixes, decisions]
+
+options:
+  # Prompt-tweak (no signal): exposed as options.group_by_project in the body.
+  - id: group_by_project
+    label: Group by project
+    default: true
+  # Technical (signal: cost): flips the cost gather signal AND exposes the
+  # options.include_cost boolean (an option may be BOTH wires).
+  - id: include_cost
+    label: Include cost summary
+    default: false
+    signal: cost
+  # Technical (signal: commits): flips the commits gather signal AND exposes the
+  # options.commit_stats boolean used to render the files/+/- stats.
+  - id: commit_stats
+    label: Include commit stats (files, +/- lines)
+    default: true
+    signal: commits
+  # Prompt-tweak (no signal): exposed as options.terse in the body.
+  - id: terse
+    label: Terse tone
+    default: false
+
+# THE MARQUEE NEW DELIVERABLE -- a fleet ship log. Authored with the SAME contract
+# the anchor uses: the `path` discriminator carries the PROCESS framing (extract
+# from transcripts vs synthesize merged facts), then the two large FIXED specs are
+# injected ONCE as `{{ frontmatter_spec }}` / `{{ body_spec }}` after the branch
+# (so oneshot + synthesize cannot drift, and the output still round-trips the
+# frontmatter parser/index). The SHIPPED-REPORT PRESENTATION block is appended
+# LAST -- a deliberate OVERRIDE of the generic body spec above (the same pattern
+# customer-friendly tone uses) -- and is the single place the option booleans are
+# read, so the directives never differ between the two paths.
+body: |-
+  {%- if path == "synthesize" -%}
+  You are SYNTHESIZING the final SHIPPED REPORT for {{ scope_label }},
+  covering {{ period.human }} ({{ period.iso_range }}) -- a fleet ship log of what
+  was delivered this period.
+
+  The facts below were already EXTRACTED from the period's transcripts in parallel
+  (map stage) and MERGED + de-duplicated IN CODE. Your job is JUDGMENT and PROSE,
+  NOT extraction:
+    - REFINE the merged items: collapse near-duplicates the code merge missed,
+      keep the most specific title, merge details.
+    - PRESERVE every citation (conversation ids, commit hashes) exactly as given;
+      never upgrade an inference to a fact.
+    - DO NOT invent items, citations, or facts that are not in the merged input.
+    - DROP anything genuinely empty; never pad to fill a section.
+
+  Output format: a YAML frontmatter block (between --- lines) followed by the
+  markdown body.
+  {%- else -%}
+  You are compiling a SHIPPED REPORT for {{ scope_label }}
+  covering {{ period.human }} ({{ period.iso_range }}) -- a fleet ship log of what
+  was delivered this period.
+
+  Output format: a YAML frontmatter block (between --- lines) followed by markdown body.
+  The frontmatter is parsed and indexed -- be specific so future searches find this report.
+
+  GROUND RULES:
+    - GROUND EVERY SHIPPED ITEM in real COMMITS (sha + files-changed + +/- lines)
+      and TASKS. Attach commit hashes (7-char) and conversation ids (8-char) to
+      every feature/fix/refactor, and name real files + project terms verbatim.
+    - FACT vs INFERENCE. A claim backed by a commit/task is a FACT -- state it
+      plainly. A claim read from transcript text only is an INFERENCE -- mark it
+      inferred. A ship log is a record of delivered work; do not pad it with
+      unshipped intentions.
+  {%- endif %}
+
+  {{ frontmatter_spec }}
+
+  {{ body_spec }}
+
+  SHIPPED-REPORT PRESENTATION (this OVERRIDES the generic body format above -- the
+  deliverable is a fleet SHIP LOG, not a reflective recap):
+    - BODY SECTIONS, in this order ONLY: "## Features shipped", "## Bug fixes",
+      "## Refactors / cleanup", "## Decisions". Drop the TL;DR narrative; lead with
+      the ship log.
+    - OMIT the Frustrations and Dead ends sections (frontmatter AND body) ENTIRELY,
+      and drop the frustrations frontmatter list. A ship log carries no venting.
+    - Neutral, blameless tone throughout: state what shipped and what changed, never
+      who struggled ("reworked the auth flow after the first approach proved brittle",
+      NOT "wasted a day fighting auth").
+    - Every item names its commit hash(es) (7-char) and conversation id(s) (8-char).
+  {% if options.group_by_project %}  - GROUP every item under a "### <project>" heading inside its section.
+  {% else %}  - List items fleet-wide, most impactful first; do NOT group by project.
+  {% endif %}{% if options.commit_stats %}  - For each item include its commit stats where the input shows them: files changed and +insertions/-deletions.
+  {% else %}  - Cite commit hashes but OMIT the files/+/- stats.
+  {% endif %}{% if options.include_cost %}  - Add a short "## Cost" section: total spend for the period and a per-project breakdown.
+  {% else %}  - Do NOT mention cost or token spend anywhere.
+  {% endif %}{% if options.terse %}  - One line per shipped item, no narrative prose.
+  {% else %}  - A one-to-two-sentence narrative intro per section, then the items.
+  {% endif %}
