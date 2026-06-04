@@ -30,6 +30,13 @@ export interface CreateRecapOptions {
   /** Sanitize the recap's tone for sharing outside the team (drop frustrations,
    *  reframe harsh language). Top-level product mode -- NOT a tuning knob. */
   customerFriendly?: boolean
+  /** Named presentation template id (default 'project-recap', the byte-identical
+   *  anchor). Selects the deliverable shape; templates re-present, never re-extract. */
+  template?: string
+  /** Overrides of the selected template's declared option defaults (option id ->
+   *  boolean). A prompt-tweak option flips a body toggle; a technical option also
+   *  adds/removes a gather signal. Unknown keys are ignored broker-side. */
+  options?: Record<string, boolean>
 }
 
 /** Send recap_create over the dashboard WS. Returns whether the send was
@@ -49,6 +56,8 @@ export function createRecap(opts: CreateRecapOptions): boolean {
     ...(opts.force ? { force: true } : {}),
     ...(opts.retrospect ? { retrospect: true } : {}),
     ...(opts.customerFriendly ? { customerFriendly: true } : {}),
+    ...(opts.template ? { template: opts.template } : {}),
+    ...(opts.options && Object.keys(opts.options).length ? { options: opts.options } : {}),
   })
 }
 

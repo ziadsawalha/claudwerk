@@ -9,13 +9,16 @@
 
 import type { RecapPeriodLabel } from '@shared/protocol'
 import { Dialog as DialogPrimitive } from 'radix-ui'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Kbd } from '@/components/ui/kbd'
 import { useKeyLayer } from '@/lib/key-layers'
 import { cn, haptic } from '@/lib/utils'
 import { type RecapConfigOptions, recapConfigBus } from './recap-config-trigger'
 import { RECAP_PRESETS, retrospectDefault } from './recap-period'
+import { defaultOptionFlags, fetchRecapTemplates, type RecapTemplateMeta } from './recap-templates'
 import { createRecap } from './recap-wire'
+
+const FALLBACK_TEMPLATE_ID = 'project-recap'
 
 function isoLocalDay(d: Date): string {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
@@ -47,7 +50,35 @@ export function RecapConfigDialog() {
   // Customer-friendly tone: sanitize the recap for sharing outside the team. Off
   // by default -- an internal recap keeps the unfiltered frustration signal.
   const [customerFriendly, setCustomerFriendly] = useState(false)
+  // Template picker (PLAN phase 9 fast-follow). Empty until the manifest loads;
+  // a failed fetch / pre-template broker simply shows no picker and behaves as
+  // the byte-identical default ('project-recap') path.
+  const [templates, setTemplates] = useState<RecapTemplateMeta[]>([])
+  const [templateId, setTemplateId] = useState(FALLBACK_TEMPLATE_ID)
+  const [optionFlags, setOptionFlags] = useState<Record<string, boolean>>({})
+  const defaultIdRef = useRef(FALLBACK_TEMPLATE_ID)
   const [error, setError] = useState<string | null>(null)
+
+  // Load the template manifest once (cached in the fetch helper).
+  useEffect(() => {
+    let alive = true
+    fetchRecapTemplates().then(m => {
+      if (!alive || !m) return
+      defaultIdRef.current = m.defaultTemplateId
+      setTemplates(m.templates)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // Seed the option flags from the selected template's declared defaults whenever
+  // the selection (or the loaded set) changes. Individual toggles below mutate
+  // optionFlags directly without re-triggering this (deps unchanged).
+  useEffect(() => {
+    const t = templates.find(x => x.id === templateId)
+    setOptionFlags(t ? defaultOptionFlags(t) : {})
+  }, [templateId, templates])
 
   useEffect(() => {
     recapConfigBus.setHandler((options: RecapConfigOptions) => {
@@ -60,6 +91,7 @@ export function RecapConfigDialog() {
       setRetrospect(retrospectDefault('last_7'))
       setRetrospectTouched(false)
       setCustomerFriendly(false)
+      setTemplateId(defaultIdRef.current)
       setError(null)
       setOpen(true)
     })
@@ -67,6 +99,8 @@ export function RecapConfigDialog() {
       recapConfigBus.setHandler(null)
     }
   }, [])
+
+  const selectedTemplate = templates.find(t => t.id === templateId)
 
   function close() {
     setOpen(false)
@@ -114,10 +148,19 @@ export function RecapConfigDialog() {
         return
       }
       haptic('success')
-      createRecap({ projectUri, label: 'custom', start: startMs, end: endMs, retrospect, customerFriendly })
+      createRecap({
+        projectUri,
+        label: 'custom',
+        start: startMs,
+        end: endMs,
+        retrospect,
+        customerFriendly,
+        template: templateId,
+        options: optionFlags,
+      })
     } else {
       haptic('success')
-      createRecap({ projectUri, label, retrospect, customerFriendly })
+      createRecap({ projectUri, label, retrospect, customerFriendly, template: templateId, options: optionFlags })
     }
     close()
   }
@@ -145,6 +188,47 @@ export function RecapConfigDialog() {
           </DialogPrimitive.Description>
 
           <div className="space-y-3">
+            {templates.length > 0 && (
+              <div>
+                <span className="block mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">Template</span>
+                <select
+                  value={templateId}
+                  onChange={e => {
+                    haptic('tap')
+                    setTemplateId(e.target.value)
+                  }}
+                  className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
+                >
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                      {t.audience === 'agent' ? ' (agent)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedTemplate && (
+                  <span className="block mt-1 text-[11px] text-muted-foreground">{selectedTemplate.description}</span>
+                )}
+              </div>
+            )}
+
+            {selectedTemplate && selectedTemplate.options.length > 0 && (
+              <div className="space-y-2">
+                <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">Options</span>
+                {selectedTemplate.options.map(o => (
+                  <label key={o.id} className="flex items-start gap-2 text-xs cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!!optionFlags[o.id]}
+                      onChange={() => setOptionFlags(f => ({ ...f, [o.id]: !f[o.id] }))}
+                      className="mt-0.5 size-3.5 rounded border-input accent-accent"
+                    />
+                    <span className="text-foreground">{o.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+
             <div>
               <span className="block mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">Period</span>
               <div className="flex flex-wrap gap-1.5">

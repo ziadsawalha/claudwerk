@@ -74,6 +74,27 @@ describe('createRecap', () => {
     createRecap({ projectUri: '*', label: 'last_7', retrospect: true })
     expect(sentMessages[0].data.retrospect).toBe(true)
   })
+
+  test('template is forwarded only when set', () => {
+    createRecap({ projectUri: '*', label: 'today' })
+    expect(sentMessages[0].data.template).toBeUndefined()
+    sentMessages.length = 0
+    createRecap({ projectUri: '*', label: 'last_7', template: 'shipped-report' })
+    expect(sentMessages[0].data.template).toBe('shipped-report')
+  })
+
+  test('options forwarded only when non-empty', () => {
+    createRecap({ projectUri: '*', label: 'today', options: {} })
+    expect(sentMessages[0].data.options).toBeUndefined()
+    sentMessages.length = 0
+    createRecap({
+      projectUri: '*',
+      label: 'last_7',
+      template: 'shipped-report',
+      options: { include_cost: true, commit_stats: false },
+    })
+    expect(sentMessages[0].data.options).toEqual({ include_cost: true, commit_stats: false })
+  })
 })
 
 describe('openRecapHistory', () => {
