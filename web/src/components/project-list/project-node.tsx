@@ -1,8 +1,9 @@
 import { projectIdentityKey } from '@shared/project-uri'
 import { GitBranch, Pin } from 'lucide-react'
-import { memo, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useConversationsStore } from '@/hooks/use-conversations'
+import { tallyListRender } from '@/lib/perf-metrics'
 import type { Conversation } from '@/lib/types'
 import { extractProjectLabel, projectPath } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
@@ -77,6 +78,11 @@ const ProjectConversationGroup = memo(
     crossProjectStubIds?: string[]
   }) {
     const [showSettings, setShowSettings] = useState(false)
+    // Perf instrumentation: tally committed re-renders of this group (see the
+    // ConversationItemCompact tally for the why). No-op unless perf monitor on.
+    useLayoutEffect(() => {
+      tallyListRender('group')
+    })
     const ps = useConversationsStore(s => s.projectSettings[projectIdentityKey(project)])
     const selectProject = useConversationsStore(s => s.selectProject)
     const displayName = ps?.label || extractProjectLabel(project)
@@ -94,7 +100,7 @@ const ProjectConversationGroup = memo(
         return out
       }),
     )
-    const { worktrees, adhoc, normal, ended } = partitionConversations(conversations)
+    const { worktrees, adhoc, normal, ended } = useMemo(() => partitionConversations(conversations), [conversations])
     // Project-level rollups: any conversation in this project needing attention?
     const hasPendingPermission = useConversationsStore(s => {
       const ids = new Set(conversationIds)
@@ -112,7 +118,7 @@ const ProjectConversationGroup = memo(
     // set are pulled from the store as dimmed orphan roots so the chain stays
     // visible. (Walking only `normal` -- ad-hoc / worktree buckets keep their
     // own separators; daemon-spawned children land in `normal`.)
-    const orphanRootIds = neededOrphanRootIds(normal)
+    const orphanRootIds = useMemo(() => neededOrphanRootIds(normal), [normal])
     const orphanRoots = useConversationsStore(
       useShallow(s => {
         const out: Conversation[] = []
@@ -123,7 +129,7 @@ const ProjectConversationGroup = memo(
         return out
       }),
     )
-    const normalGroups = groupByLineage(normal, orphanRoots)
+    const normalGroups = useMemo(() => groupByLineage(normal, orphanRoots), [normal, orphanRoots])
 
     return (
       <div>

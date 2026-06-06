@@ -57,6 +57,47 @@ export function record(category: PerfCategory, label: string, durationMs: number
   notify()
 }
 
+/**
+ * List re-render tally. Counts how many conversation-list leaves render within
+ * a single animation frame and flushes ONE aggregate per frame -- as a buffer
+ * entry (category 'other', so it never pollutes the 'render' stats) AND a
+ * `[list-churn]` console.debug line so it shows up in the captured perf report
+ * timeline even though it carries no duration.
+ *
+ * Purpose: tell apart the two list-perf hypotheses on a "heavy even when idle"
+ * capture. A memo leak shows MANY rows re-rendering per store mutation; Zustand
+ * selector churn shows the store notifying constantly while rows stay near zero
+ * (the per-set() selector evaluation cost is invisible to React.Profiler, so
+ * "rows quiet but it still feels heavy" is itself the diagnostic signal --
+ * pair it with `[sync]`/`ws` frequency in the same report).
+ *
+ * Near-zero overhead when the perf monitor is off: tallyListRender() returns on
+ * the first line before touching any counter.
+ */
+let rowRenders = 0
+let groupRenders = 0
+let listTallyScheduled = false
+
+export function tallyListRender(kind: 'row' | 'group') {
+  if (!enabled) return
+  if (kind === 'row') rowRenders++
+  else groupRenders++
+  if (listTallyScheduled) return
+  listTallyScheduled = true
+  const flush = () => {
+    listTallyScheduled = false
+    const rows = rowRenders
+    const groups = groupRenders
+    rowRenders = 0
+    groupRenders = 0
+    if (rows === 0 && groups === 0) return
+    record('other', 'list.rerender', 0, `rows=${rows} groups=${groups}`)
+    console.debug(`[list-churn] rows=${rows} groups=${groups} (this frame)`)
+  }
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush)
+  else queueMicrotask(flush)
+}
+
 export function getEntries(): readonly PerfEntry[] {
   return buffer
 }

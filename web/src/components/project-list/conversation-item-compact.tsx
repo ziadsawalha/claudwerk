@@ -1,10 +1,11 @@
 import { formatResetIn } from '@shared/format-reset-time'
 import { projectIdentityKey } from '@shared/project-uri'
 import { Clock } from 'lucide-react'
-import { memo, type ReactNode } from 'react'
+import { memo, type ReactNode, useLayoutEffect } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { useGhostShort } from '@/hooks/use-ghost-sessions'
 import { formatCost, getCacheTimerInfo, getConversationCost, getCostBgColor } from '@/lib/cost-utils'
+import { tallyListRender } from '@/lib/perf-metrics'
 import type { Conversation } from '@/lib/types'
 import { cn, contextWindowSize, formatPermissionMode, haptic } from '@/lib/utils'
 import { useIsMobile } from '../input-editor/shell/use-is-mobile'
@@ -31,6 +32,12 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
 }: {
   conversation: Conversation
 }) {
+  // Perf instrumentation: tally committed re-renders of this leaf so a capture
+  // can tell a memo leak (rows storm per store update) from selector churn
+  // (rows quiet, store notifies constantly). No-op unless the perf monitor is on.
+  useLayoutEffect(() => {
+    tallyListRender('row')
+  })
   const isSelected = useConversationsStore(s => s.selectedConversationId === conversation.id)
   const selectedSubagentId = useConversationsStore(s =>
     s.selectedConversationId === conversation.id ? s.selectedSubagentId : null,
