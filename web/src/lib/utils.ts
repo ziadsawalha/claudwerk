@@ -264,13 +264,22 @@ export function haptic(pattern: 'tap' | 'double' | 'success' | 'error' | 'tick' 
 
 /** Nuclear reload: nuke ALL service workers, ALL caches, sessionStorage,
  * then hard-navigate with a cache-bust param. Guaranteed to fire the
- * reload within 2s even if cache/SW ops hang or reject. */
-export function clearCacheAndReload(): void {
+ * reload within 2s even if cache/SW ops hang or reject.
+ *
+ * `toRoot` drops the URL hash so we land on `/` instead of reloading the
+ * current location. Use it ONLY from the crash/error screen: a bad
+ * `#conversation/<id>` navigation is often what triggered the crash, so
+ * preserving the hash would reload straight back into the error. Normal
+ * reloads (SW update, settings, command palette) keep the hash so the user
+ * stays on their current conversation. */
+export function clearCacheAndReload(opts: { toRoot?: boolean } = {}): void {
+  const { toRoot = false } = opts
+  const navigate = () => hardNavigate(toRoot)
   try {
     localStorage.setItem(PRE_RELOAD_KEY, JSON.stringify({ hash: BUILD_VERSION.gitHashShort, ts: Date.now() }))
   } catch {}
 
-  const deadline = setTimeout(hardNavigate, 2000)
+  const deadline = setTimeout(navigate, 2000)
 
   ;(async () => {
     try {
@@ -285,10 +294,11 @@ export function clearCacheAndReload(): void {
       sessionStorage.clear()
     } catch {}
     clearTimeout(deadline)
-    hardNavigate()
+    navigate()
   })()
 }
 
-function hardNavigate() {
-  window.location.replace(`${window.location.origin}/?_cb=${Date.now()}${window.location.hash}`)
+function hardNavigate(toRoot = false) {
+  const hash = toRoot ? '' : window.location.hash
+  window.location.replace(`${window.location.origin}/?_cb=${Date.now()}${hash}`)
 }

@@ -132,7 +132,11 @@ interface ConversationTagProps {
 }
 
 export function ConversationTag({ idOrSlug, resolvedId, className }: ConversationTagProps) {
-  const { conversation, displayName } = resolveConversationDisplay(idOrSlug, resolvedId)
+  // Defensive: idOrSlug originates from untyped wire/JSON data. A non-string
+  // (e.g. an array from a multicast send_message `to`) would crash the whole
+  // transcript on `.toLowerCase()`. Coerce to a string at the boundary.
+  const safeIdOrSlug = typeof idOrSlug === 'string' ? idOrSlug : String(idOrSlug ?? '')
+  const { conversation, displayName } = resolveConversationDisplay(safeIdOrSlug, resolvedId)
   const resolvedPath = conversation?.project ? projectPath(conversation.project) : undefined
   const status = conversation?.status
   const isEnded = status === 'ended'
@@ -144,7 +148,7 @@ export function ConversationTag({ idOrSlug, resolvedId, className }: Conversatio
       return
     }
     haptic('tap')
-    const bare = stripProjectPrefix(idOrSlug)
+    const bare = stripProjectPrefix(safeIdOrSlug)
     fetchAndInjectConversation(resolvedId, bare).then(id => {
       if (id) {
         useConversationsStore.getState().selectConversation(id)
@@ -182,9 +186,9 @@ export function ConversationTag({ idOrSlug, resolvedId, className }: Conversatio
       >
         {resolvedPath && <span className="text-zinc-300">{resolvedPath}</span>}
         <span className={cn('text-zinc-500', isEnded && 'text-zinc-600')}>{status ?? 'unknown'}</span>
-        {(conversation?.id ?? idOrSlug) && (
+        {(conversation?.id ?? safeIdOrSlug) && (
           <span className="text-zinc-600">
-            <span className="text-zinc-700">@</span> {conversation?.id ?? idOrSlug}
+            <span className="text-zinc-700">@</span> {conversation?.id ?? safeIdOrSlug}
           </span>
         )}
         {!conversation && <span className="text-amber-500/80">click to search server</span>}

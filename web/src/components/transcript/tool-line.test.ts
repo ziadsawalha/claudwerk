@@ -1,3 +1,5 @@
+import type { ReactElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ToolCaseInput, ToolCaseResult } from './tool-case-types'
 import { dispatchToolCase, renderErrorFallback, renderPersistedOutput } from './tool-dispatch'
@@ -672,6 +674,30 @@ describe('dispatchToolCase - MCP rclaude tools', () => {
     )
     expect(hasSummary(r)).toBe(true)
     expect(r.details).not.toBeNull()
+  })
+
+  it('mcp__rclaude__send_message renders multicast array `to` without crashing', () => {
+    // Regression: `to` can be a string[] (multicast). A renderer that passed the
+    // array straight into ConversationTag crashed the whole transcript on
+    // `.toLowerCase()` (arrays survive stripProjectPrefix's `.indexOf`).
+    const r = dispatchToolCase(
+      'mcp__rclaude__send_message',
+      makeCtx({ input: { to: ['img:wild-rocket', 'img:savage-marmot'], intent: 'notify', message: 'hi both' } }),
+    )
+    expect(hasSummary(r)).toBe(true)
+    // Rendering the summary is where the original crash fired.
+    const html = renderToStaticMarkup(r.summary as ReactElement)
+    expect(html).toContain('wild-rocket')
+    expect(html).toContain('savage-marmot')
+  })
+
+  it('mcp__rclaude__send_message renders single string `to`', () => {
+    const r = dispatchToolCase(
+      'mcp__rclaude__send_message',
+      makeCtx({ input: { to: 'img:wild-rocket', intent: 'request', message: 'one' } }),
+    )
+    const html = renderToStaticMarkup(r.summary as ReactElement)
+    expect(html).toContain('wild-rocket')
   })
 
   it('mcp__rclaude__revive_conversation shows revive action', () => {

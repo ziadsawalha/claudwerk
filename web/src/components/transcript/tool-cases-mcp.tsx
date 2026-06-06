@@ -7,11 +7,19 @@ import type { ToolCaseInput, ToolCaseResult } from './tool-case-types'
 import { WritePreview } from './tool-renderers'
 
 export function renderMcpSendMessage({ input, result }: ToolCaseInput): ToolCaseResult {
-  const to = (input.to as string) || ''
+  // `to` accepts a single id (string) OR an array of ids (multicast, see the
+  // send_message MCP schema). Normalize to a string[] so a multicast call does
+  // not pass an array straight into ConversationTag (which would crash on
+  // `.toLowerCase()` -- the array survives stripProjectPrefix's `.indexOf`).
+  const recipients = (Array.isArray(input.to) ? input.to : [input.to]).filter(
+    (t): t is string => typeof t === 'string' && t.length > 0,
+  )
   const intent = (input.intent as string) || ''
   const msg = (input.message as string) || ''
+  // The result only carries a single target_conversation_id; only use it as a
+  // resolution fallback when there is exactly one recipient.
   const targetIdMatch = result?.match(/target_conversation_id:\s*([0-9a-f-]{36})/)
-  const targetConversationId = targetIdMatch?.[1]
+  const targetConversationId = recipients.length === 1 ? targetIdMatch?.[1] : undefined
   const intentStyles: Record<string, string> = {
     request: 'bg-yellow-400/15 text-yellow-400 border-yellow-400/30',
     response: 'bg-green-400/15 text-green-400 border-green-400/30',
@@ -19,9 +27,18 @@ export function renderMcpSendMessage({ input, result }: ToolCaseInput): ToolCase
     progress: 'bg-zinc-400/15 text-zinc-400 border-zinc-400/30',
   }
   const summary = (
-    <span className="flex items-center gap-1.5">
+    <span className="flex items-center gap-1.5 flex-wrap">
       <span className="text-teal-400/60">to</span>
-      <ConversationTag idOrSlug={to} resolvedId={targetConversationId} />
+      {recipients.length > 0 ? (
+        recipients.map((r, i) => (
+          <span key={r} className="flex items-center gap-1.5">
+            {i > 0 && <span className="text-teal-400/30">·</span>}
+            <ConversationTag idOrSlug={r} resolvedId={targetConversationId} />
+          </span>
+        ))
+      ) : (
+        <span className="text-muted-foreground/50">(no recipient)</span>
+      )}
       {intent && (
         <span
           className={cn(

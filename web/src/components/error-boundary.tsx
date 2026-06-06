@@ -12,20 +12,23 @@ interface State {
   error: Error | null
   errorInfo: ErrorInfo | null
   copied: boolean
+  /** URL captured at crash time. RELOAD navigates to `/`, so reading the live
+   * href later would lose the location that actually crashed. */
+  crashUrl: string
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props)
-    this.state = { hasError: false, error: null, errorInfo: null, copied: false }
+    this.state = { hasError: false, error: null, errorInfo: null, copied: false, crashUrl: '' }
   }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error }
+    return { hasError: true, error, crashUrl: window.location.href }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    this.setState({ error, errorInfo })
+    this.setState({ error, errorInfo, crashUrl: window.location.href })
     console.error('ErrorBoundary caught:', error, errorInfo)
     this.reportCrash(error, errorInfo)
     // Signal SW to bypass cache on next page load (browser refresh).
@@ -51,7 +54,7 @@ export class ErrorBoundary extends Component<Props, State> {
           localStorage: this.getLocalStorageDump(),
           version: BUILD_VERSION.gitHashShort,
           buildTime: BUILD_VERSION.buildTime,
-          url: window.location.href,
+          url: this.state.crashUrl || window.location.href,
           viewport: `${window.innerWidth}x${window.innerHeight}`,
           touch: navigator.maxTouchPoints > 0,
           conversationId: store.selectedConversationId,
@@ -120,7 +123,7 @@ export class ErrorBoundary extends Component<Props, State> {
       '',
       `Timestamp: ${new Date().toISOString()}`,
       `User Agent: ${navigator.userAgent}`,
-      `URL: ${window.location.href}`,
+      `URL: ${this.state.crashUrl || window.location.href}`,
       `Version: ${BUILD_VERSION.gitHashShort} (${BUILD_VERSION.buildTime})`,
       '',
       '─── RECENT COMMITS ──────────────────────────────────────────────',
@@ -231,7 +234,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 type="button"
-                onClick={() => clearCacheAndReload()}
+                onClick={() => clearCacheAndReload({ toRoot: true })}
                 className="px-4 py-2 bg-secondary text-secondary-foreground font-bold text-sm hover:bg-secondary/80 transition-colors"
               >
                 ↻ RELOAD
