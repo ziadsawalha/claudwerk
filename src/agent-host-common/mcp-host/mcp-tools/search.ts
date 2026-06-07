@@ -9,8 +9,8 @@
  * Both tools call the broker over HTTP. The broker enforces permission gating.
  */
 
-import { formatTranscriptWindow } from '../../shared/transcript-window-format'
-import { wsToHttpUrl } from '../cli-args'
+import { formatTranscriptWindow } from '../../../shared/transcript-window-format'
+import { wsToHttpUrl } from '../../../shared/ws-url'
 import { debug } from '../debug'
 import type { McpToolContext, ToolDef } from './types'
 

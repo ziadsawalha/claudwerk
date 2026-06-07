@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { moveProjectTask } from '../../shared/project-store'
-import { DEFAULT_VISIBLE_STATUSES, TASK_STATUSES, type TaskStatus } from '../../shared/task-statuses'
+import { moveProjectTask } from '../../../shared/project-store'
+import { DEFAULT_VISIBLE_STATUSES, TASK_STATUSES, type TaskStatus } from '../../../shared/task-statuses'
 import { debug } from '../debug'
 import type { McpToolContext, ToolDef } from './types'
 

@@ -5,15 +5,15 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { McpChannelCallbacks } from '../agent-host-common/mcp-host/mcp-channel'
+import { pushChannelMessage, sendPermissionResponse } from '../agent-host-common/mcp-host/mcp-channel'
 import { isPathWithinCwd } from '../shared/path-guard'
 import type { AgentHostMessage } from '../shared/protocol'
+import { wsToHttpUrl } from '../shared/ws-url'
 import type { AgentHostContext } from './agent-host-context'
 import { getPendingCallbacks } from './broker-connection'
-import { wsToHttpUrl } from './cli-args'
 import { debug } from './debug'
 import { beginLaunch, emitLaunchEvent } from './launch-events'
-import type { McpChannelCallbacks } from './mcp-channel'
-import { pushChannelMessage, sendPermissionResponse } from './mcp-channel'
 import { clearInteraction, sendInteraction } from './pending-interactions'
 
 export interface McpCallbackDeps {

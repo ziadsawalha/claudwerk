@@ -15,7 +15,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AgentHostMessage } from '../../../shared/protocol'
+import type { AgentHostMessage } from '../../../../shared/protocol'
 
 type Sender = (msg: AgentHostMessage) => void
 

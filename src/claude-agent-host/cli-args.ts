@@ -7,6 +7,7 @@ import { basename, join } from 'node:path'
 import { claudeConfigDir } from '../shared/claude-config-dir'
 import { DEFAULT_BROKER_URL } from '../shared/protocol'
 import { checkForUpdate, formatUpdateResult, formatVersion } from '../shared/update-check'
+import { wsToHttpUrl } from '../shared/ws-url'
 import { debug } from './debug'
 
 export interface CliConfig {
@@ -88,10 +89,6 @@ export function readSpinnerVerbs(): string[] | undefined {
     }
   } catch {}
   return undefined
-}
-
-export function wsToHttpUrl(url: string): string {
-  return url.replace('ws://', 'http://').replace('wss://', 'https://')
 }
 
 export async function isBrokerReady(url: string): Promise<boolean> {

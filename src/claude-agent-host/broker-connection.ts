@@ -6,6 +6,19 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ConversationInfo } from '../agent-host-common/mcp-host/mcp-channel'
+import {
+  isMcpChannelReady,
+  keepaliveDialog,
+  pushChannelMessage,
+  resolveDialog,
+  sendPermissionResponse,
+} from '../agent-host-common/mcp-host/mcp-channel'
+import {
+  clearBrokerRpcPending,
+  dispatchBrokerRpcResponse,
+  setBrokerRpcSender,
+} from '../agent-host-common/mcp-host/mcp-tools/lib/broker-rpc'
 import type { DialogResult } from '../shared/dialog-schema'
 import type {
   AgentHostMessage,
@@ -19,15 +32,6 @@ import { dispatchDebugControl } from './debug-dispatch'
 import { executeControl } from './execute-control'
 import { replayLaunchEvents } from './launch-events'
 import { resolveAskRequest } from './local-server'
-import type { ConversationInfo } from './mcp-channel'
-import {
-  isMcpChannelReady,
-  keepaliveDialog,
-  pushChannelMessage,
-  resolveDialog,
-  sendPermissionResponse,
-} from './mcp-channel'
-import { clearBrokerRpcPending, dispatchBrokerRpcResponse, setBrokerRpcSender } from './mcp-tools/lib/broker-rpc'
 import { clearInteraction, replayInteractions } from './pending-interactions'
 import type { RulesEngine } from './permission-rules'
 import { getTerminalSize } from './pty-spawn'

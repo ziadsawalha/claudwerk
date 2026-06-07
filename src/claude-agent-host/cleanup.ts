@@ -5,11 +5,11 @@
 
 import { appendFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { closeMcpChannel } from '../agent-host-common/mcp-host/mcp-channel'
 import { secureTmpPath } from '../shared/secure-temp'
 import type { AgentHostContext } from './agent-host-context'
 import { debug } from './debug'
 import { type HttpServer, stopLocalServer } from './local-server'
-import { closeMcpChannel } from './mcp-channel'
 import { cleanupSettings } from './settings-merge'
 
 export interface CleanupDeps {

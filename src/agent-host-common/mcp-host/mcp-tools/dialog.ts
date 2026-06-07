@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { resolve as resolvePath } from 'node:path'
-import type { DialogLayout } from '../../shared/dialog-schema'
-import { dialogToolInputSchema, validateDialogLayout } from '../../shared/dialog-schema'
-import { isPathWithinCwd } from '../../shared/path-guard'
-import { secureTmpPath, writeSecureFile } from '../../shared/secure-temp'
+import type { DialogLayout } from '../../../shared/dialog-schema'
+import { dialogToolInputSchema, validateDialogLayout } from '../../../shared/dialog-schema'
+import { isPathWithinCwd } from '../../../shared/path-guard'
+import { secureTmpPath, writeSecureFile } from '../../../shared/secure-temp'
 import { debug } from '../debug'
 import type { McpToolContext, ToolDef } from './types'
 

@@ -3,7 +3,7 @@
  *
  * Consumers:
  * - HTTP route: src/broker/routes.ts (/api/spawn)
- * - MCP tool: src/claude-agent-host/mcp-channel.ts (spawn_session)
+ * - MCP tool: src/agent-host-common/mcp-host/mcp-channel.ts (spawn_session)
  * - Dashboard: web/src/components/spawn-dialog.tsx
  * - Dashboard: web/src/components/project-board.tsx (RunTaskDialog)
  */

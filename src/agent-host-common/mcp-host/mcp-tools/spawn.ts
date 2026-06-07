@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { type SpawnRequest, spawnRequestSchema } from '../../shared/spawn-schema'
+import { type SpawnRequest, spawnRequestSchema } from '../../../shared/spawn-schema'
 import { debug } from '../debug'
 import type { McpToolContext, ToolDef } from './types'
 

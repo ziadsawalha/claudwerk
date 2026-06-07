@@ -15,8 +15,14 @@
  * conversation project URI before the broker call.
  */
 
-import { cwdToProjectUri } from '../../shared/project-uri'
-import type { PeriodRecapDoc, RecapPeriodLabel, RecapSearchHit, RecapSignal, RecapSummary } from '../../shared/protocol'
+import { cwdToProjectUri } from '../../../shared/project-uri'
+import type {
+  PeriodRecapDoc,
+  RecapPeriodLabel,
+  RecapSearchHit,
+  RecapSignal,
+  RecapSummary,
+} from '../../../shared/protocol'
 import { brokerRpc, hasBrokerRpcSender } from './lib/broker-rpc'
 import type { McpToolContext, ToolDef, ToolResult } from './types'
 

@@ -21,9 +21,17 @@ checkBunVersion()
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { setMcpHostDebug } from '../agent-host-common/mcp-host/debug'
+import {
+  initMcpChannel,
+  setBrokerInfo,
+  setClaudeCodeVersion,
+  setDialogCwd,
+} from '../agent-host-common/mcp-host/mcp-channel'
 import { cwdToProjectUri } from '../shared/project-uri'
 import type { AgentHostMessage, HookEvent, TranscriptEntry } from '../shared/protocol'
 import { writeSecureFile, writeSecureFileSync } from '../shared/secure-temp'
+import { wsToHttpUrl } from '../shared/ws-url'
 import type { AgentHostContext } from './agent-host-context'
 import { type BrokerConnectionDeps, connectToBroker } from './broker-connection'
 import { createCleanup, registerSignalHandlers } from './cleanup'
@@ -36,7 +44,6 @@ import {
   parseCliArgs,
   readSpinnerVerbs,
   setTerminalTitle,
-  wsToHttpUrl,
 } from './cli-args'
 import { debug, setDebugStderr } from './debug'
 import { wireDiag } from './diag-buffer'
@@ -46,7 +53,6 @@ import { processHookEvent } from './hook-processor'
 import { emitLaunchEvent, filterRelevantEnv } from './launch-events'
 import { setLocalServerDebug, startLocalServer } from './local-server'
 import { buildMcpCallbacksWithRules } from './mcp-callbacks'
-import { initMcpChannel, setBrokerInfo, setClaudeCodeVersion, setDialogCwd } from './mcp-channel'
 import { Osc52Parser } from './osc52-parser'
 import { clearInteraction, sendInteraction } from './pending-interactions'
 import { createRulesEngine } from './permission-rules'
@@ -231,6 +237,8 @@ async function main() {
     permissionRules,
   )
 
+  // Route the shared host MCP server's debug logging through this host's logger.
+  setMcpHostDebug(debug)
   setBrokerInfo(cli.brokerUrl, cli.brokerSecret, cli.noBroker)
   initMcpChannel(mcpCallbacks, {
     ccSessionId: conversationId,

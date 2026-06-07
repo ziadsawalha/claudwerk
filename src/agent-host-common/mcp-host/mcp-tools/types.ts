@@ -1,5 +1,5 @@
-import type { DialogLayout, DialogResult } from '../../shared/dialog-schema'
-import type { SpawnRequest } from '../../shared/spawn-schema'
+import type { DialogLayout, DialogResult } from '../../../shared/dialog-schema'
+import type { SpawnRequest } from '../../../shared/spawn-schema'
 
 export type ToolResult = { content: Array<{ type: string; text: string }>; isError?: boolean }
 

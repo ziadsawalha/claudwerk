@@ -20,8 +20,8 @@ import { appendFileSync } from 'node:fs'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import type { DialogResult } from '../shared/dialog-schema'
-import { secureTmpPath } from '../shared/secure-temp'
+import type { DialogResult } from '../../shared/dialog-schema'
+import { secureTmpPath } from '../../shared/secure-temp'
 import { debug } from './debug'
 import {
   type AgentHostIdentity,
@@ -32,7 +32,7 @@ import {
 } from './mcp-tools'
 
 // Re-export types for consumers that import from mcp-channel
-export type { AgentHostIdentity, ConversationInfo, McpChannelCallbacks, PermissionRequestData } from './mcp-tools'
+export type { AgentHostIdentity, ConversationInfo, McpChannelCallbacks } from './mcp-tools'
 
 // Resolved lazily -- the dialog log can hold user content, so it lives in the
 // owner-only (0700) per-uid temp dir, not bare world-readable /tmp.

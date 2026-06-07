@@ -1,5 +1,5 @@
-import { checkForUpdate, formatUpdateResult } from '../../shared/update-check'
-import { BUILD_VERSION } from '../../shared/version'
+import { checkForUpdate, formatUpdateResult } from '../../../shared/update-check'
+import { BUILD_VERSION } from '../../../shared/version'
 import { debug } from '../debug'
 import type { McpToolContext, ToolDef } from './types'
 

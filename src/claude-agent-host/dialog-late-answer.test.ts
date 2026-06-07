@@ -8,8 +8,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test'
+import { closeMcpChannel, initMcpChannel, resolveDialog } from '../agent-host-common/mcp-host/mcp-channel'
 import type { DialogResult } from '../shared/dialog-schema'
-import { closeMcpChannel, initMcpChannel, resolveDialog } from './mcp-channel'
 
 interface Delivered {
   content: string

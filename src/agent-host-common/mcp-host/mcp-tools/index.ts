@@ -15,10 +15,7 @@ export type {
   McpChannelCallbacks,
   McpToolContext,
   PendingDialog,
-  PermissionRequestData,
-  ToolCtx,
   ToolDef,
-  ToolResult,
 } from './types'
 
 export function registerAllTools(ctx: McpToolContext): Record<string, ToolDef> {

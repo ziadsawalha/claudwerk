@@ -5,8 +5,8 @@
  */
 
 import type { Server } from 'bun'
+import { handleMcpRequest } from '../agent-host-common/mcp-host/mcp-channel'
 import type { AskQuestionItem, AskQuestionRequest, HookEvent, HookEventData, HookEventType } from '../shared/protocol'
-import { handleMcpRequest } from './mcp-channel'
 
 let debugFn: (msg: string) => void = () => {}
 export function setLocalServerDebug(fn: (msg: string) => void) {
