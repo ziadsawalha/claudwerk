@@ -97,7 +97,12 @@ export function renderLineageTree(rows: LineageRow[]): string {
   return lines.join('\n')
 }
 
-function createMcpServer(
+/**
+ * Build the broker's external MCP server with every tool registered. Exported so
+ * the catalog parity test (mcp-catalog/catalog.parity.test.ts) can introspect the
+ * bound tool-name set via `._registeredTools` without standing up a real store.
+ */
+export function createMcpServer(
   conversationStore: ConversationStore,
   store: StoreDriver,
   callerConversationId?: string | null,
