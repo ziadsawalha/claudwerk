@@ -77,6 +77,10 @@ export interface DispatchSpecOpts {
   settingsPath?: string
   /** Absolute path to an MCP config JSON -- `--mcp-config <path>`. */
   mcpConfigPath?: string
+  /** Sentinel-computed host MCP config (Phase 3b). Rides as the FIRST
+   *  `--mcp-config` value; CC's flag is variadic and merges, so a caller's
+   *  `mcpConfigPath` is still appended after it. */
+  hostMcpConfigPath?: string
   /** Text appended to the system prompt -- `--append-system-prompt <text>`. */
   appendSystemPrompt?: string
   /** Worker env delta (profile env + per-spawn env + CLAUDE_CONFIG_DIR). The
@@ -98,7 +102,11 @@ function buildWorkerFlags(opts: DispatchSpecOpts): string[] {
   }
   push('--model', opts.model)
   push('--settings', opts.settingsPath)
-  push('--mcp-config', opts.mcpConfigPath)
+  // CC's `--mcp-config` is variadic + merges. The host config (Phase 3b) leads;
+  // a caller-supplied mcpConfigPath follows. Single flag, multiple values --
+  // mirrors the claude host's `buildMcpConfigArgs`.
+  const mcpPaths = [opts.hostMcpConfigPath, opts.mcpConfigPath].filter((p): p is string => typeof p === 'string')
+  if (mcpPaths.length > 0) flags.push('--mcp-config', ...mcpPaths)
   push('--append-system-prompt', opts.appendSystemPrompt)
   return flags
 }

@@ -68,6 +68,21 @@ describe('buildDispatchSpec -- NEW mode', () => {
     expect(spec.respawnFlags).toEqual(flags)
   })
 
+  it('leads with the host --mcp-config, appending the caller mcp-config (variadic, merges)', () => {
+    const spec = buildDispatchSpec(
+      specOpts({ prompt: 'go', hostMcpConfigPath: '/abs/host-mcp.json', mcpConfigPath: '/abs/user-mcp.json' }),
+    )
+    expect(spec.launch).toEqual({
+      mode: 'prompt',
+      args: ['--mcp-config', '/abs/host-mcp.json', '/abs/user-mcp.json', 'go'],
+    })
+  })
+
+  it('emits the host --mcp-config alone when no caller mcp-config is supplied', () => {
+    const spec = buildDispatchSpec(specOpts({ hostMcpConfigPath: '/abs/host-mcp.json' }))
+    expect(spec.launch).toEqual({ mode: 'prompt', args: ['--mcp-config', '/abs/host-mcp.json'] })
+  })
+
   it('supports a PROMPTLESS dispatch -- empty launch.args when no prompt', () => {
     const spec = buildDispatchSpec(specOpts({ model: 'm' }))
     expect(spec.launch).toEqual({ mode: 'prompt', args: ['--model', 'm'] })

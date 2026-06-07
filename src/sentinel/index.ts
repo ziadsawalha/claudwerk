@@ -32,6 +32,7 @@ import { dispatch, has, ping } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import type { DispatchSpec } from '../shared/cc-daemon/types'
 import { claudeConfigDir } from '../shared/claude-config-dir'
+import { DAEMON_MCP_ENDPOINT_ENV } from '../shared/daemon-mcp-endpoint'
 import { cwdToProjectUri, parseProjectUri } from '../shared/project-uri'
 import type {
   BrokerSentinelMessage,
@@ -82,6 +83,7 @@ import {
   evaluateAttachPresence,
   validateDaemonConfigPaths,
 } from './daemon-dispatch'
+import { writeDaemonMcpConfig } from './daemon-mcp-config'
 import { registerDaemonSession, startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
 import { runGitLog } from './git-log'
 import { applyOAuthToken, applyOAuthTokenDelta } from './oauth-token-env'
@@ -528,6 +530,7 @@ const RCLAUDE_CONVERSATION_VARS = new Set([
   'CLAUDWERK_APPEND_SYSTEM_PROMPT_FILE',
   'CLAUDWERK_SETTINGS_PATH',
   'CLAUDWERK_MCP_CONFIG_PATH',
+  DAEMON_MCP_ENDPOINT_ENV,
 ])
 
 /**
@@ -1102,6 +1105,8 @@ async function dispatchDaemonWorker(opts: {
   name?: string
   settingsPath?: string
   mcpConfigPath?: string
+  /** Sentinel-computed host MCP config -- leads the worker's `--mcp-config`. */
+  hostMcpConfigPath?: string
   appendSystemPrompt?: string
   env?: Record<string, string>
   jobId?: string
@@ -1147,6 +1152,7 @@ async function dispatchDaemonWorker(opts: {
       name: opts.name,
       settingsPath: opts.settingsPath,
       mcpConfigPath: opts.mcpConfigPath,
+      hostMcpConfigPath: opts.hostMcpConfigPath,
       appendSystemPrompt: opts.appendSystemPrompt,
       env: workerEnv,
     })
@@ -1213,6 +1219,10 @@ function spawnDaemonHostDirect(opts: {
   conversationName?: string
   conversationDescription?: string
   env?: Record<string, string>
+  /** Host MCP endpoint the daemon-host should bind its local /mcp server to
+   *  (Phase 3b). Passed as `CLAUDWERK_MCP_ENDPOINT`; absent for ATTACH, where
+   *  the worker was launched by someone else and we can't inject a config. */
+  mcpEndpoint?: string
   /** Resolved sentinel profile. Its `configDir` is injected as
    *  `CLAUDE_CONFIG_DIR` on the daemon-host process (skipped for the implicit
    *  `~/.claude` default -- see `shouldInjectConfigDir`); `profile.env` is
@@ -1239,6 +1249,7 @@ function spawnDaemonHostDirect(opts: {
   }
   if (opts.conversationName) env.CLAUDWERK_CONVERSATION_NAME = opts.conversationName
   if (opts.conversationDescription) env.CLAUDWERK_CONVERSATION_DESCRIPTION = opts.conversationDescription
+  if (opts.mcpEndpoint) env[DAEMON_MCP_ENDPOINT_ENV] = opts.mcpEndpoint
   // Sentinel profile -- profile.env first (lowest precedence among per-spawn
   // overrides), then user-supplied opts.env, then CLAUDE_CONFIG_DIR last so
   // an explicit per-profile dir cannot be overridden by user env.
@@ -3472,6 +3483,10 @@ function connect(
             // straight from the roster-sourced spawn request after probing the
             // daemon `has` op to confirm the worker is present.
             let daemonShort: string
+            // Host MCP endpoint for the daemon-host's local /mcp server. Set on
+            // NEW/RESUME (we dispatch the worker + write its --mcp-config);
+            // stays undefined for ATTACH (the worker was launched elsewhere).
+            let hostMcpEndpoint: string | undefined
             if (daemonMode === 'attach') {
               // daemonAttachShort is validated non-empty above.
               const attachShort = daemonAttachShort as string
@@ -3527,6 +3542,11 @@ function connect(
                 sendDaemonFail(pathCheck.error ?? 'daemon spawn: config path validation failed')
                 break
               }
+              // Deterministic host MCP endpoint: write the worker's --mcp-config
+              // up front (the daemon dispatches `claude` before the host binds
+              // its server) + hand the same endpoint to the daemon-host below.
+              const hostMcp = writeDaemonMcpConfig(spawnMsg.conversationId)
+              hostMcpEndpoint = hostMcp.endpoint
               emitDaemonLaunchEvent({
                 conversationId: spawnMsg.conversationId,
                 step: 'dispatch_requested',
@@ -3538,6 +3558,7 @@ function connect(
                   resumeSessionId: daemonResumeSessionId,
                   hasSettings: !!daemonSettingsPath,
                   hasMcpConfig: !!daemonMcpConfigPath,
+                  hasHostMcp: true,
                   hasAppendSystemPrompt: !!daemonAppendSystemPrompt,
                   profileName: resolvedSpawnProfile?.name,
                 },
@@ -3552,6 +3573,7 @@ function connect(
                 profile: resolvedSpawnProfile,
                 settingsPath: daemonSettingsPath,
                 mcpConfigPath: daemonMcpConfigPath,
+                hostMcpConfigPath: hostMcp.configPath,
                 appendSystemPrompt: daemonAppendSystemPrompt,
                 env: spawnMsg.env,
                 jobId: spawnMsg.jobId,
@@ -3611,6 +3633,7 @@ function connect(
               conversationName: spawnMsg.conversationName,
               conversationDescription: spawnMsg.conversationDescription,
               env: spawnMsg.env,
+              mcpEndpoint: hostMcpEndpoint,
               profile: resolvedSpawnProfile,
             })
             ws.send(
