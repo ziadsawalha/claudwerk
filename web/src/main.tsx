@@ -26,11 +26,14 @@ import { App } from './app'
 import { installChunkLoadLog } from './lib/chunk-load-log'
 import { installLogCapture } from './lib/debug-log'
 import { installLongTaskLog } from './lib/longtask-log'
+import { installTabVisibility } from './lib/tab-visibility'
 
 // Capture console output into ring buffer before anything else runs
 installLogCapture()
 installChunkLoadLog()
 installLongTaskLog()
+// Freeze infinite CSS animations while the tab is hidden (composite/layer win)
+installTabVisibility()
 
 import { ErrorBoundary } from './components/error-boundary'
 import '@fontsource/geist/400.css'

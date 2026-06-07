@@ -531,6 +531,30 @@ body:has([data-mobile-compose-panel]) [data-voice-fab] {
 	display: none !important;
 }
 
+/* Tab-hidden animation suspension -- COMPOSITE/LAYER MEMORY WIN.
+ *
+ * Infinite CSS animations (Tailwind `animate-spin` on every active/booting
+ * conversation's StatusIndicator, `animate-pulse` on PERM/LINK/WAITING/COMPACT
+ * pills, the live connection dot, the cache-timer) each hold a dedicated
+ * compositing layer for as long as they run, and WebKit keeps recompositing
+ * them even when the tab is backgrounded (Safari throttles rAF/JS but does NOT
+ * suspend compositor-driven CSS animations the way it suspends script). A
+ * fleet list can have dozens of these running at once -- pure wasted GPU/
+ * render-tree memory + composite churn while nobody is looking at the panel.
+ *
+ * When the tab is hidden, freeze every running animation. `animation-play-state:
+ * paused` lets WebKit drop the per-animation recomposite work; the layers go
+ * quiescent. Zero visual change while the tab is VISIBLE -- the rule only ever
+ * applies under `<html data-tab-hidden>` (toggled in src/lib/tab-visibility.ts),
+ * which by definition is never the painted state. On re-show the attribute is
+ * removed and animations resume in place. Excludes nothing on purpose: paused
+ * spinners are invisible anyway when the tab is off-screen. */
+html[data-tab-hidden] *,
+html[data-tab-hidden] *::before,
+html[data-tab-hidden] *::after {
+	animation-play-state: paused !important;
+}
+
 /* Session pulse animation (triggered on locate / Ctrl+K selection) */
 @keyframes conversation-pulse-glow {
 	0%, 100% {
