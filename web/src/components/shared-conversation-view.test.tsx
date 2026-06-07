@@ -59,6 +59,10 @@ vi.mock('@/components/link-preview-pane', () => ({
   LinkPreviewPane: () => null,
 }))
 
+vi.mock('@/components/audio-player-host', () => ({
+  AudioPlayerHost: () => null,
+}))
+
 vi.mock('@/lib/types', () => ({
   extractProjectLabel: () => 'p',
 }))

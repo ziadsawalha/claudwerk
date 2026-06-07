@@ -7,6 +7,7 @@
 
 import { Clock, Link2Off } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { AudioPlayerHost } from '@/components/audio-player-host'
 import { ConversationDetail } from '@/components/conversation-detail'
 import { LinkPreviewPane } from '@/components/link-preview-pane'
 import { MediaLightbox } from '@/components/media-lightbox'
@@ -166,6 +167,8 @@ export function SharedConversationView({ token: _token }: { token: string }) {
       <MediaLightbox />
       {/* Mobile in-app link preview -- markdown intercepts external taps */}
       <LinkPreviewPane />
+      {/* Floating audio player -- transcript audio chips load tracks here */}
+      <AudioPlayerHost />
     </div>
   )
 }

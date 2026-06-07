@@ -5,6 +5,7 @@ import { useMarkdownViewer } from '@/hooks/use-markdown-viewer'
 import { matchLeadingConversationRef } from '@/lib/conversation-refs'
 import { record } from '@/lib/perf-metrics'
 import { isMobileViewport } from '@/lib/utils'
+import { playAudio } from './audio-player-bus'
 import { CopyMenu } from './copy-menu'
 import { openLinkPreview } from './link-preview-bus'
 import { filenameFromUrl, type MediaKind, openMediaLightbox } from './media-lightbox-bus'
@@ -82,15 +83,16 @@ function renderVideoChip(href: string, label: string): string {
   return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" class="lightbox-chip lightbox-chip-video" data-lightbox-src="${safeHref}" data-lightbox-kind="video"><span class="inline-flex items-center gap-1.5 px-2 py-1 bg-muted/40 border border-border/50 rounded text-xs text-foreground/90 hover:bg-muted/60 hover:border-accent/60 transition-colors cursor-pointer align-middle"><svg viewBox="0 0 16 16" aria-hidden="true" class="h-3 w-3 text-accent fill-current"><path d="M4 2.5v11l10-5.5-10-5.5z"/></svg><span class="font-mono">${safeName}</span></span></a>`
 }
 
-// Audio embed: a native `<audio controls>` bar rendered INLINE (unlike video,
-// which is a click-to-lightbox chip). The player is short enough that it sits in
-// the transcript flow without blowing up virtualizer row estimates. `preload`
-// is "none" so we don't fetch the audio bytes until the user hits play. The
-// filename caption sits above, matching the image-chip treatment.
-function renderAudioEmbed(href: string, label: string): string {
+// Audio chip: a compact play-button pill (NOT an inline <audio>). Tapping it
+// loads the track into the persistent floating player docked in the app chrome
+// (audio-player-host.tsx) -- so playback survives scrolling + conversation
+// switches and only one track plays at a time. Markdown's click delegate reads
+// the data attrs and calls playAudio(). Styled like the video chip but with a
+// speaker icon to distinguish "plays in the dock" from "opens the lightbox".
+function renderAudioChip(href: string, label: string): string {
   const safeHref = escapeAttr(href)
   const safeName = escapeAttr(resolveMediaLabel(href, label))
-  return `<span class="audio-embed inline-flex flex-col items-start gap-1 max-w-full align-middle my-1"><span class="text-[10px] text-muted-foreground font-mono truncate max-w-full" title="${safeName}">${safeName}</span><audio controls preload="none" src="${safeHref}" class="max-w-full h-9 rounded border border-border/40"></audio></span>`
+  return `<button type="button" class="audio-chip inline-flex items-center gap-1.5 px-2 py-1 bg-muted/40 border border-border/50 rounded text-xs text-foreground/90 hover:bg-muted/60 hover:border-accent/60 transition-colors cursor-pointer align-middle" data-audio-src="${safeHref}" data-audio-label="${safeName}"><svg viewBox="0 0 16 16" aria-hidden="true" class="h-3 w-3 text-accent fill-current"><path d="M3 6v4h2.5L7 12V4L5.5 6H3zm6.5-1.3a3.5 3.5 0 0 1 0 6.6v-1.4a2.1 2.1 0 0 0 0-3.8V4.7z"/></svg><span class="font-mono">${safeName}</span></button>`
 }
 
 // Custom renderer
@@ -115,7 +117,7 @@ renderer.link = ({ href, text }) => {
   const kind = detectMediaKind(href)
   if (kind === 'image') return renderImageChip(href, text)
   if (kind === 'video') return renderVideoChip(href, text)
-  if (kind === 'audio') return renderAudioEmbed(href, text)
+  if (kind === 'audio') return renderAudioChip(href, text)
   // Project-relative file link -> open the sentinel-backed markdown viewer.
   if (isProjectRelativeFilePath(href)) {
     const safe = escapeAttr(href)
@@ -126,7 +128,7 @@ renderer.link = ({ href, text }) => {
 renderer.image = ({ href, text, title }) => {
   const kind = detectMediaKind(href) || 'image'
   if (kind === 'video') return renderVideoChip(href, text || title || '')
-  if (kind === 'audio') return renderAudioEmbed(href, text || title || '')
+  if (kind === 'audio') return renderAudioChip(href, text || title || '')
   return renderImageChip(href, text || title || '')
 }
 renderer.table = ({ header, rows, raw }) => {
@@ -586,6 +588,15 @@ export const Markdown = memo(function Markdown({ children, inline, copyable }: M
         e.preventDefault()
         useConversationsStore.getState().selectConversation(id)
       }
+      return
+    }
+
+    // Audio chip -> load the track into the persistent floating chrome player
+    // (lazy-loaded on first play). Not a navigation, so no preventDefault needed.
+    const audioChip = target.closest('.audio-chip') as HTMLElement | null
+    if (audioChip) {
+      const src = audioChip.getAttribute('data-audio-src')
+      if (src) playAudio(src, audioChip.getAttribute('data-audio-label') || src)
       return
     }
 

@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Command, Crosshair, FileText, Menu } from 'lucide-react'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { ActionFab } from '@/components/action-fab'
+import { AudioPlayerHost } from '@/components/audio-player-host'
 import { AuthExpiredModal } from '@/components/auth-expired-modal'
 import { AuthGate } from '@/components/auth-gate'
 import { ChordOverlay } from '@/components/chord-overlay'
@@ -363,6 +364,7 @@ function Dashboard() {
       </PanelBoundary>
       <MediaLightbox />
       <LinkPreviewPane />
+      <AudioPlayerHost />
       {canAdmin && <QuickTaskModal />}
       <RenameModal />
       {canAdmin && <DebugControlModal />}
