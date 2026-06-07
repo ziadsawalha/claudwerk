@@ -25,6 +25,7 @@ function mkConfig(
     sourcePath: null,
     defaultSelection,
     defaultPool,
+    artifactAllowlist: [],
     profiles: Object.fromEntries(
       profiles.map(p => [
         p.name,
@@ -286,6 +287,7 @@ describe('pickProfile -- returns full ResolvedProfile bundle (env injection sani
       sourcePath: null,
       defaultSelection: 'default',
       defaultPool: 'default',
+      artifactAllowlist: [],
       profiles: {
         default: { name: 'default', configDir: '/home/.claude', env: {}, pool: 'default', weight: 1 },
         work: {

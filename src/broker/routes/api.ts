@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { matchProjectUri, tryParseProjectUri } from '../../shared/project-uri'
+import type { FetchArtifact, FetchArtifactResult } from '../../shared/protocol'
 import { getAuthenticatedUser } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
 import { getGlobalSettings, updateGlobalSettings } from '../global-settings'
@@ -25,6 +26,9 @@ import { appendSharedFile, dismissSharedFile, mediaTypeToExt, readSharedFiles, s
 import { fetchLinkPreview, isSafePreviewUrl } from './link-preview'
 import type { RouteHelpers } from './shared'
 import { broadcastToSubscribers } from './shared'
+
+/** Max wait for the sentinel to return artifact bytes before the route 504s. */
+const ARTIFACT_RPC_TIMEOUT_MS = 15_000
 
 export function createApiRouter(
   conversationStore: ConversationStore,
@@ -188,6 +192,64 @@ export function createApiRouter(
     return c.json({
       entries,
       conversation: { id: conv.id, project: conv.project, title: conv.title, description: conv.description },
+    })
+  })
+
+  // ─── Conversation artifact proxy (sentinel-served host-local files) ──
+  // Surfaces a WHITELISTED host-local artifact (the /insights HTML report under
+  // the conversation's profile configDir) to the control panel. The owning
+  // sentinel reads + allowlist-checks the file and returns bytes; the broker
+  // streams them back through this AUTH-GATED route. No public URL is ever
+  // minted -- the report contains usage data (authed-stream model, by design).
+  app.get('/api/conversations/:id/artifact', async c => {
+    const conversationId = c.req.param('id')
+    const relPath = new URL(c.req.raw.url).searchParams.get('path') || ''
+    if (!relPath) return c.json({ error: 'Missing path' }, 400)
+
+    const conv = conversationStore.getConversation(conversationId)
+    if (!conv) return c.json({ error: 'Conversation not found' }, 404)
+    if (!httpHasPermission(c.req.raw, 'files:read', conv.project, conv.id)) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    const sentinel = conv.hostSentinelId ? conversationStore.getSentinelConnection(conv.hostSentinelId) : undefined
+    if (!sentinel) return c.json({ error: 'No sentinel connected for this conversation' }, 503)
+
+    const result = await new Promise<FetchArtifactResult | null>(resolve => {
+      const requestId = randomUUID()
+      const timeout = setTimeout(() => {
+        conversationStore.removeFileListener(requestId)
+        resolve(null)
+      }, ARTIFACT_RPC_TIMEOUT_MS)
+      conversationStore.addFileListener(requestId, raw => {
+        clearTimeout(timeout)
+        resolve(raw as FetchArtifactResult)
+      })
+      const req: FetchArtifact = { type: 'fetch_artifact', requestId, profile: conv.resolvedProfile, relPath }
+      try {
+        sentinel.ws.send(JSON.stringify(req))
+      } catch {
+        clearTimeout(timeout)
+        conversationStore.removeFileListener(requestId)
+        resolve(null)
+      }
+    })
+
+    if (!result) return c.json({ error: 'Sentinel timed out or unreachable' }, 504)
+    if (!result.ok || !result.data) return c.json({ error: result.error || 'Artifact unavailable' }, 404)
+
+    const bytes = Buffer.from(result.data, 'base64')
+    // No server CSP here: the report's own inline CSS/JS + Google-Fonts CDN would
+    // break under a strict policy. Isolation comes from the client rendering this
+    // in a sandboxed iframe WITHOUT allow-same-origin (cannot touch the app origin
+    // or its cookies). nosniff + no-store keep it private and unguessable.
+    return new Response(bytes, {
+      headers: {
+        'Content-Type': result.mediaType || 'application/octet-stream',
+        'Content-Length': String(bytes.byteLength),
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      },
     })
   })
 

@@ -2904,6 +2904,51 @@ export interface ProjectMoveFileResult {
   error?: string
 }
 
+// ===========================================================================
+// Artifact fetch RPC (Broker <-> Sentinel)
+//
+// Surfaces host-local artifacts (e.g. the `/insights` HTML report under a
+// profile's CLAUDE_CONFIG_DIR) to a remote control panel. The report lives on
+// the SENTINEL's disk under the conversation's resolved profile configDir
+// (`.claude`, `.claude-work`, ...), NOT in the conversation CWD -- so the
+// long-lived sentinel (not the dead-on-exit agent host, not CWD-bound
+// share_file) is the right authority. The sentinel resolves configDir via
+// `configDirFor(config, profile)`, jails `relPath` under it (resolveInRoot),
+// AND checks it against an allowlist of glob patterns -- only whitelisted
+// artifacts (default `usage-data/*.html`) are ever served. Mirrors the
+// `project_read_file` request/result idiom; bytes come back base64 so the
+// shape generalizes to future binary artifacts (images, pdf).
+// ===========================================================================
+
+/** Broker -> Sentinel: read a whitelisted artifact under a profile's configDir. */
+export interface FetchArtifact {
+  type: 'fetch_artifact'
+  requestId: string
+  /** Resolved profile NAME (from conv.resolvedProfile). Absent -> default
+   *  profile. The sentinel maps it to a configDir locally; the broker never
+   *  sees configDir (Profile-Env Boundary). */
+  profile?: string
+  /** configDir-RELATIVE path (jailed + allowlist-checked by the sentinel). */
+  relPath: string
+  /** Byte cap; sentinel rejects beyond this rather than truncating (a partial
+   *  HTML report is useless). Omitted -> sentinel default. */
+  maxBytes?: number
+}
+
+/** Sentinel -> Broker: artifact bytes (base64) or a structured error. */
+export interface FetchArtifactResult {
+  type: 'fetch_artifact_result'
+  requestId: string
+  ok: boolean
+  /** base64-encoded file bytes (present when ok). */
+  data?: string
+  /** Detected media type, e.g. `text/html`. */
+  mediaType?: string
+  /** Byte length on disk. */
+  size?: number
+  error?: string
+}
+
 export interface ProjectTaskInputWire {
   title?: string
   body: string
@@ -3580,6 +3625,7 @@ export type SentinelMessage =
   | ProjectReadFileResult
   | ProjectWriteFileResult
   | ProjectMoveFileResult
+  | FetchArtifactResult
   | ProjectBoardResult
   | ProjectChanged
   | UsageUpdate
@@ -3868,6 +3914,7 @@ export type BrokerSentinelMessage =
   | ProjectReadFile
   | ProjectWriteFile
   | ProjectMoveFile
+  | FetchArtifact
   | ProjectBoardOp
   | ProjectWatch
   | ProjectUnwatch

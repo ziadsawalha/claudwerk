@@ -31,6 +31,7 @@ import { ActivityPhrasePill } from './activity-phrase-pill'
 import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
+import { detectReportArtifactRelPath } from './grouping/report-artifact'
 import { StreamingTextBlock, StreamingThinkingBlock, ThinkingSpinner } from './in-flight-decorations'
 import { ThinkingPill } from './thinking-pill'
 import { usePlanContext, useTranscriptSettings } from './use-transcript-derivations'
@@ -991,7 +992,18 @@ export const TranscriptView = memo(function TranscriptView({
                           }
                           content = parts.join('')
                         }
-                        return <SkillDivider name={group.skillName || 'skill'} content={content} />
+                        const reportRel = detectReportArtifactRelPath(content)
+                        const reportArtifact =
+                          reportRel && selectedConversationId
+                            ? { conversationId: selectedConversationId, relPath: reportRel }
+                            : undefined
+                        return (
+                          <SkillDivider
+                            name={group.skillName || 'skill'}
+                            content={content}
+                            reportArtifact={reportArtifact}
+                          />
+                        )
                       }
                       return (
                         <MemoizedGroupView

@@ -53,6 +53,11 @@ export interface SentinelConfigFile {
   defaultPool?: string
   /** Profile registry, keyed by profile name. */
   profiles?: Record<string, SentinelProfileFile>
+  /** Extra glob patterns (configDir-relative) the sentinel may surface via the
+   *  `fetch_artifact` RPC, on top of the always-on built-in (`usage-data/*.html`).
+   *  Each pattern is matched against the configDir-relative path AFTER jailing.
+   *  Use to expose additional host-local artifacts to the control panel. */
+  artifactAllowlist?: string[]
 }
 
 /** Raw profile entry as it appears on disk. Tilde-paths are expanded by the
@@ -115,6 +120,10 @@ export interface SentinelConfig {
   /** All profiles by name. The `default` profile is always present (synthesised
    *  if the file did not list one). */
   profiles: Record<string, ResolvedProfile>
+  /** Operator-configured extra `fetch_artifact` glob patterns (configDir-relative),
+   *  validated to a string[]. The built-in `usage-data/*.html` is applied at the
+   *  handler and is NOT included here. Default `[]`. */
+  artifactAllowlist: string[]
 }
 
 /**
@@ -181,7 +190,23 @@ export function loadSentinelConfig(opts: LoadOptions = {}): SentinelConfig {
   const defaultSelection = validateSelectionMode(raw.defaultSelection, configPath)
   const defaultPool = validatePoolName(raw.defaultPool, configPath, 'defaultPool') ?? DEFAULT_POOL_NAME
   const profiles = buildProfileMap(raw.profiles, configPath, home)
-  return { sourcePath, defaultSelection, defaultPool, profiles }
+  const artifactAllowlist = validateArtifactAllowlist(raw.artifactAllowlist, configPath)
+  return { sourcePath, defaultSelection, defaultPool, profiles, artifactAllowlist }
+}
+
+/** Validate the optional `artifactAllowlist` -> a string[] of glob patterns.
+ *  Absent -> []. Rejects non-arrays and non-string / empty entries. */
+function validateArtifactAllowlist(value: unknown, configPath: string): string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) {
+    throw new Error(`sentinel config: "artifactAllowlist" in ${configPath} must be an array of glob strings`)
+  }
+  return value.map((p, i) => {
+    if (typeof p !== 'string' || p.trim().length === 0) {
+      throw new Error(`sentinel config: artifactAllowlist[${i}] in ${configPath} must be a non-empty string`)
+    }
+    return p.trim()
+  })
 }
 
 /** Read + parse the JSON config file. Tolerates missing / empty file. */

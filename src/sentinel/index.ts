@@ -36,6 +36,7 @@ import { cwdToProjectUri, parseProjectUri } from '../shared/project-uri'
 import type {
   BrokerSentinelMessage,
   CcVersionChanged,
+  FetchArtifact,
   GitLogRequest,
   GitLogResult,
   ListCcSessionsResult,
@@ -64,6 +65,7 @@ import type {
 } from '../shared/protocol'
 import { DEFAULT_BROKER_URL, HEARTBEAT_INTERVAL_MS } from '../shared/protocol'
 import { getAcpRecipe, listAcpRecipes } from './acp-recipes'
+import { BUILTIN_ARTIFACT_PATTERNS, handleFetchArtifact } from './artifact-handlers'
 import { type CcVersionWatcher, createCcVersionWatcher, type LastSeenCcVersion } from './cc-version-watcher'
 import {
   applyPatchInPlace,
@@ -3755,6 +3757,31 @@ function connect(
           const m = msg as ProjectReadFile
           const root = expandPath(m.projectRoot, spawnRoot)
           ws.send(JSON.stringify(handleProjectReadFile(root, m)))
+          break
+        }
+
+        case 'fetch_artifact': {
+          const m = msg as FetchArtifact
+          // Resolve the profile's configDir locally (Profile-Env Boundary: the
+          // broker passes only the profile NAME). Unknown profile -> structured
+          // error rather than a thrown crash in the message loop.
+          let configDir: string
+          try {
+            configDir = configDirFor(config, m.profile)
+          } catch (e) {
+            ws.send(
+              JSON.stringify({
+                type: 'fetch_artifact_result',
+                requestId: m.requestId,
+                ok: false,
+                error: (e as Error).message,
+              }),
+            )
+            break
+          }
+          const patterns = [...BUILTIN_ARTIFACT_PATTERNS, ...config.artifactAllowlist]
+          diag('artifact', 'fetch', { profile: m.profile ?? 'default', relPath: m.relPath })
+          ws.send(JSON.stringify(handleFetchArtifact(configDir, patterns, m)))
           break
         }
 

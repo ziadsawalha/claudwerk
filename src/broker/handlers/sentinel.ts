@@ -193,6 +193,13 @@ const gitLogResult: MessageHandler = (ctx, data) => {
   ctx.conversations.resolveGitLog(data.requestId as string, data)
 }
 
+// Sentinel -> broker: whitelisted artifact bytes (the /insights report). Resolves
+// the pending request registered by the GET /api/conversations/:id/artifact route.
+// Rides the generic requestId-keyed file listener (artifact bytes == file bytes).
+const fetchArtifactResult: MessageHandler = (ctx, data) => {
+  ctx.conversations.resolveFile(data.requestId as string, data)
+}
+
 const launchLog: MessageHandler = (ctx, data) => {
   const jobId = data.jobId as string
   if (!jobId) return
@@ -506,6 +513,7 @@ export function registerSentinelHandlers(): void {
       list_dirs_result: listDirsResult,
       list_cc_sessions_result: listCcSessionsResult,
       git_log_result: gitLogResult,
+      fetch_artifact_result: fetchArtifactResult,
       launch_log: launchLog,
       sentinel_diag: sentinelDiag,
       usage_update: usageUpdate,
