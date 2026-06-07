@@ -339,20 +339,13 @@ export class BrokerShellRegistry {
     return removed
   }
 
-  /** The machineId of a sentinel's shells (grace-removal key), or undefined when
-   *  it has none. All of a sentinel's shells share one machineId. */
+  /** The machineId of a sentinel's shells (the removal key on disconnect), or
+   *  undefined when it has none. All of a sentinel's shells share one machineId. */
   machineIdForSentinel(sentinelId: string): string | undefined {
     for (const shell of this.shells.values()) {
       if (shell.entry.sentinelId === sentinelId) return shell.machineId
     }
     return undefined
-  }
-
-  /** How many shells the broker currently holds for a sentinel (logging). */
-  countForSentinel(sentinelId: string): number {
-    let n = 0
-    for (const shell of this.shells.values()) if (shell.entry.sentinelId === sentinelId) n++
-    return n
   }
 }
 

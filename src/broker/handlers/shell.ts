@@ -302,23 +302,7 @@ const shellActivity: MessageHandler = (ctx, data) => {
   )
 }
 
-// ── Resync + floating-shell grace (broker restart / control-WS reconnect) ──
-
-/** Grace window before a disconnected sentinel's FLOATING shells are declared
- *  dead. The PTYs keep running sentinel-side, so a quick reconnect + resync
- *  cancels the removal -- a seamless reconnect with no flap. Only a sentinel that
- *  never returns sees its shells removed. */
-const SHELL_ORPHAN_GRACE_MS = 45_000
-const orphanTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-/** Cancel a pending grace removal for a machine (its sentinel came back). */
-function cancelOrphanGrace(machineId: string): void {
-  const t = orphanTimers.get(machineId)
-  if (t) {
-    clearTimeout(t)
-    orphanTimers.delete(machineId)
-  }
-}
+// ── Resync (broker restart / control-WS reconnect) ───────────────────
 
 /** Coerce one wire `shell_resync.shells[]` element to a `ShellResyncEntry`,
  *  dropping anything missing the two routing-critical fields. */
@@ -343,13 +327,12 @@ function toResyncEntry(v: unknown): ShellResyncEntry | null {
  * full live shell roster on every (re)connect. The broker reconciles its
  * in-memory roster to this authoritative snapshot -- the ONLY path that re-adds
  * shells lost on a broker restart, and that prunes shells that died while the
- * control WS was down. Cancels any pending grace removal for the machine.
+ * control WS was down.
  */
 const shellResync: MessageHandler = (ctx, data) => {
   const machineId = str(data.machineId)
   if (!machineId) return
   const sentinelId = ctx.conversations.getSentinelIdBySocket(ctx.ws) ?? ''
-  cancelOrphanGrace(machineId)
   const reported = (Array.isArray(data.shells) ? data.shells : [])
     .map(toResyncEntry)
     .filter((e): e is ShellResyncEntry => e !== null)
@@ -372,34 +355,21 @@ const shellResync: MessageHandler = (ctx, data) => {
  * just the store). The data-WS pairing is forgotten separately on its own close.
  */
 export function onSentinelDisconnect(sentinelId: string, conversations: ConversationStore): void {
+  // NO TIMEOUTS: the broker is a pure mirror of connection state. A gone control
+  // WS means the sentinel is gone (or restarting), so its shells go NOW. The PTYs
+  // die with the sentinel; if the control WS merely blipped, `shell_resync` on
+  // reconnect re-announces the live shells and rebuilds the roster. The sentinel
+  // is the source of truth -- the broker never second-guesses it with a timer.
   const machineId = shellRegistry.machineIdForSentinel(sentinelId)
-  const count = shellRegistry.countForSentinel(sentinelId)
-  if (!machineId || count === 0) return
-  // FLOATING shells: do NOT remove immediately -- the PTYs keep running on the
-  // sentinel. Give it a grace window to reconnect + `shell_resync` (which cancels
-  // this timer), so a transient blip / broker hiccup does not flap the roster.
-  // Only a sentinel that never returns sees its shells removed.
-  console.log(
-    `[shell] sentinel ${sentinelId} (machine ${machineId}) control-WS gone -- ${count} floating shell(s), ${SHELL_ORPHAN_GRACE_MS}ms grace before removal`,
-  )
-  cancelOrphanGrace(machineId)
-  orphanTimers.set(
-    machineId,
-    setTimeout(() => {
-      orphanTimers.delete(machineId)
-      const removed = shellRegistry.removeByMachine(machineId)
-      for (const shell of removed) {
-        conversations.broadcastShellScoped(
-          { type: 'shell_removed', shellId: shell.entry.shellId },
-          shell.entry.projectUri,
-        )
-      }
-      if (removed.length > 0)
-        console.log(
-          `[shell] grace expired machine=${machineId} -- removed ${removed.length} orphan shell(s) (sentinel never returned)`,
-        )
-    }, SHELL_ORPHAN_GRACE_MS),
-  )
+  if (!machineId) return
+  const removed = shellRegistry.removeByMachine(machineId)
+  for (const shell of removed) {
+    conversations.broadcastShellScoped({ type: 'shell_removed', shellId: shell.entry.shellId }, shell.entry.projectUri)
+  }
+  if (removed.length > 0)
+    console.log(
+      `[shell] sentinel ${sentinelId} (machine ${machineId}) gone -- removed ${removed.length} shell(s); will re-announce live shells via shell_resync on reconnect`,
+    )
 }
 
 /**

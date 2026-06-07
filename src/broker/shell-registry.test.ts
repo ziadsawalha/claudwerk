@@ -56,7 +56,7 @@ describe('BrokerShellRegistry roster', () => {
     expect(r.remove('missing')).toBeUndefined()
   })
 
-  it('removes every shell on a machine (grace-expiry cleanup)', () => {
+  it('removes every shell on a machine (disconnect cleanup)', () => {
     const r = new BrokerShellRegistry()
     r.add(entry({ shellId: 'a', sentinelId: 'snt_a' }), { machineId: 'm1' })
     r.add(entry({ shellId: 'b', sentinelId: 'snt_a' }), { machineId: 'm1' })
@@ -67,14 +67,12 @@ describe('BrokerShellRegistry roster', () => {
     expect(r.count).toBe(1)
   })
 
-  it('resolves a sentinel’s machineId + shell count (grace-removal keying)', () => {
+  it('resolves a sentinel’s machineId (the disconnect-removal key)', () => {
     const r = new BrokerShellRegistry()
     r.add(entry({ shellId: 'a', sentinelId: 'snt_a' }), { machineId: 'm1' })
     r.add(entry({ shellId: 'b', sentinelId: 'snt_a' }), { machineId: 'm1' })
     expect(r.machineIdForSentinel('snt_a')).toBe('m1')
-    expect(r.countForSentinel('snt_a')).toBe(2)
     expect(r.machineIdForSentinel('snt_missing')).toBeUndefined()
-    expect(r.countForSentinel('snt_missing')).toBe(0)
   })
 })
 
