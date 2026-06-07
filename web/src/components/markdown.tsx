@@ -19,8 +19,16 @@ function escapeHtml(s: string): string {
 // querystrings / fragments don't trip us up.
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'heic'])
 const VIDEO_EXT = new Set(['mp4', 'webm', 'mov', 'mkv', 'm4v', 'ogv'])
+// Audio renders inline (a native <audio controls> bar is ~40px tall), so it
+// does NOT go through the lightbox like video does. `ogg`/`m4a` are audio here;
+// the video set claims `ogv`/`m4v`, so no collision.
+const AUDIO_EXT = new Set(['mp3', 'm4a', 'wav', 'ogg', 'oga', 'opus', 'flac', 'aac', 'weba'])
 
-function detectMediaKind(href: string): MediaKind | null {
+// `'audio'` is a markdown-renderer-only media kind (inline player); it is NOT a
+// MediaKind because it never opens the lightbox bus.
+type DetectedMedia = MediaKind | 'audio'
+
+function detectMediaKind(href: string): DetectedMedia | null {
   if (!href) return null
   try {
     // Use a dummy base so protocol-relative + relative URLs still parse.
@@ -30,6 +38,7 @@ function detectMediaKind(href: string): MediaKind | null {
     const ext = m[1]
     if (IMAGE_EXT.has(ext)) return 'image'
     if (VIDEO_EXT.has(ext)) return 'video'
+    if (AUDIO_EXT.has(ext)) return 'audio'
     return null
   } catch {
     return null
@@ -71,6 +80,17 @@ function renderVideoChip(href: string, label: string): string {
   return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" class="lightbox-chip lightbox-chip-video" data-lightbox-src="${safeHref}" data-lightbox-kind="video"><span class="inline-flex items-center gap-1.5 px-2 py-1 bg-muted/40 border border-border/50 rounded text-xs text-foreground/90 hover:bg-muted/60 hover:border-accent/60 transition-colors cursor-pointer align-middle"><svg viewBox="0 0 16 16" aria-hidden="true" class="h-3 w-3 text-accent fill-current"><path d="M4 2.5v11l10-5.5-10-5.5z"/></svg><span class="font-mono">${safeName}</span></span></a>`
 }
 
+// Audio embed: a native `<audio controls>` bar rendered INLINE (unlike video,
+// which is a click-to-lightbox chip). The player is short enough that it sits in
+// the transcript flow without blowing up virtualizer row estimates. `preload`
+// is "none" so we don't fetch the audio bytes until the user hits play. The
+// filename caption sits above, matching the image-chip treatment.
+function renderAudioEmbed(href: string, label: string): string {
+  const safeHref = escapeAttr(href)
+  const safeName = escapeAttr(resolveMediaLabel(href, label))
+  return `<span class="audio-embed inline-flex flex-col items-start gap-1 max-w-full align-middle my-1"><span class="text-[10px] text-muted-foreground font-mono truncate max-w-full" title="${safeName}">${safeName}</span><audio controls preload="none" src="${safeHref}" class="max-w-full h-9 rounded border border-border/40"></audio></span>`
+}
+
 // Custom renderer
 const renderer = new marked.Renderer()
 /**
@@ -93,6 +113,7 @@ renderer.link = ({ href, text }) => {
   const kind = detectMediaKind(href)
   if (kind === 'image') return renderImageChip(href, text)
   if (kind === 'video') return renderVideoChip(href, text)
+  if (kind === 'audio') return renderAudioEmbed(href, text)
   // Project-relative file link -> open the sentinel-backed markdown viewer.
   if (isProjectRelativeFilePath(href)) {
     const safe = escapeAttr(href)
@@ -103,6 +124,7 @@ renderer.link = ({ href, text }) => {
 renderer.image = ({ href, text, title }) => {
   const kind = detectMediaKind(href) || 'image'
   if (kind === 'video') return renderVideoChip(href, text || title || '')
+  if (kind === 'audio') return renderAudioEmbed(href, text || title || '')
   return renderImageChip(href, text || title || '')
 }
 renderer.table = ({ header, rows, raw }) => {
