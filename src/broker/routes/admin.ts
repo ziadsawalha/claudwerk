@@ -21,7 +21,7 @@ import { getAuthenticatedUser } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
 import { purgeMessages, queryMessages } from '../inter-conversation-log'
 import { resolvePermissionFlags } from '../permissions'
-import { addPersistedLink, getPersistedLinks, removePersistedLink } from '../project-links'
+import { addPersistedLink, clearLinksForProject, getPersistedLinks, removePersistedLink } from '../project-links'
 import { getProjectSettings } from '../project-settings'
 import { createShare, getShare as getShareByToken, listShares as listAllShares, revokeShare } from '../shares'
 import type { RouteHelpers } from './shared'
@@ -367,6 +367,23 @@ export function createAdminRouter(
     }
 
     return c.json({ ok: true, removed, purged })
+  })
+
+  // Clear every link touching a single focus project (the "Clear all links"
+  // button in the per-project Manage Links modal).
+  app.delete('/api/links/all', async c => {
+    if (!httpIsAdmin(c.req.raw)) return c.json({ error: 'Forbidden: admin only' }, 403)
+    const body = await c.req.json<{ project: string }>()
+    if (!body.project) return c.json({ error: 'project required' }, 400)
+
+    const removed = clearLinksForProject(body.project)
+    for (const link of removed) {
+      conversationStore.unlinkProjects(link.projectA, link.projectB)
+      conversationStore.broadcastForProject(link.projectB)
+    }
+    conversationStore.broadcastForProject(body.project)
+
+    return c.json({ ok: true, removed: removed.length })
   })
 
   // ─── Inter-conversation message history ──────────────────────────────────

@@ -4,7 +4,7 @@
  * Backed by StoreDriver KVStore (replaces JSON file persistence).
  */
 
-import { cwdToProjectUri } from '../shared/project-uri'
+import { cwdToProjectUri, normalizeProjectUri } from '../shared/project-uri'
 import type { KVStore } from './store/types'
 
 export interface PersistedLink {
@@ -24,8 +24,17 @@ function toUri(value: string): string {
   return cwdToProjectUri(value)
 }
 
+// Match links by CANONICAL URI, not raw string. Stored links can carry a
+// different surface form than the URI the control panel sends on delete
+// (empty vs `default` authority, trailing slash, scheme case, worktree path
+// segments). `isLinkedTo` in the dialog already matches leniently via
+// normalizeProjectUri, so a delete keyed on the raw string silently missed
+// and the link reappeared on refetch -- the "can't remove links" bug. Both
+// `a` and `b` here are full project URIs (toUri upgrades bare paths first).
 function linkKey(a: string, b: string): string {
-  return a < b ? `${a}\0${b}` : `${b}\0${a}`
+  const na = normalizeProjectUri(a)
+  const nb = normalizeProjectUri(b)
+  return na < nb ? `${na}\0${nb}` : `${nb}\0${na}`
 }
 
 function sortedPair(a: string, b: string): [string, string] {
@@ -128,6 +137,24 @@ export function removePersistedLink(projectA: string, projectB: string): boolean
     return true
   }
   return false
+}
+
+/** Remove every persisted link that touches `project`. Returns the removed
+ *  links so callers can sever the in-memory routing + broadcast each pair.
+ *  Matching is canonical (same normalize seam as `linkKey`). */
+export function clearLinksForProject(project: string): PersistedLink[] {
+  const target = normalizeProjectUri(toUri(project))
+  const removed: PersistedLink[] = []
+  links = links.filter(l => {
+    const touches = normalizeProjectUri(l.projectA) === target || normalizeProjectUri(l.projectB) === target
+    if (touches) removed.push(l)
+    return !touches
+  })
+  if (removed.length > 0) {
+    save()
+    console.log(`[links] Cleared ${removed.length} link(s) for ${target}`)
+  }
+  return removed
 }
 
 export function touchLink(projectA: string, projectB: string): void {

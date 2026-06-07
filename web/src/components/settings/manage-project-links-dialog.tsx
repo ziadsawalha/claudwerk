@@ -58,6 +58,9 @@ export function ManageProjectLinksDialog() {
   const [filter, setFilter] = useState('')
   const [loading, setLoading] = useState(false)
   const [toggling, setToggling] = useState<Set<string>>(new Set())
+  const [onlyLinked, setOnlyLinked] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [confirmingClear, setConfirmingClear] = useState(false)
   const pinned = useRef(false)
   const rawProjectOrder = useConversationsStore(s => s.projectOrder)
   const projectSettings = useConversationsStore(s => s.projectSettings)
@@ -113,6 +116,8 @@ export function ManageProjectLinksDialog() {
     setOpen(false)
     setFocusProject(null)
     setFilter('')
+    setOnlyLinked(false)
+    setConfirmingClear(false)
     pinned.current = false
   }
 
@@ -132,12 +137,13 @@ export function ManageProjectLinksDialog() {
     const lf = filter.toLowerCase()
     return projects.filter(p => {
       if (focusProject && uriMatches(p.project_uri, focusProject)) return false
+      if (onlyLinked && !isLinkedTo(p.project_uri)) return false
       if (!lf) return true
       const name = projectDisplayName(p).toLowerCase()
       const settingsLabel = projectSettings[projectIdentityKey(p.project_uri)]?.label?.toLowerCase()
       return name.includes(lf) || p.slug.includes(lf) || (settingsLabel?.includes(lf) ?? false)
     })
-  }, [projects, focusProject, filter, projectSettings])
+  }, [projects, focusProject, filter, projectSettings, onlyLinked, isLinkedTo])
 
   const linkedCount = useMemo(() => {
     if (!focusProject) return 0
@@ -209,6 +215,25 @@ export function ManageProjectLinksDialog() {
     }
   }
 
+  async function clearAllLinks() {
+    if (!focusProject || clearing) return
+    haptic('tap')
+    setClearing(true)
+    try {
+      await fetch(`${API_BASE}/links/all`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project: focusProject }),
+      })
+      await fetchData()
+    } catch {
+      await fetchData()
+    } finally {
+      setClearing(false)
+      setConfirmingClear(false)
+    }
+  }
+
   const focusProjectObj = projects.find(p => focusProject && uriMatches(p.project_uri, focusProject))
   const focusName = focusProjectObj ? projectDisplayName(focusProjectObj) : displayNameFromUri(focusProject || '')
 
@@ -241,6 +266,7 @@ export function ManageProjectLinksDialog() {
                     value={focusProject || ''}
                     onChange={e => {
                       setFocusProject(e.target.value)
+                      setConfirmingClear(false)
                       haptic('tick')
                     }}
                     className="w-full bg-surface-inset border border-border rounded px-2 py-1.5 text-[11px] font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
@@ -263,10 +289,22 @@ export function ManageProjectLinksDialog() {
                 className="w-full bg-surface-inset border border-border rounded px-2 py-1.5 text-[11px] font-mono text-foreground placeholder:text-comment/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
               />
 
+              {/* biome-ignore lint/a11y/noLabelWithoutControl: label wraps Radix Checkbox (implicit association) */}
+              <label className="flex items-center gap-2 px-1 self-start cursor-pointer select-none">
+                <Checkbox
+                  checked={onlyLinked}
+                  onCheckedChange={() => {
+                    setOnlyLinked(v => !v)
+                    haptic('tick')
+                  }}
+                />
+                <span className="text-[11px] font-mono text-muted-foreground">Show linked only</span>
+              </label>
+
               <div className="overflow-y-auto flex-1 min-h-0 -mx-1 px-1">
                 {otherProjects.length === 0 ? (
                   <div className="text-xs text-muted-foreground font-mono py-2">
-                    {filter ? 'No matching projects.' : 'No other projects.'}
+                    {filter ? 'No matching projects.' : onlyLinked ? 'No linked projects.' : 'No other projects.'}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -295,8 +333,41 @@ export function ManageProjectLinksDialog() {
               </div>
 
               {linkedCount > 0 && (
-                <div className="text-[10px] text-muted-foreground font-mono pt-1 border-t border-border">
-                  {linkedCount} linked project{linkedCount !== 1 ? 's' : ''}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border">
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    {linkedCount} linked project{linkedCount !== 1 ? 's' : ''}
+                  </span>
+                  {confirmingClear ? (
+                    <span className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={clearAllLinks}
+                        disabled={clearing}
+                        className="text-[10px] font-mono font-bold text-red-400 hover:text-red-300 disabled:opacity-50"
+                      >
+                        {clearing ? 'Clearing…' : `Clear ${linkedCount}?`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingClear(false)}
+                        disabled={clearing}
+                        className="text-[10px] font-mono text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingClear(true)
+                        haptic('tap')
+                      }}
+                      className="text-[10px] font-mono text-red-400/80 hover:text-red-400"
+                    >
+                      Clear all links
+                    </button>
+                  )}
                 </div>
               )}
             </>
