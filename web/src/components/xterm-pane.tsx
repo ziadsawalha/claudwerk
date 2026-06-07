@@ -15,6 +15,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import '@xterm/xterm/css/xterm.css'
+import { normalizeTruecolorSgr } from '@/lib/normalize-truecolor-sgr'
 import { cn } from '@/lib/utils'
 import { getFont, getTheme, type TerminalSettings } from './terminal-settings-storage'
 
@@ -75,7 +76,7 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
   useImperativeHandle(
     ref,
     () => ({
-      write: (data: string) => xtermRef.current?.write(data),
+      write: (data: string) => xtermRef.current?.write(normalizeTruecolorSgr(data)),
       // RIS (reset) + clear + cursor home (+ hide cursor unless cursorBlink) --
       // a clean slate before a (re)paint.
       clear: () => xtermRef.current?.write(primeRef.current),

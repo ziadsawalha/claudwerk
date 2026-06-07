@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 import { WifiOff } from 'lucide-react'
 import { type TerminalMessage, useConversationsStore } from '@/hooks/use-conversations'
+import { normalizeTruecolorSgr } from '@/lib/normalize-truecolor-sgr'
 import { getFont, getTheme, loadTerminalSettings } from './terminal-settings-storage'
 import { TerminalToolbar } from './terminal-toolbar'
 
@@ -92,7 +93,7 @@ export function InlineTerminal({ conversationId }: InlineTerminalProps) {
     const handler = (msg: TerminalMessage) => {
       if (msg.conversationId !== conversationId) return
       if (msg.type === 'terminal_data' && msg.data) {
-        terminal.write(msg.data)
+        terminal.write(normalizeTruecolorSgr(msg.data))
       } else if (msg.type === 'terminal_error') {
         setTerminalError(msg.error || 'Connection lost')
       }
