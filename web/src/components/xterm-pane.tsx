@@ -96,7 +96,13 @@ export const XtermPane = forwardRef<XtermPaneHandle, XtermPaneProps>(function Xt
       theme,
       fontFamily: font.family,
       fontSize: settings.fontSize,
-      lineHeight: 1.2,
+      // 1.0, not 1.2: any lineHeight > 1 inflates the cell box taller than the
+      // glyph, inserting a horizontal gap that cuts through full-height block /
+      // box-drawing glyphs (vim borders, powerline, ASCII block art) so they
+      // stop connecting vertically. Terminals must render edge-to-edge; xterm's
+      // own default is 1.0. (The earlier 1.2 was readability tuning that broke
+      // every TUI.)
+      lineHeight: 1.0,
       cursorBlink,
       cursorStyle: 'block',
       allowProposedApi: true,

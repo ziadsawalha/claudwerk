@@ -39,7 +39,9 @@ export function InlineTerminal({ conversationId }: InlineTerminalProps) {
       theme,
       fontFamily: font.family,
       fontSize: settings.fontSize,
-      lineHeight: 1.2,
+      // 1.0, not 1.2 -- see xterm-pane.tsx: a >1 lineHeight cuts a horizontal
+      // gap through block / box-drawing glyphs and breaks every TUI's borders.
+      lineHeight: 1.0,
       cursorBlink: false,
       cursorStyle: 'block',
       allowProposedApi: true,
