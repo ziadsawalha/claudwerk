@@ -56,6 +56,32 @@ function DismissAllEndedButton({ endedIds }: { endedIds: string[] }) {
   )
 }
 
+// ─── Spawn-root stub with context menu ──────────────────────────────────
+//
+// A spawn root pulled in as a dimmed orphan (ended / cross-project) is the ONE
+// row in a lineage group that HAS children -- i.e. the exact conversation the
+// "Terminate full lineage" action targets. The bare SpawnRootStub renders no
+// context menu, so that action (plus Revive/Dismiss/Rename on an ended root)
+// was unreachable: right-clicking an ended spawn root produced nothing. Wrap
+// the stub so the menu works on these rows too.
+function SpawnRootStubWithMenu({
+  conversationId,
+  onOpenSettings,
+}: {
+  conversationId: string
+  onOpenSettings?: () => void
+}) {
+  const conversation = useConversationsStore(s => s.conversationsById[conversationId])
+  if (!conversation) return null
+  return (
+    <ConversationContextMenu conversation={conversation} onOpenSettings={onOpenSettings}>
+      <div>
+        <SpawnRootStub conversationId={conversationId} />
+      </div>
+    </ConversationContextMenu>
+  )
+}
+
 // ─── Multi-conversation project card ────────────────────────────────────
 //
 // Resolves the full Conversation list from the store using the conversationIds
@@ -220,7 +246,7 @@ const ProjectConversationGroup = memo(
                   <span className="flex-1 h-px bg-border" />
                 </div>
                 {crossProjectStubIds.map(rootId => (
-                  <SpawnRootStub key={`xproj-${rootId}`} conversationId={rootId} />
+                  <SpawnRootStubWithMenu key={`xproj-${rootId}`} conversationId={rootId} />
                 ))}
               </>
             )}
@@ -228,7 +254,11 @@ const ProjectConversationGroup = memo(
               <div key={group.key} className={group.members.length > 1 ? 'space-y-0.5' : undefined}>
                 {group.members.map(member =>
                   member.orphanRoot ? (
-                    <SpawnRootStub key={member.conversation.id} conversationId={member.conversation.id} />
+                    <SpawnRootStubWithMenu
+                      key={member.conversation.id}
+                      conversationId={member.conversation.id}
+                      onOpenSettings={() => setShowSettings(true)}
+                    />
                   ) : (
                     <ConversationContextMenu
                       key={member.conversation.id}
