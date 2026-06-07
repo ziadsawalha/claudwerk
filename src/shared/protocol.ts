@@ -507,6 +507,10 @@ export interface TranscriptAssistantEntry extends TranscriptEntryBase {
   requestId?: string
   isApiErrorMessage?: boolean
   error?: string
+  /** CC stamps this on an assistant turn that was produced by a skill or slash
+   *  command (e.g. `insights`). Raw passthrough from the JSONL -- the control
+   *  panel renders it as a "via /name" attribution badge in the message header. */
+  attributionSkill?: string
 }
 
 export interface TranscriptProgressEntry extends TranscriptEntryBase {

@@ -219,21 +219,44 @@ function handleUser(entry: TranscriptEntry, state: GroupingState): boolean {
     textContent.includes('<local-command-caveat>') ||
     textContent.includes('<local-command-stdout>')
   ) {
-    // Capture skill name from /slash command before skipping (Path B)
+    // A direct /slash command invocation (Path B). Render EVERY invocation as a
+    // command chip -- even built-ins like /insights whose injected payload does
+    // not look like a classic skill body. These used to be silently dropped, so
+    // a /slash command was invisible on the web transcript (only the PTY showed
+    // it). A following injected dump folds into this chip as its expandable
+    // body (see the skill-content branch below).
     const name = extractSkillName(userEntry)
-    if (name) state.pendingSkillName = name
+    if (name) {
+      state.current = null
+      state.groups.push({ type: 'skill', timestamp: entry.timestamp || '', entries: [], skillName: name })
+      state.pendingSkillName = name
+    }
+    // Nameless command continuations (bare <local-command-stdout>/caveat turns)
+    // carry no <command-message> -- skip them; the chip already stands for the run.
     return true
   }
 
-  // Detect skill content injection (the big markdown dump after Skill tool or /slash command)
+  // The injected body that follows a skill/command invocation (a Skill-tool dump
+  // or a built-in command's payload). Gated by pendingSkillName so only the entry
+  // immediately after an invocation can match.
   if (isSkillContent(userEntry) && state.pendingSkillName) {
     state.current = null
-    state.groups.push({
-      type: 'skill',
-      timestamp: entry.timestamp || '',
-      entries: [entry],
-      skillName: state.pendingSkillName,
-    })
+    const last = state.groups[state.groups.length - 1]
+    if (last?.type === 'skill' && last.entries.length === 0) {
+      // Fold the body into the chip created by the <command-name> turn (Path B).
+      // Replace the object (never mutate in place) so a currently-rendering React
+      // tree is not disturbed (React #300).
+      state.groups[state.groups.length - 1] = { ...last, entries: [entry] }
+    } else {
+      // Skill-tool path (Path A): the invocation was a tool_use, not a
+      // <command-name> turn, so there is no pre-made chip -- create it now.
+      state.groups.push({
+        type: 'skill',
+        timestamp: entry.timestamp || '',
+        entries: [entry],
+        skillName: state.pendingSkillName,
+      })
+    }
     state.pendingSkillName = undefined
     return true
   }

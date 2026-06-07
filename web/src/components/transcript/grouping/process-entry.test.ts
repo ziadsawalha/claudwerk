@@ -99,6 +99,47 @@ describe('processEntry - Skill content', () => {
   })
 })
 
+// A direct /slash command (Path B) arrives as a user entry whose string content
+// holds <command-message>name</command-message> + <command-name>/name</command-name>.
+// Built-ins like /insights then inject a meta payload that does NOT look like a
+// classic skill body (it opens with prose, not `#`).
+function slashCommand(name: string): TranscriptEntry {
+  return {
+    type: 'user',
+    timestamp: '2026-06-07T06:10:09.000Z',
+    message: {
+      role: 'user',
+      content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>`,
+    },
+  } as unknown as TranscriptEntry
+}
+
+const INSIGHTS_PAYLOAD = `The user just ran /insights to generate a usage report.\n\n${'x'.repeat(400)}`
+
+describe('processEntry - slash command chips', () => {
+  it('renders a /slash command invocation as a command chip', () => {
+    const { groups } = group([slashCommand('insights')])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].type).toBe('skill')
+    expect(groups[0].skillName).toBe('insights')
+    // No body injected yet -- the chip stands on its own.
+    expect(groups[0].entries).toHaveLength(0)
+  })
+
+  it('folds a built-in command payload into the chip as its expandable body', () => {
+    const { groups } = group([slashCommand('insights'), skillContent(INSIGHTS_PAYLOAD)])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].type).toBe('skill')
+    expect(groups[0].skillName).toBe('insights')
+    expect(groups[0].entries).toHaveLength(1)
+  })
+
+  it('never renders the injected payload as a raw standalone user bubble', () => {
+    const { groups } = group([slashCommand('insights'), skillContent(INSIGHTS_PAYLOAD)])
+    expect(groups.some(g => g.type === 'user')).toBe(false)
+  })
+})
+
 // An inter-conversation / dialog / system <channel> card arrives as a user-role
 // entry. The control panel renders it as a full-width self-describing box, so it
 // must NOT share a group with the user's own typed text -- a merged group bails

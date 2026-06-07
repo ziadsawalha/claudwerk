@@ -87,22 +87,21 @@ export function extractSkillName(entry: TranscriptUserEntry): string | undefined
   return match?.[1]
 }
 
-// Detect if a user entry is a skill content injection (the big markdown dump
-// after a Skill tool call or /slash command).
+// Detect if a user entry is the injected body that follows a skill/command
+// invocation -- the big markdown dump after a Skill tool call (`# Protocol...`)
+// OR a built-in slash command's injected payload (e.g. the `/insights` report,
+// which opens with prose like "The user just ran /insights", not `#`).
 //
 // `isMeta` marks an injected, non-user-turn entry. The agent host populates it
 // in both transports -- natively from CC's JSONL (PTY) and normalized from
-// stream-json `isSynthetic` (headless) -- so detection can rely on it. The
-// content marker then distinguishes skill content from other meta entries.
-// Gated by `pendingSkillName` at the call site, so a stray paste can't match.
+// stream-json `isSynthetic` (headless) -- so detection relies on it. We accept
+// ANY non-empty meta text here rather than sniffing a `#` prefix, because
+// built-in commands don't use the skill-body marker. The call site gates this
+// on `pendingSkillName`, so only the entry immediately following an invocation
+// can match -- a stray meta entry or paste can't.
 export function isSkillContent(entry: TranscriptUserEntry): boolean {
   if (entry.isMeta !== true) return false
   const content = entry.message?.content
   if (!Array.isArray(content)) return false
-  const parts: string[] = []
-  for (const c of content) {
-    if (c.type === 'text' && typeof c.text === 'string') parts.push(c.text)
-  }
-  const text = parts.join('')
-  return text.length > 300 && (text.startsWith('Base directory for this skill:') || text.startsWith('#'))
+  return content.some(c => c.type === 'text' && typeof c.text === 'string' && c.text.trim().length > 0)
 }

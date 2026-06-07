@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import type { TranscriptAssistantEntry } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { BootTimeline } from './boot-timeline'
 import { ChatBubble } from './chat-bubble'
@@ -79,6 +80,17 @@ function GroupView({
     : undefined
   const channelServer = channelOrigin?.kind === 'channel' ? channelOrigin.server : undefined
 
+  // CC stamps `attributionSkill` on an assistant turn produced by a skill or
+  // slash command (e.g. the /insights summary). Surface it as a "via /name"
+  // badge so the reader knows the turn came from a command, not free prompting.
+  const attributionSkill = isUser
+    ? undefined
+    : (
+        group.entries.find(e => (e as TranscriptAssistantEntry).attributionSkill) as
+          | TranscriptAssistantEntry
+          | undefined
+      )?.attributionSkill
+
   const label = isUser ? userLabel : agentLabel
   const customColor = isUser ? userColor : agentColor
   const borderColor = isUser ? 'border-event-prompt' : 'border-primary'
@@ -118,6 +130,7 @@ function GroupView({
         sizeClass={sizeClass}
         channelServer={channelServer}
         effortBadge={effortBadge}
+        attributionSkill={attributionSkill}
         queued={group.queued}
         ts={ts}
       />
@@ -146,6 +159,7 @@ function GroupHeader({
   sizeClass,
   channelServer,
   effortBadge,
+  attributionSkill,
   queued,
   ts,
 }: {
@@ -156,6 +170,7 @@ function GroupHeader({
   sizeClass: string
   channelServer?: string
   effortBadge: { symbol: string; label: string } | null
+  attributionSkill?: string
   queued?: boolean
   ts?: string | number
 }) {
@@ -179,6 +194,11 @@ function GroupHeader({
       {effortBadge && (
         <span className="px-1.5 py-0.5 text-[10px] font-bold bg-orange-400/20 text-orange-400">
           {effortBadge.symbol} {effortBadge.label}
+        </span>
+      )}
+      {attributionSkill && (
+        <span className="px-1.5 py-0.5 text-[10px] font-mono text-teal-400/80 bg-teal-400/10 border border-teal-400/30">
+          via /{attributionSkill}
         </span>
       )}
       {queued && (
