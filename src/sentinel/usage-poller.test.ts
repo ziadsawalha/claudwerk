@@ -331,38 +331,21 @@ describe('pollProfileUsage', () => {
     expect(snap.error?.status).toBe(401)
   })
 
-  test('configured oauthToken is used directly, bypassing disk discovery', async () => {
+  test('usage polling uses disk discovery, NOT a profile-configured oauthToken', async () => {
+    // setup-token long-lived tokens are inference-only (403 on /api/oauth/usage).
+    // The poller must use the configDir `/login` token (keychain/.credentials.json),
+    // so even with an oauthToken present it reads from disk.
     const fetched: string[] = []
     const fetcher: UsageFetcher = async token => {
       fetched.push(token)
       return { ok: true, data: makeRaw() }
     }
-    const readToken = () => {
-      throw new Error('readToken must NOT be called when a token is configured')
-    }
     const snap = await pollProfileUsage(
-      { name: 'work', configDir: '/tmp/work', oauthToken: 'configured-tok' },
-      { readToken, fetcher, now: () => FIXED_NOW },
+      { name: 'work', configDir: '/tmp/work' },
+      { readToken: () => 'keychain-login-token', fetcher, now: () => FIXED_NOW },
     )
-    expect(fetched).toEqual(['configured-tok'])
+    expect(fetched).toEqual(['keychain-login-token'])
     expect(snap.authed).toBe(true)
-  })
-
-  test('configured oauthToken does NOT re-read on 401 (no disk rotation)', async () => {
-    let calls = 0
-    const fetcher: UsageFetcher = async () => {
-      calls++
-      return { ok: false, kind: 'http', status: 401 }
-    }
-    const readToken = () => {
-      throw new Error('readToken must NOT be called when a token is configured')
-    }
-    const snap = await pollProfileUsage(
-      { name: 'work', configDir: '/tmp/work', oauthToken: 'configured-tok' },
-      { readToken, fetcher, now: () => FIXED_NOW },
-    )
-    expect(calls).toBe(1)
-    expect(snap.error?.status).toBe(401)
   })
 })
 

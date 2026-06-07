@@ -19,9 +19,12 @@
  *     (the CC daemon's own env), where keys can only be shadowed with an empty
  *     string, not removed. Empty is treated as absent by CC's truthiness check.
  *
- * Note: `--bare` spawns do NOT read `CLAUDE_CODE_OAUTH_TOKEN` (a documented CC
- * limitation); a token is useless for bare profiles. PTY/interactive + headless
- * spawns read it normally.
+ * Injected ONLY on non-interactive inference paths: headless (`buildHeadlessEnv`)
+ * and the daemon worker (`applyOAuthTokenDelta`). NOT on the PTY/interactive
+ * path -- the setup-token is inference-only and cannot establish an interactive
+ * subscription session (CC shows "API Usage Billing / Not logged in" and the
+ * session degrades), so interactive keeps the configDir's keychain `/login`
+ * creds. `--bare` spawns also do not read the token (documented CC limitation).
  */
 
 /** The two Anthropic env vars that outrank `CLAUDE_CODE_OAUTH_TOKEN`. */

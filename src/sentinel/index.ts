@@ -1955,9 +1955,11 @@ async function reviveConversation(
     ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
     ...(profile?.env ?? {}),
   }
-  // Long-lived OAuth token for the profile (PTY/interactive reads it; only
-  // `--bare` skips it). Applied after profile.env so the dedicated field wins.
-  applyOAuthToken(reviveEnv, profile?.oauthToken, profile?.env)
+  // NO OAuth-token injection on the PTY/interactive path. The setup-token is
+  // inference-only -- it authenticates `claude -p` (headless) but CANNOT
+  // establish an interactive subscription SESSION (CC shows "API Usage Billing
+  // / Not logged in" and the session degrades). Interactive must use the
+  // configDir's keychain `/login` creds. See `oauth-token-env.ts` header.
 
   const proc = Bun.spawnSync(scriptArgs, {
     stdout: 'pipe',
@@ -2288,9 +2290,10 @@ async function spawnConversation(
     ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
     ...(profile?.env ?? {}),
   }
-  // Long-lived OAuth token for the profile (PTY/interactive reads it; only
-  // `--bare` skips it). Applied after profile.env so the dedicated field wins.
-  applyOAuthToken(scriptEnv, profile?.oauthToken, profile?.env)
+  // NO OAuth-token injection on the PTY/interactive path -- the setup-token is
+  // inference-only and cannot establish an interactive subscription session.
+  // Interactive uses the configDir's keychain `/login` creds. See the headless
+  // path + `oauth-token-env.ts` for where the token IS injected.
 
   launchLog(jobId, 'Starting tmux session', 'info')
   diag('spawn', 'Running revive script', { args: scriptArgs })
@@ -2451,7 +2454,7 @@ function takeBackoffSnapshot(name: string, cycleStart: number): ProfileUsageSnap
 /** Run one profile's poll + record the result. Never throws -- a poll
  *  failure becomes a structured snapshot so the cycle continues. */
 async function pollOneProfileSafely(
-  profile: { name: string; configDir: string; oauthToken?: string },
+  profile: { name: string; configDir: string },
   cycleStart: number,
 ): Promise<ProfileUsageSnapshot> {
   try {
@@ -2477,11 +2480,7 @@ async function pollOneProfileSafely(
 function startProfileUsagePolling(ws: WebSocket, verbose: boolean, config: SentinelConfig) {
   stopUsagePolling()
 
-  const profiles = Object.values(config.profiles).map(p => ({
-    name: p.name,
-    configDir: p.configDir,
-    oauthToken: p.oauthToken,
-  }))
+  const profiles = Object.values(config.profiles).map(p => ({ name: p.name, configDir: p.configDir }))
   const intervalMin = USAGE_POLL_INTERVAL_MS / 60_000
   log(`Starting per-profile usage polling (${intervalMin}min interval, ${profiles.length} profile(s))`)
   diag('usage', `Polling started`, { profiles: profiles.map(p => p.name) })
