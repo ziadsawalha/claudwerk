@@ -76,6 +76,24 @@ TMUX_ENV=()
 if [[ -n "${RCLAUDE_SECRET:-}" ]]; then
   TMUX_ENV+=(-e "RCLAUDE_SECRET=$RCLAUDE_SECRET")
 fi
+
+# Forward the auth/profile env across the tmux boundary. A new tmux window/pane
+# inherits the tmux SERVER's (stale) environment -- NOT the env this script was
+# handed -- so CLAUDE_CONFIG_DIR + profile.env + RCLAUDE_CUSTOM_ENV would
+# otherwise evaporate at the seam and profiled conversations fail to
+# authenticate (PTY auth lives entirely in the configDir credentials). The
+# sentinel passes the list of NAMES in CLAUDWERK_PTY_ENV_KEYS; we re-export each
+# via `tmux -e`, reading the value from our own env (indirect expansion). `-e`
+# takes the value literally (no shell parsing -> no injection). new-window -e is
+# window-scoped; new-session -e leaks into the session env -- scrubbed in
+# tmux_launch below. Names tracked in PTY_ENV_KEYS for that scrub.
+PTY_ENV_KEYS=()
+if [[ -n "${CLAUDWERK_PTY_ENV_KEYS:-}" ]]; then
+  for _key in $CLAUDWERK_PTY_ENV_KEYS; do
+    TMUX_ENV+=(-e "$_key=${!_key:-}")
+    PTY_ENV_KEYS+=("$_key")
+  done
+fi
 # Prefix the command with env vars scoped to THIS process only
 # (not tmux -e, which leaks to other windows launched later)
 CMD_PREFIX=""
@@ -199,9 +217,21 @@ tmux_launch() {
   # Pane IDs are stable regardless of session/window renames.
   local pane_id
   if tmux has-session -t "$TMUX_NAME" 2>/dev/null; then
+    # new-window -e is window-scoped: the auth/profile vars reach THIS pane only
+    # and do not touch the session environment, so no scrub is needed.
     pane_id=$(tmux new-window -P -F '#{pane_id}' "${TMUX_ENV[@]}" -t "$TMUX_NAME" -c "$CWD" "$wrapped")
   else
     pane_id=$(tmux new-session -d -P -F '#{pane_id}' "${TMUX_ENV[@]}" -s "$TMUX_NAME" -c "$CWD" "$wrapped")
+    # new-session -e ALSO seeds the SESSION environment, which would leak each
+    # profile/auth var into every sibling window created later. The pane we just
+    # started already holds its own copy (process env is fixed at exec); scrub
+    # them from the session env so the leak stops here. RCLAUDE_SECRET is left
+    # in place on purpose -- it is sentinel-wide and identical for every window.
+    if [[ ${#PTY_ENV_KEYS[@]} -gt 0 ]]; then
+      for _key in "${PTY_ENV_KEYS[@]}"; do
+        tmux set-environment -t "$TMUX_NAME" -u "$_key" 2>/dev/null || true
+      done
+    fi
   fi
   echo "PANE_ID=$pane_id"
 }

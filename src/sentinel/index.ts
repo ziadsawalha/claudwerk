@@ -93,6 +93,7 @@ import {
   handleProjectWriteFile,
 } from './project-handlers'
 import { stopAllWatches, unwatchProject, watchProject } from './project-watch'
+import { ptyCrossBoundaryEnvKeys, shouldInjectConfigDir } from './pty-env'
 import { pickProfile, type UsageHeadroom } from './selection'
 import {
   configDirFor,
@@ -540,29 +541,6 @@ function cleanSentinelEnv(): Record<string, string | undefined> {
     }
   }
   return env
-}
-
-/**
- * FILE-AUTH MODE (force file-based credentials for every profile).
- *
- * Setting `CLAUDE_CONFIG_DIR` -- even to the implicit default `~/.claude` --
- * puts CC into "custom configDir" mode: it reads/writes credentials from
- * `<configDir>/.credentials.json` and SKIPS the macOS Keychain. We WANT that
- * for every profile, because the file holds the full-scope `/login` token
- * (`user:profile` + `user:sessions:claude_code` + `user:inference`) -- so
- * interactive, usage polling, and inference all work, keychain-independent,
- * one account per configDir.
- *
- * REQUIREMENT: every profile's `configDir` MUST contain a valid
- * `.credentials.json` (run `CLAUDE_CONFIG_DIR=<dir> claude` and `/login`, which
- * writes the file in this mode). With the var set and NO file present, CC skips
- * the keychain, finds nothing, and reports "Not logged in" -- so provision the
- * file first.
- *
- * Inject whenever a configDir is resolved (always, incl. the default).
- */
-function shouldInjectConfigDir(configDir: string | undefined): configDir is string {
-  return !!configDir
 }
 
 /**
@@ -1962,6 +1940,10 @@ async function reviveConversation(
     // credential fallback still fires -- see `shouldInjectConfigDir`.
     ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
     ...(profile?.env ?? {}),
+    // Tell revive-session.sh which of the above to re-export across the tmux
+    // boundary via `tmux -e` (a new pane inherits the tmux server's stale env,
+    // not this one). Names only -- values stay in the spawned process env.
+    ...(ptyCrossBoundaryEnvKeys(profile, env) ? { CLAUDWERK_PTY_ENV_KEYS: ptyCrossBoundaryEnvKeys(profile, env) } : {}),
   }
   // NO OAuth-token injection on the PTY/interactive path. The setup-token is
   // inference-only -- it authenticates `claude -p` (headless) but CANNOT
@@ -2297,6 +2279,10 @@ async function spawnConversation(
     // credential fallback still fires -- see `shouldInjectConfigDir`.
     ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
     ...(profile?.env ?? {}),
+    // Tell revive-session.sh which of the above to re-export across the tmux
+    // boundary via `tmux -e` (a new pane inherits the tmux server's stale env,
+    // not this one). Names only -- values stay in the spawned process env.
+    ...(ptyCrossBoundaryEnvKeys(profile, env) ? { CLAUDWERK_PTY_ENV_KEYS: ptyCrossBoundaryEnvKeys(profile, env) } : {}),
   }
   // NO OAuth-token injection on the PTY/interactive path -- the setup-token is
   // inference-only and cannot establish an interactive subscription session.
