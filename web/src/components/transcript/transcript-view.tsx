@@ -769,32 +769,17 @@ export const TranscriptView = memo(function TranscriptView({
     }
   }, [totalSize, follow])
 
-  // PREPEND ANCHOR. There is NO native scroll anchoring (`anchorTo:'end'` is a
-  // no-op -- the option does not exist in @tanstack/react-virtual 3.x), so when
-  // older content is added ABOVE the viewport (a "Load earlier" window reveal or
-  // an infinite-scrollback fetch) nothing compensates scrollTop and the view
-  // jerks up to the top of the freshly-prepended block. Detect head growth via
-  // the oldest VISIBLE entry's seq dropping, and -- only while NOT following --
-  // add the totalSize delta to scrollTop so the content you were reading stays
-  // fixed. Tail growth (streaming) leaves oldestVisibleSeq unchanged, so it never
-  // triggers here; following is handled by the pin effects above. Uses totalSize
-  // (not el.scrollHeight) to avoid a forced reflow.
-  const prevOldestSeqRef = useRef(oldestVisibleSeq)
-  const prevTotalForAnchorRef = useRef(totalSize)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: oldestVisibleSeq/totalSize are the intentional triggers
-  useLayoutEffect(() => {
-    const prevSeq = prevOldestSeqRef.current
-    const prevTotal = prevTotalForAnchorRef.current
-    prevOldestSeqRef.current = oldestVisibleSeq
-    prevTotalForAnchorRef.current = totalSize
-    const el = parentRef.current
-    if (!el || follow) return
-    const headGrewOlder = oldestVisibleSeq > 0 && prevSeq > 0 && oldestVisibleSeq < prevSeq
-    if (headGrewOlder) {
-      const delta = totalSize - prevTotal
-      if (delta > 0) el.scrollTop += delta
-    }
-  }, [oldestVisibleSeq, totalSize, follow])
+  // PREPEND STABILITY is native. virtual-core 3.17.0 (`@tanstack/react-virtual`
+  // 3.14.2 pins it exactly and passes options straight through) implements
+  // `anchorTo:'end'` prepend anchoring: on any count change it captures the item
+  // at the current scroll offset (the viewport-top item, keyed by our stable
+  // getItemKey) and adjusts scrollOffset BEFORE paint so that item stays visually
+  // fixed -- whether following or not. A "Load earlier" window reveal or an
+  // infinite-scrollback fetch therefore holds position with zero jerk. We used to
+  // ALSO hand-roll a scrollTop+=totalSizeDelta anchor here; running both
+  // double-compensated (native pins, then the manual add shoved the view down a
+  // full prepend-block, then it settled = the load/jerk/scroll/jerk symptom), so
+  // the manual anchor is gone. Native is the sole prepend anchor.
 
   // Re-entrancy guard for the scroll-up auto-trigger.
   const loadingEarlierRef = useRef(false)
@@ -809,8 +794,9 @@ export const TranscriptView = memo(function TranscriptView({
   const userScrollResetRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // "Load earlier": prepend a chunk of older entries from the local window.
-  // Scroll stability on prepend is handled by the PREPEND ANCHOR effect above
-  // (NOT by anchorTo, which is a no-op in this TanStack version).
+  // Scroll stability on prepend is handled natively by anchorTo:'end' (see the
+  // PREPEND STABILITY note above) -- the count change keeps the viewport-top item
+  // pinned, so revealing older entries does not move what you are reading.
   const loadEarlier = useCallback(() => {
     const ents = entriesRef.current
     const newStart = Math.max(0, windowStartRef.current - LOAD_CHUNK)
