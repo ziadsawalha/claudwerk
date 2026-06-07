@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AgentHostMessage } from '../../shared/protocol'
-import { buildMcpChannelCallbacks } from './index'
 import type { HostRpcContext, HostSinks } from './context'
+import { buildMcpChannelCallbacks } from './index'
 import { createPendingCallbacks, type PendingCallbacks } from './pending-callbacks'
 
 /** A fake HostTransport that captures outbound messages and reports connected. */
@@ -96,11 +96,9 @@ describe('host-rpc roundtrip', () => {
     expect(msg.status).toBe('live')
     expect(msg.show_metadata).toBe(true)
 
-    pending.pendingListConversations!(
-      [{ id: 'c1', name: 'one', status: 'live' }],
-      { id: 'self' },
-      [{ severity: 'warning', code: 'x', message: 'm' }],
-    )
+    pending.pendingListConversations!([{ id: 'c1', name: 'one', status: 'live' }], { id: 'self' }, [
+      { severity: 'warning', code: 'x', message: 'm' },
+    ])
     const result = await promise
     expect(result.conversations).toHaveLength(1)
     expect(result.conversations[0].id).toBe('c1')

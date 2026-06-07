@@ -17,9 +17,7 @@ import type { PendingCallbacks } from './pending-callbacks'
 /** The slice of `HostTransport` the callbacks need: queue a message, ask if up. */
 export type HostRpcTransport = Pick<HostTransport, 'send' | 'isConnected'>
 
-export interface DiagSink {
-  (type: string, msg: string, args?: unknown): void
-}
+export type DiagSink = (type: string, msg: string, args?: unknown) => void
 
 /**
  * Host-local operations the lifted callbacks delegate back to the host. Each is

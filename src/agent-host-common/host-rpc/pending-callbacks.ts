@@ -76,10 +76,7 @@ export interface PendingCallbacks {
   pendingConfigureResult: ((result: { ok: boolean; error?: string }) => void) | null
   pendingRenameResult: ((result: { ok: boolean; error?: string }) => void) | null
   pendingControlResult: ((result: { ok: boolean; error?: string; name?: string }) => void) | null
-  pendingRendezvous: Map<
-    string,
-    { resolve: (msg: Record<string, unknown>) => void; reject: (error: string) => void }
-  >
+  pendingRendezvous: Map<string, { resolve: (msg: Record<string, unknown>) => void; reject: (error: string) => void }>
 }
 
 /** Build a fresh registry. One per host (or per test). */

@@ -15,14 +15,14 @@ import { buildHostLocalCallbacks } from './host-local-callbacks'
 import { buildInterConversationCallbacks } from './inter-conversation-callbacks'
 
 export type {
+  DiagSink,
   HostRpcContext,
   HostRpcTransport,
   HostSinks,
   PermissionRules,
-  DiagSink,
 } from './context'
 export { senderId } from './context'
-export { type PendingCallbacks, createPendingCallbacks } from './pending-callbacks'
+export { createPendingCallbacks, type PendingCallbacks } from './pending-callbacks'
 
 export function buildMcpChannelCallbacks(ctx: HostRpcContext): McpChannelCallbacks {
   return {

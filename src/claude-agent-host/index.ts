@@ -21,6 +21,7 @@ checkBunVersion()
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createPendingCallbacks } from '../agent-host-common/host-rpc'
 import { setMcpHostDebug } from '../agent-host-common/mcp-host/debug'
 import {
   initMcpChannel,
@@ -32,7 +33,6 @@ import { cwdToProjectUri } from '../shared/project-uri'
 import type { AgentHostMessage, HookEvent, TranscriptEntry } from '../shared/protocol'
 import { writeSecureFile, writeSecureFileSync } from '../shared/secure-temp'
 import { wsToHttpUrl } from '../shared/ws-url'
-import { createPendingCallbacks } from '../agent-host-common/host-rpc'
 import type { AgentHostContext } from './agent-host-context'
 import { type BrokerConnectionDeps, connectToBroker } from './broker-connection'
 import { createCleanup, registerSignalHandlers } from './cleanup'

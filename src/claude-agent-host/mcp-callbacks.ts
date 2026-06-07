@@ -13,8 +13,8 @@ import {
   type HostSinks,
   type PendingCallbacks,
 } from '../agent-host-common/host-rpc'
-import { pushChannelMessage, sendPermissionResponse } from '../agent-host-common/mcp-host/mcp-channel'
 import type { McpChannelCallbacks } from '../agent-host-common/mcp-host/mcp-channel'
+import { pushChannelMessage, sendPermissionResponse } from '../agent-host-common/mcp-host/mcp-channel'
 import type { AgentHostMessage } from '../shared/protocol'
 import type { AgentHostContext } from './agent-host-context'
 import { debug } from './debug'
