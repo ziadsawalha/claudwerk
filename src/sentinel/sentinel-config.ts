@@ -63,8 +63,27 @@ export interface SentinelConfigFile {
 /** Raw profile entry as it appears on disk. Tilde-paths are expanded by the
  *  loader; consumers see absolute paths only. */
 export interface SentinelProfileFile {
-  configDir: string
+  /** Claude config dir for this profile. OPTIONAL: omit to share the implicit
+   *  default (`~/.claude`). Sharing only makes sense alongside `oauthToken` /
+   *  `oauthTokenFile` -- the token decouples auth from the configDir, so
+   *  multiple token-profiles can reuse one config path (they differ only by
+   *  token). Note that a shared configDir also shares `projects/` transcripts,
+   *  `settings.json`, history and todos -- the token swaps auth/billing, NOT
+   *  data isolation. */
+  configDir?: string
   env?: Record<string, string>
+  /** Long-lived Claude Code OAuth token (one-year, from `claude setup-token`).
+   *  Injected as `CLAUDE_CODE_OAUTH_TOKEN` at spawn. Overrides the configDir's
+   *  stored `/login` credentials (auth precedence #5 > #6), so a profile can
+   *  authenticate a distinct account WITHOUT a per-account keychain login --
+   *  and multiple profiles can share one configDir. Mutually informative with
+   *  `oauthTokenFile`: if both are set, `oauthToken` wins. SECRET: never
+   *  crosses the Profile-Env Boundary onto the wire. */
+  oauthToken?: string
+  /** Path to a file whose entire trimmed contents are the long-lived OAuth
+   *  token. Tilde-expanded. Use this to keep the secret out of `sentinel.json`.
+   *  Read once at config load. Ignored when `oauthToken` is also set. */
+  oauthTokenFile?: string
   spawnRoot?: string
   /** Named pool the profile belongs to (e.g. `"work"`). Omitted -> `"default"`.
    *  Explicit `null` -> excluded from every Balanced/Random selection (Fixed
@@ -94,6 +113,12 @@ export interface ResolvedProfile {
   name: string
   configDir: string
   env: Record<string, string>
+  /** Resolved long-lived OAuth token (inline `oauthToken`, or the trimmed
+   *  contents of `oauthTokenFile`). Injected as `CLAUDE_CODE_OAUTH_TOKEN` at
+   *  spawn time. SECRET -- stays sentinel-side, NEVER on the wire (the
+   *  broker-safe `authed` flag in `profileSummaries()` is the only signal that
+   *  leaves the host). */
+  oauthToken?: string
   spawnRoot?: string
   /** Named pool this profile belongs to. `null` means excluded from every
    *  Balanced/Random selection. Default profile is in pool `"default"`. */
@@ -335,13 +360,17 @@ function normalizeProfile(
   if (!raw || typeof raw !== 'object') {
     throw new Error(`sentinel config: profile "${name}" in ${configPath} must be an object`)
   }
-  if (typeof raw.configDir !== 'string' || raw.configDir.length === 0) {
-    throw new Error(`sentinel config: profile "${name}" in ${configPath} requires a non-empty "configDir"`)
+  // configDir is OPTIONAL: omit it to share the implicit default (`~/.claude`).
+  // A present-but-invalid value is still an error -- only absence is allowed.
+  if (raw.configDir !== undefined && (typeof raw.configDir !== 'string' || raw.configDir.length === 0)) {
+    throw new Error(`sentinel config: profile "${name}".configDir in ${configPath} must be a non-empty string when set`)
   }
+  const configDir = raw.configDir === undefined ? join(home, '.claude') : resolvePath(expandTilde(raw.configDir, home))
   return {
     name,
-    configDir: resolvePath(expandTilde(raw.configDir, home)),
+    configDir,
     env: validateProfileEnv(name, raw.env, configPath),
+    oauthToken: resolveProfileOAuthToken(name, raw, home, configPath),
     spawnRoot: validateSpawnRoot(name, raw.spawnRoot, home, configPath),
     pool: resolveProfilePool(name, raw.pool, configPath),
     weight: resolveProfileWeight(name, raw.weight, configPath),
@@ -374,6 +403,46 @@ function validateProfileEnv(
     env[k] = v
   }
   return env
+}
+
+/** Resolve the per-profile long-lived OAuth token. Inline `oauthToken` wins;
+ *  otherwise the trimmed contents of `oauthTokenFile` (tilde-expanded) are
+ *  read. Returns `undefined` when neither is set. Throws on a non-string field
+ *  or an unreadable / empty token file -- the operator must know their token
+ *  config is broken rather than silently fall through to keychain auth. */
+// fallow-ignore-next-line complexity
+function resolveProfileOAuthToken(
+  name: string,
+  raw: SentinelProfileFile,
+  home: string,
+  configPath: string,
+): string | undefined {
+  if (raw.oauthToken !== undefined) {
+    if (typeof raw.oauthToken !== 'string' || raw.oauthToken.trim().length === 0) {
+      throw new Error(`sentinel config: profile "${name}".oauthToken in ${configPath} must be a non-empty string`)
+    }
+    return raw.oauthToken.trim()
+  }
+  if (raw.oauthTokenFile !== undefined) {
+    if (typeof raw.oauthTokenFile !== 'string' || raw.oauthTokenFile.length === 0) {
+      throw new Error(`sentinel config: profile "${name}".oauthTokenFile in ${configPath} must be a non-empty string`)
+    }
+    const tokenPath = resolvePath(expandTilde(raw.oauthTokenFile, home))
+    let buf: string
+    try {
+      buf = readFileSync(tokenPath, 'utf8')
+    } catch (e) {
+      throw new Error(
+        `sentinel config: profile "${name}".oauthTokenFile (${tokenPath}) is unreadable: ${(e as Error).message}`,
+      )
+    }
+    const token = buf.trim()
+    if (token.length === 0) {
+      throw new Error(`sentinel config: profile "${name}".oauthTokenFile (${tokenPath}) is empty`)
+    }
+    return token
+  }
+  return undefined
 }
 
 function validateSpawnRoot(
@@ -458,7 +527,11 @@ export function profileSummaries(config: SentinelConfig): SentinelProfileInfo[] 
       color: p.color,
       pool: p.pool,
       weight: p.weight,
-      authed: profileIsAuthed(p.configDir),
+      // A configured long-lived OAuth token authenticates the profile on its
+      // own (precedence #5 > the configDir's stored creds), so a token-only
+      // profile with an empty configDir still reads as authed. Only the boolean
+      // crosses the wire -- never the token (Profile-Env Boundary).
+      authed: profileIsAuthed(p.configDir) || p.oauthToken !== undefined,
       // Only emit when explicitly hidden -- omitted on the wire means "render
       // normally", saving bytes for the common case.
       ...(p.showLabel === false ? { showLabel: false } : {}),

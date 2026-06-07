@@ -330,6 +330,40 @@ describe('pollProfileUsage', () => {
     expect(snap.error?.kind).toBe('http')
     expect(snap.error?.status).toBe(401)
   })
+
+  test('configured oauthToken is used directly, bypassing disk discovery', async () => {
+    const fetched: string[] = []
+    const fetcher: UsageFetcher = async token => {
+      fetched.push(token)
+      return { ok: true, data: makeRaw() }
+    }
+    const readToken = () => {
+      throw new Error('readToken must NOT be called when a token is configured')
+    }
+    const snap = await pollProfileUsage(
+      { name: 'work', configDir: '/tmp/work', oauthToken: 'configured-tok' },
+      { readToken, fetcher, now: () => FIXED_NOW },
+    )
+    expect(fetched).toEqual(['configured-tok'])
+    expect(snap.authed).toBe(true)
+  })
+
+  test('configured oauthToken does NOT re-read on 401 (no disk rotation)', async () => {
+    let calls = 0
+    const fetcher: UsageFetcher = async () => {
+      calls++
+      return { ok: false, kind: 'http', status: 401 }
+    }
+    const readToken = () => {
+      throw new Error('readToken must NOT be called when a token is configured')
+    }
+    const snap = await pollProfileUsage(
+      { name: 'work', configDir: '/tmp/work', oauthToken: 'configured-tok' },
+      { readToken, fetcher, now: () => FIXED_NOW },
+    )
+    expect(calls).toBe(1)
+    expect(snap.error?.status).toBe(401)
+  })
 })
 
 // ─── buildSentinelUsageReport ──────────────────────────────────────

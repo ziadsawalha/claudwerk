@@ -83,6 +83,7 @@ import {
 } from './daemon-dispatch'
 import { registerDaemonSession, startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
 import { runGitLog } from './git-log'
+import { applyOAuthToken, applyOAuthTokenDelta } from './oauth-token-env'
 import { type PreflightIssue, preflightSpawn } from './preflight'
 import { runProfileCli } from './profile-cli'
 import {
@@ -627,6 +628,10 @@ function buildHeadlessEnv(opts: {
   /** Resolved profile env (e.g. `ANTHROPIC_API_KEY`). Merged DIRECTLY into
    *  process env so the agent host and its `claude` child both see it. */
   profileEnv?: Record<string, string>
+  /** Resolved long-lived OAuth token for the active profile. Injected as
+   *  `CLAUDE_CODE_OAUTH_TOKEN`; conflicting host `ANTHROPIC_*` creds are
+   *  stripped so the token actually wins (auth precedence #3 > #5). */
+  oauthToken?: string
 }): Record<string, string | undefined> {
   // Start from sanitized sentinel env (PATH, API keys, etc. but no conversation-scoped vars)
   const env = cleanSentinelEnv()
@@ -669,6 +674,12 @@ function buildHeadlessEnv(opts: {
   if (opts.profileEnv) {
     for (const [k, v] of Object.entries(opts.profileEnv)) env[k] = v
   }
+
+  // Long-lived OAuth token -- applied LAST so the dedicated config field beats
+  // any stray CLAUDE_CODE_OAUTH_TOKEN in profile.env. Strips the higher-priority
+  // ANTHROPIC_* creds the sentinel may carry (precedence #3 > #5) unless
+  // profile.env set them. See `oauth-token-env.ts`.
+  applyOAuthToken(env, opts.oauthToken, opts.profileEnv)
 
   return env
 }
@@ -1124,6 +1135,10 @@ async function dispatchDaemonWorker(opts: {
   }
   const workerConfigDir = opts.profile?.configDir
   if (shouldInjectConfigDir(workerConfigDir)) workerEnv.CLAUDE_CONFIG_DIR = workerConfigDir
+  // Long-lived OAuth token. This env is a DELTA applied over the daemon's own
+  // base env, so a base ANTHROPIC_* can only be shadowed (empty string), not
+  // deleted. See `applyOAuthTokenDelta`.
+  applyOAuthTokenDelta(workerEnv, opts.profile?.oauthToken, opts.profile?.env)
 
   // Mint the worker identity. The daemon no longer prints a short -- claudewerk
   // owns it. sessionId is the worker's ccSessionId (32-hex), short/nonce 8-hex.
@@ -1244,6 +1259,8 @@ function spawnDaemonHostDirect(opts: {
   if (opts.env) Object.assign(env, opts.env)
   const hostConfigDir = opts.profile?.configDir
   if (shouldInjectConfigDir(hostConfigDir)) env.CLAUDE_CONFIG_DIR = hostConfigDir
+  // Long-lived OAuth token for the profile (last, beats stray profile.env token).
+  applyOAuthToken(env, opts.profile?.oauthToken, opts.profile?.env)
 
   let proc: Subprocess
   try {
@@ -1882,6 +1899,7 @@ async function reviveConversation(
       env,
       configDir: profile?.configDir,
       profileEnv: profile?.env,
+      oauthToken: profile?.oauthToken,
     })
 
     launchLog(jobId, 'Reviving headless (direct spawn)', 'info', `mode=${mode || 'default'}`)
@@ -1916,30 +1934,35 @@ async function reviveConversation(
   launchLog(jobId, 'Running revive script (tmux)', 'info', `mode=${mode || 'default'}`)
   debug(`Running: ${scriptArgs.join(' ')}`, verbose)
 
+  const reviveEnv: Record<string, string | undefined> = {
+    ...cleanSentinelEnv(),
+    RCLAUDE_SECRET: secret,
+    RCLAUDE_CONVERSATION_ID: conversationId,
+    RCLAUDE_CC_SESSION_ID: ccSessionId,
+    ...(effort ? { RCLAUDE_EFFORT: effort } : {}),
+    ...(model ? { RCLAUDE_MODEL: model } : {}),
+    ...(conversationName ? { CLAUDWERK_CONVERSATION_NAME: conversationName } : {}),
+    ...(autocompactPct ? { RCLAUDE_AUTOCOMPACT_PCT: String(autocompactPct) } : {}),
+    ...(maxBudgetUsd ? { RCLAUDE_MAX_BUDGET_USD: String(maxBudgetUsd) } : {}),
+    ...(adHocWorktree ? { RCLAUDE_WORKTREE: adHocWorktree } : {}),
+    ...(agent ? { RCLAUDE_AGENT: agent } : {}),
+    ...(env && Object.keys(env).length ? { RCLAUDE_CUSTOM_ENV: JSON.stringify(env) } : {}),
+    // Sentinel profile -- inject CLAUDE_CONFIG_DIR + profile.env DIRECTLY
+    // so revive-session.sh, the tmux child, and the rclaude binary all see
+    // them as real env. Profile-Env Boundary: never echo over the wire.
+    // Implicit default (~/.claude): omit CLAUDE_CONFIG_DIR so CC's Keychain
+    // credential fallback still fires -- see `shouldInjectConfigDir`.
+    ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
+    ...(profile?.env ?? {}),
+  }
+  // Long-lived OAuth token for the profile (PTY/interactive reads it; only
+  // `--bare` skips it). Applied after profile.env so the dedicated field wins.
+  applyOAuthToken(reviveEnv, profile?.oauthToken, profile?.env)
+
   const proc = Bun.spawnSync(scriptArgs, {
     stdout: 'pipe',
     stderr: 'pipe',
-    env: {
-      ...cleanSentinelEnv(),
-      RCLAUDE_SECRET: secret,
-      RCLAUDE_CONVERSATION_ID: conversationId,
-      RCLAUDE_CC_SESSION_ID: ccSessionId,
-      ...(effort ? { RCLAUDE_EFFORT: effort } : {}),
-      ...(model ? { RCLAUDE_MODEL: model } : {}),
-      ...(conversationName ? { CLAUDWERK_CONVERSATION_NAME: conversationName } : {}),
-      ...(autocompactPct ? { RCLAUDE_AUTOCOMPACT_PCT: String(autocompactPct) } : {}),
-      ...(maxBudgetUsd ? { RCLAUDE_MAX_BUDGET_USD: String(maxBudgetUsd) } : {}),
-      ...(adHocWorktree ? { RCLAUDE_WORKTREE: adHocWorktree } : {}),
-      ...(agent ? { RCLAUDE_AGENT: agent } : {}),
-      ...(env && Object.keys(env).length ? { RCLAUDE_CUSTOM_ENV: JSON.stringify(env) } : {}),
-      // Sentinel profile -- inject CLAUDE_CONFIG_DIR + profile.env DIRECTLY
-      // so revive-session.sh, the tmux child, and the rclaude binary all see
-      // them as real env. Profile-Env Boundary: never echo over the wire.
-      // Implicit default (~/.claude): omit CLAUDE_CONFIG_DIR so CC's Keychain
-      // credential fallback still fires -- see `shouldInjectConfigDir`.
-      ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
-      ...(profile?.env ?? {}),
-    },
+    env: reviveEnv,
   })
 
   const stdout = proc.stdout.toString().trim()
@@ -2175,6 +2198,7 @@ async function spawnConversation(
       env,
       configDir: profile?.configDir,
       profileEnv: profile?.env,
+      oauthToken: profile?.oauthToken,
     })
 
     const spawnRes = spawnHeadlessDirect(rclaudeBin, cwd, conversationId, args, spawnEnv, jobId)
@@ -2264,6 +2288,9 @@ async function spawnConversation(
     ...(shouldInjectConfigDir(profile?.configDir) ? { CLAUDE_CONFIG_DIR: profile.configDir } : {}),
     ...(profile?.env ?? {}),
   }
+  // Long-lived OAuth token for the profile (PTY/interactive reads it; only
+  // `--bare` skips it). Applied after profile.env so the dedicated field wins.
+  applyOAuthToken(scriptEnv, profile?.oauthToken, profile?.env)
 
   launchLog(jobId, 'Starting tmux session', 'info')
   diag('spawn', 'Running revive script', { args: scriptArgs })
@@ -2424,7 +2451,7 @@ function takeBackoffSnapshot(name: string, cycleStart: number): ProfileUsageSnap
 /** Run one profile's poll + record the result. Never throws -- a poll
  *  failure becomes a structured snapshot so the cycle continues. */
 async function pollOneProfileSafely(
-  profile: { name: string; configDir: string },
+  profile: { name: string; configDir: string; oauthToken?: string },
   cycleStart: number,
 ): Promise<ProfileUsageSnapshot> {
   try {
@@ -2450,7 +2477,11 @@ async function pollOneProfileSafely(
 function startProfileUsagePolling(ws: WebSocket, verbose: boolean, config: SentinelConfig) {
   stopUsagePolling()
 
-  const profiles = Object.values(config.profiles).map(p => ({ name: p.name, configDir: p.configDir }))
+  const profiles = Object.values(config.profiles).map(p => ({
+    name: p.name,
+    configDir: p.configDir,
+    oauthToken: p.oauthToken,
+  }))
   const intervalMin = USAGE_POLL_INTERVAL_MS / 60_000
   log(`Starting per-profile usage polling (${intervalMin}min interval, ${profiles.length} profile(s))`)
   diag('usage', `Polling started`, { profiles: profiles.map(p => p.name) })

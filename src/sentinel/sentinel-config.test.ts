@@ -183,10 +183,112 @@ describe('loadSentinelConfig -- with profiles', () => {
     expect(() => loadSentinelConfig({ configPath: path })).toThrow(/env\["ANTHROPIC_API_KEY"\]/)
   })
 
-  test('rejects missing configDir on a profile', () => {
+  test('omitted configDir defaults to the implicit ~/.claude', () => {
     const path = join(scratch, 'cfg.json')
     writeFileSync(path, JSON.stringify({ profiles: { work: { label: 'x' } } }))
-    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/requires a non-empty "configDir"/)
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/jonas' })
+    expect(cfg.profiles.work.configDir).toBe('/home/jonas/.claude')
+  })
+
+  test('rejects a present-but-empty configDir', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '' } } }))
+    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/configDir.*non-empty string when set/)
+  })
+})
+
+describe('loadSentinelConfig -- long-lived OAuth token', () => {
+  test('inline oauthToken is trimmed onto the resolved profile', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({ profiles: { work: { configDir: '~/.claude-work', oauthToken: '  sk-ant-oat-abc  ' } } }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/jonas' })
+    expect(cfg.profiles.work.oauthToken).toBe('sk-ant-oat-abc')
+  })
+
+  test('oauthTokenFile is read + trimmed (tilde-expanded)', () => {
+    const tokenPath = join(scratch, 'tok')
+    writeFileSync(tokenPath, 'sk-ant-oat-from-file\n')
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({ profiles: { work: { configDir: '~/.claude-work', oauthTokenFile: tokenPath } } }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/jonas' })
+    expect(cfg.profiles.work.oauthToken).toBe('sk-ant-oat-from-file')
+  })
+
+  test('inline oauthToken wins over oauthTokenFile when both present', () => {
+    const tokenPath = join(scratch, 'tok')
+    writeFileSync(tokenPath, 'from-file')
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        profiles: { work: { configDir: '~/.claude-work', oauthToken: 'inline-wins', oauthTokenFile: tokenPath } },
+      }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/jonas' })
+    expect(cfg.profiles.work.oauthToken).toBe('inline-wins')
+  })
+
+  test('multiple token-profiles may share one configDir', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        profiles: {
+          a: { configDir: '~/.claude', oauthToken: 'tok-a' },
+          b: { configDir: '~/.claude', oauthToken: 'tok-b' },
+        },
+      }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/jonas' })
+    expect(cfg.profiles.a.configDir).toBe('/home/jonas/.claude')
+    expect(cfg.profiles.b.configDir).toBe('/home/jonas/.claude')
+    expect(cfg.profiles.a.oauthToken).toBe('tok-a')
+    expect(cfg.profiles.b.oauthToken).toBe('tok-b')
+  })
+
+  test('rejects an empty inline oauthToken', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(path, JSON.stringify({ profiles: { work: { configDir: '~/.claude-work', oauthToken: '   ' } } }))
+    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/oauthToken.*non-empty string/)
+  })
+
+  test('rejects an unreadable oauthTokenFile', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({ profiles: { work: { configDir: '~/.claude-work', oauthTokenFile: join(scratch, 'nope') } } }),
+    )
+    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/oauthTokenFile.*unreadable/)
+  })
+
+  test('rejects an empty oauthTokenFile', () => {
+    const tokenPath = join(scratch, 'tok')
+    writeFileSync(tokenPath, '   \n')
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({ profiles: { work: { configDir: '~/.claude-work', oauthTokenFile: tokenPath } } }),
+    )
+    expect(() => loadSentinelConfig({ configPath: path })).toThrow(/oauthTokenFile.*empty/)
+  })
+
+  test('a token-only profile reads as authed in broker-safe summaries', () => {
+    const path = join(scratch, 'cfg.json')
+    writeFileSync(
+      path,
+      JSON.stringify({ profiles: { work: { configDir: join(scratch, 'empty-cfgdir'), oauthToken: 'tok' } } }),
+    )
+    const cfg = loadSentinelConfig({ configPath: path, home: '/home/jonas' })
+    const summary = profileSummaries(cfg).find(p => p.name === 'work')
+    expect(summary?.authed).toBe(true)
+    // The token itself NEVER appears in the broker-safe slice (Profile-Env Boundary).
+    expect(JSON.stringify(summary)).not.toContain('tok')
   })
 })
 

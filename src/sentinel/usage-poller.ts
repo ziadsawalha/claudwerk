@@ -250,14 +250,19 @@ export interface PollProfileDeps {
  */
 // fallow-ignore-next-line complexity
 export async function pollProfileUsage(
-  profile: Pick<ResolvedProfile, 'name' | 'configDir'>,
+  profile: Pick<ResolvedProfile, 'name' | 'configDir' | 'oauthToken'>,
   deps: PollProfileDeps = {},
 ): Promise<ProfileUsageSnapshot> {
   const now = (deps.now ?? Date.now)()
   const readToken = deps.readToken ?? (cfgDir => getOAuthToken(cfgDir))
   const fetcher = deps.fetcher ?? defaultUsageFetcher
 
-  let token = readToken(profile.configDir)
+  // A profile-configured long-lived OAuth token authenticates this account
+  // directly -- prefer it over keychain / .credentials.json discovery. Critical
+  // when profiles SHARE a configDir: disk discovery would read the wrong
+  // (shared) creds and report bogus usage for the Balanced 5h gate.
+  const configuredToken = profile.oauthToken
+  let token = configuredToken ?? readToken(profile.configDir)
   if (!token) {
     return {
       profile: profile.name,
@@ -269,8 +274,10 @@ export async function pollProfileUsage(
 
   let res = await fetcher(token)
 
-  // OAuth bearers rotate mid-process. On 401, re-read once and retry.
-  if (res.ok === false && res.kind === 'http' && res.status === 401) {
+  // OAuth bearers rotate mid-process. On 401, re-read once and retry -- but only
+  // for disk-discovered tokens. A configured long-lived token doesn't rotate on
+  // disk, so re-reading would just resubmit the same dead token.
+  if (res.ok === false && res.kind === 'http' && res.status === 401 && !configuredToken) {
     const fresh = readToken(profile.configDir)
     if (fresh && fresh !== token) {
       token = fresh
