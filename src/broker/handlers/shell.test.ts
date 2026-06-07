@@ -69,6 +69,7 @@ function makeWorld(opts: { sentinelOnline?: boolean; machineId?: string } = {}):
     getSentinelConnectionByAlias: (a: string) => (online && a === 'default' ? conn : undefined),
     getDefaultSentinelConnection: () => (online ? conn : undefined),
     getSentinelIdBySocket: () => 'snt_a',
+    getSentinelConnection: (id: string) => (id === 'snt_a' ? conn : undefined),
     broadcastShellScoped: (msg: Record<string, unknown>, uri: string) => broadcasts.push({ msg, uri }),
     getConversation: (id: string) => convs.get(id),
     findConversationByConversationId: () => undefined,
@@ -485,6 +486,49 @@ describe('shell_resync reconcile', () => {
     // A web client must not be able to forge a roster. Either the router refuses
     // to dispatch it (role gate) or it produces no roster mutation.
     expect(shellRegistry.has('a')).toBe(false)
+    expect(handled === false || w.broadcasts.length === 0).toBe(true)
+  })
+})
+
+// ── SENTINEL-ORIGINATED SHELLS (host-side `sentinel shell`) ──────────
+
+/** Route a `shell_originated` frame (shellId `host1`, URI `URI`) from `role`. */
+function routeOriginated(w: World, role: Role, grants?: Permission[]): boolean {
+  const { ctx } = ctxFor(w, { role, grants })
+  return routeMessage(ctx, 'shell_originated', {
+    type: 'shell_originated',
+    shellId: 'host1',
+    projectUri: URI,
+    path: '/Users/jonas/projects/x',
+    title: 'x',
+    createdBy: 'host',
+    createdAt: 1_700_000_000_000,
+  })
+}
+
+describe('shell_originated', () => {
+  it('adds a host-born shell + broadcasts shell_added (sentinelId/machineId from the connection)', () => {
+    const w = makeWorld()
+    routeOriginated(w, 'sentinel-control')
+    const shell = shellRegistry.get('host1')
+    expect(shell?.entry.sentinelId).toBe('snt_a') // from the connection, not the payload
+    expect(shell?.machineId).toBe('m1')
+    expect(w.broadcasts.some(x => x.msg.type === 'shell_added')).toBe(true)
+  })
+
+  it('is idempotent -- a duplicate shellId (raced with resync) is ignored', () => {
+    const w = makeWorld()
+    seedShell('host1')
+    const before = w.broadcasts.length
+    routeOriginated(w, 'sentinel-control')
+    expect(shellRegistry.count).toBe(1)
+    expect(w.broadcasts.length).toBe(before) // no duplicate shell_added
+  })
+
+  it('is REJECTED from a web role -- a client cannot forge a host shell', () => {
+    const w = makeWorld()
+    const handled = routeOriginated(w, 'web', FULL)
+    expect(shellRegistry.has('host1')).toBe(false)
     expect(handled === false || w.broadcasts.length === 0).toBe(true)
   })
 })

@@ -56,6 +56,7 @@ import type {
   ShellClose,
   ShellExit,
   ShellOpen,
+  ShellOriginated,
   ShellResync,
   SpawnConversation,
   SpawnFailed,
@@ -71,6 +72,7 @@ import {
   spliceRawConfig,
   validatePatch,
 } from './config-patch'
+import { handleControlRequest, resolveControlSocketPath, runShellCli, startControlSocketServer } from './control-socket'
 import {
   buildDispatchSpec,
   type DaemonLaunchMode,
@@ -1667,14 +1669,7 @@ function handleShellOpen(m: ShellOpen, brokerUrl: string, secret: string): void 
         rows: m.rows,
         createdBy: m.conversationId ?? '',
       },
-      {
-        onData: (shellId, data) => shellDataWs?.sendData(shellId, data),
-        onExit: (shellId, code) => {
-          log(`[shell] exit shellId=${shellId} code=${code} projectUri=${m.projectUri}`)
-          sendControl({ type: 'shell_exit', shellId, code })
-          maybeTeardownShellInfra()
-        },
-      },
+      shellSpawnCallbacks(m.projectUri),
     )
     log(
       `[shell] open shellId=${m.shellId} projectUri=${m.projectUri} path=${path} title="${title}" count=${shellRegistry.count}`,
@@ -1696,6 +1691,67 @@ function handleShellClose(m: ShellClose): void {
   }
   log(`[shell] close shellId=${m.shellId}`)
   shellRegistry.kill(m.shellId)
+}
+
+/** The PTY callbacks shared by every host-shell spawn path (broker `shell_open`
+ *  and host-side `shell_originated`): stream bytes to the data WS, and on exit
+ *  emit `shell_exit` + tear the data WS down if it was the last shell. */
+function shellSpawnCallbacks(projectUri: string) {
+  return {
+    onData: (shellId: string, data: string) => shellDataWs?.sendData(shellId, data),
+    onExit: (shellId: string, code: number) => {
+      log(`[shell] exit shellId=${shellId} code=${code} projectUri=${projectUri}`)
+      sendControl({ type: 'shell_exit', shellId, code })
+      maybeTeardownShellInfra()
+    },
+  }
+}
+
+/** Mint a sentinel-side shellId (matches the web `sh_`+base36 shape). */
+function mintShellId(): string {
+  return `sh_${Math.random().toString(36).slice(2, 12).padEnd(10, '0')}`
+}
+
+/**
+ * Spawn a host shell the SENTINEL originated (a `sentinel shell` invocation, via
+ * the control socket) rather than a broker `shell_open`. Mints the shellId, builds
+ * the `claude://default/{path}` URI, spawns the PTY, and announces it to the broker
+ * (`shell_originated`) so it surfaces in the control panel. When the control WS is
+ * down the shell still spawns locally and rides the next `shell_resync`. Returns
+ * the shellId; throws (caught by the control handler) on a spawn failure.
+ */
+function spawnHostShell(absPath: string, title: string | undefined, brokerUrl: string, secret: string): string {
+  if (!shellFeatureEnabled) throw new Error('host shells are disabled on this host (--no-shell)')
+  const shellId = mintShellId()
+  const projectUri = cwdToProjectUri(absPath)
+  const ttl = title && title.length > 0 ? title : basename(absPath) || absPath
+  ensureShellInfra(brokerUrl, secret)
+  try {
+    shellRegistry.spawn(
+      { shellId, projectUri, path: absPath, title: ttl, cols: 80, rows: 24, createdBy: 'host' },
+      shellSpawnCallbacks(projectUri),
+    )
+  } catch (e) {
+    maybeTeardownShellInfra()
+    throw e
+  }
+  if (activeWs?.readyState === WebSocket.OPEN) {
+    const msg: ShellOriginated = {
+      type: 'shell_originated',
+      shellId,
+      projectUri,
+      path: absPath,
+      title: ttl,
+      createdBy: 'host',
+      createdAt: Date.now(),
+    }
+    try {
+      activeWs.send(JSON.stringify(msg))
+    } catch {}
+  }
+  log(`[shell] originated shellId=${shellId} path=${absPath} title="${ttl}" count=${shellRegistry.count}`)
+  diag('shell', 'originated', { shellId, projectUri, path: absPath })
+  return shellId
 }
 
 /**
@@ -3805,6 +3861,14 @@ if (process.argv[2] === 'profile') {
   process.exit(exitCode)
 }
 
+// `sentinel shell [path]` is a host-side CLI that asks the RUNNING sentinel
+// daemon (via its local control socket) to spawn a host shell that appears in
+// the control panel. Runs without a broker connection + exits.
+if (process.argv[2] === 'shell') {
+  const exitCode = await runShellCli(process.argv.slice(3))
+  process.exit(exitCode)
+}
+
 const { brokerUrl, secret, verbose, reviveScript, spawnRoot, noSpawn, configPath, noShell } = parseArgs()
 shellFeatureEnabled = !noShell
 
@@ -3855,8 +3919,13 @@ if (rclaudeBinCheck) {
 loadAndCheckPidRegistry()
 
 // SIGTERM handler: unref all children so they survive sentinel restart, write PID registry
+// Host-side control socket (the `sentinel shell` entry point). Bound after the
+// broker connect below; closed on shutdown so no stale socket file lingers.
+let controlSocket: { close: () => void } | null = null
+
 process.on('SIGTERM', () => {
   log(`SIGTERM received. ${trackedChildren.size} tracked children, ${shellRegistry.count} host shells.`)
+  controlSocket?.close()
   // Host shells are NOT unref'd -- they are the sentinel's own children and die
   // with it (floating across conversation churn, not across sentinel restart).
   // Kill them cleanly so no orphaned PTY lingers; the broker marks them removed.
@@ -3877,6 +3946,7 @@ process.on('SIGTERM', () => {
 // Also handle SIGINT for graceful Ctrl-C shutdown
 process.on('SIGINT', () => {
   log(`SIGINT received. ${trackedChildren.size} tracked children, ${shellRegistry.count} host shells.`)
+  controlSocket?.close()
   shellRegistry.killAll()
   for (const child of trackedChildren.values()) {
     try {
@@ -3897,6 +3967,22 @@ log(`Spawn root: ${spawnRoot}${noSpawn ? ' (DISABLED)' : ''}`)
 // only profile, so a patch can still tune defaultSelection / defaultPool).
 const effectiveConfigPath = config.sourcePath ?? configPath ?? defaultConfigPath()
 connect(brokerUrl, secret, reviveScript, verbose, spawnRoot, noSpawn, config, effectiveConfigPath)
+
+// Bind the host-side control socket so `sentinel shell [path]` can ask this
+// running daemon to spawn a host shell that surfaces in the control panel. The
+// socket file (mode 0600, owner-only) is the auth gate -- a raw $SHELL is RCE as
+// the host user, so it stays local + owner-only (never networked).
+if (shellFeatureEnabled) {
+  controlSocket = startControlSocketServer(
+    resolveControlSocketPath(),
+    req =>
+      handleControlRequest(req, {
+        shellEnabled: shellFeatureEnabled,
+        openShell: (p, t) => spawnHostShell(p, t, brokerUrl, secret),
+      }),
+    log,
+  )
+}
 
 /**
  * Scan `argv` for a `--config <path>` flag. Used by the `sentinel profile`

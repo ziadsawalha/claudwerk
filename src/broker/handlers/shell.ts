@@ -350,6 +350,45 @@ const shellResync: MessageHandler = (ctx, data) => {
 }
 
 /**
+ * `shell_originated` (sentinel -> broker, control WS): a single host shell the
+ * sentinel spawned on its own (a host-side `sentinel shell` invocation). The
+ * broker builds the roster entry -- `sentinelId` + `machineId` taken from the
+ * SENDING connection (never trusted from the payload), `status: 'live'` -- and
+ * broadcasts `shell_added`. No write pre-check: the shell is born on the host;
+ * roster visibility is gated per-URI on the read side at broadcast/snapshot time.
+ * A duplicate shellId is ignored (idempotent with the resync that also carries it).
+ *
+ * Branch count IS the validation surface here (missing fields / bad URI / dup id
+ * / field coercion), same rationale as validateOpen -- hence the ignore below.
+ */
+// fallow-ignore-next-line complexity
+const shellOriginated: MessageHandler = (ctx, data) => {
+  const shellId = str(data.shellId)
+  const projectUri = str(data.projectUri)
+  if (!shellId || !projectUri) return
+  const parsed = tryParseProjectUri(projectUri)
+  if (!parsed) return
+  if (shellRegistry.has(shellId)) return // already known (e.g. raced a resync)
+  const sentinelId = ctx.conversations.getSentinelIdBySocket(ctx.ws) ?? ''
+  const machineId = ctx.conversations.getSentinelConnection(sentinelId)?.machineId
+  const entry: ShellRosterEntry = {
+    shellId,
+    projectUri,
+    sentinelId,
+    path: parsed.path,
+    title: str(data.title) || basename(parsed.path) || parsed.path,
+    status: 'live',
+    createdBy: str(data.createdBy) || 'host',
+    createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
+  }
+  shellRegistry.add(entry, { machineId })
+  ctx.conversations.broadcastShellScoped({ type: 'shell_added', shell: entry }, projectUri)
+  ctx.log.info(
+    `[shell] originated ${shellId} uri=${projectUri} sentinel=${sentinelId} machine=${machineId ?? 'unknown'} by=${entry.createdBy}`,
+  )
+}
+
+/**
  * Remove every shell owned by a disconnected sentinel + broadcast `shell_removed`
  * for each. Called from the control-WS close handler (no `HandlerContext` there,
  * just the store). The data-WS pairing is forgotten separately on its own close.
@@ -403,6 +442,7 @@ export function registerShellHandlers(): void {
       shell_exit: shellExit,
       shell_activity: shellActivity,
       shell_resync: shellResync,
+      shell_originated: shellOriginated,
     },
     SENTINEL_ONLY,
   )

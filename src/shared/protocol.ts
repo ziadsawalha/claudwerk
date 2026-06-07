@@ -379,6 +379,26 @@ export interface ShellResync {
   shells: ShellResyncEntry[]
 }
 
+/**
+ * Sentinel -> broker (control WS): a single host shell the sentinel ORIGINATED
+ * itself (a host-side `sentinel shell` invocation, not a broker `shell_open`).
+ * The broker builds the `ShellRosterEntry` (sentinelId + machineId from the
+ * connection, `status: 'live'`) and broadcasts `shell_added` -- the back half of
+ * the `shell_open` path minus the broker-side write pre-check (the shell is born
+ * on the host; roster visibility is still gated per-URI on the read side). The
+ * shell also rides the next `shell_resync` since it lives in the sentinel's
+ * registry from the moment it spawns.
+ */
+export interface ShellOriginated {
+  type: 'shell_originated'
+  shellId: string
+  projectUri: string
+  path: string
+  title: string
+  createdBy: string
+  createdAt: number
+}
+
 export interface DiagLog {
   type: 'diag'
   conversationId: string
@@ -3575,6 +3595,7 @@ export type SentinelMessage =
   | ShellData
   | ShellReplay
   | ShellResync
+  | ShellOriginated
 
 // Broker -> Sentinel messages
 //
