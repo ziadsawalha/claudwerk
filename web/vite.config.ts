@@ -76,7 +76,12 @@ export default defineConfig(({ mode }) => {
       // "null is not an object (evaluating 'ReactSharedInternals.H.useState')".
       // dedupe collapses every `react`/`react-dom` import to the copy nearest the
       // project root (web/).
-      dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+      // zod + diff: imported by ../src/shared/* (bundled via @shared/), which
+      // resolves bare imports against ROOT/node_modules. In a clean checkout
+      // that only ran `bun install` in web/, the root node_modules doesn't
+      // exist and the build fails with UNRESOLVED_IMPORT. dedupe pins them to
+      // web/node_modules, which web/package.json guarantees.
+      dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'zod', 'diff'],
       alias: {
         // Enable React Profiler in production builds (for perf monitoring).
         // Skipped in dev mode -- profiling is a production variant, we want the full dev bundle.
