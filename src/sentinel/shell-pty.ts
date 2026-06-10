@@ -61,11 +61,36 @@ const SCRUB_PATTERN = /(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY|API_
 /** Fleet branding / Claude Code session prefixes a user shell must never see. */
 const SCRUB_PREFIX = /^(CLAUDWERK_|RCLAUDE_|CLAUDE_CODE_)/
 
+/** Stale launch-session context the sentinel inherited from however it was
+ *  started (e.g. an SSH login inside tmux). A host shell is spawned by a
+ *  DETACHED daemon -- it does NOT live in that ssh/tmux session, so these vars
+ *  describe a session that no longer exists. Leaking them makes a fresh shell
+ *  falsely think it is a tmux client (`$TMUX` set, no server) attached to a dead
+ *  pty (`$SSH_TTY`), which confuses prompts, tmux, and ssh-agent lookups. Strip
+ *  the family so a host shell looks exactly like a fresh local terminal. */
+const SCRUB_STALE_SESSION_EXACT = new Set([
+  'TMUX', // tmux client socket marker -- we are not a tmux client
+  'STY', // GNU screen's equivalent marker
+  'TERM_PROGRAM', // would read "tmux" while TERM is forced to xterm below
+  'TERM_PROGRAM_VERSION',
+])
+
+/** SSH_* (AUTH_SOCK, CLIENT, CONNECTION, TTY, AGENT_PID) + TMUX_* (PANE, SOCKET,
+ *  PROGRAM, CONF, CONF_LOCAL) -- every one names the long-gone launch session. */
+const SCRUB_STALE_SESSION_PREFIX = /^(SSH_|TMUX_)/
+
 /** True when an env var must never reach a raw user shell: fleet branding
- *  prefixes, Claude Code session state + account/billing routing, or anything
- *  name-matching the generic secret pattern. */
+ *  prefixes, Claude Code session state + account/billing routing, anything
+ *  name-matching the generic secret pattern, or stale ssh/tmux launch-session
+ *  context the detached sentinel inherited from its own start environment. */
 function isSensitiveShellEnvKey(key: string): boolean {
-  return SCRUB_PREFIX.test(key) || SCRUB_EXACT.has(key) || SCRUB_PATTERN.test(key)
+  return (
+    SCRUB_PREFIX.test(key) ||
+    SCRUB_EXACT.has(key) ||
+    SCRUB_PATTERN.test(key) ||
+    SCRUB_STALE_SESSION_PREFIX.test(key) ||
+    SCRUB_STALE_SESSION_EXACT.has(key)
+  )
 }
 
 /**

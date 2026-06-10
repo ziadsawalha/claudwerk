@@ -67,6 +67,48 @@ describe('scrubShellEnv', () => {
     expect(out.A).toBe('x')
     expect('B' in out).toBe(false)
   })
+
+  test('strips stale ssh/tmux launch-session context from a detached sentinel', () => {
+    const out = scrubShellEnv({
+      PATH: '/usr/bin',
+      HOME: '/home/jonas',
+      // Inherited from an SSH login inside tmux -- the daemon is detached:
+      SSH_AUTH_SOCK: '/var/run/com.apple.launchd.X/Listeners',
+      SSH_CLIENT: 'fe80::1 57299 22',
+      SSH_CONNECTION: 'fe80::1 57299 fe80::2 22',
+      SSH_TTY: '/dev/ttys000',
+      SSH_AGENT_PID: '12345',
+      TMUX: '/private/tmp/tmux-501/default,99581,18',
+      TMUX_PANE: '%24',
+      TMUX_SOCKET: '/private/tmp/tmux-501/default',
+      TMUX_PROGRAM: '/opt/homebrew/bin/tmux',
+      TMUX_CONF: '/home/jonas/.tmux.conf',
+      TERM_PROGRAM: 'tmux',
+      TERM_PROGRAM_VERSION: '3.6a',
+      STY: '12345.pts-0.host',
+    })
+    // Kept:
+    expect(out.PATH).toBe('/usr/bin')
+    expect(out.HOME).toBe('/home/jonas')
+    // The shell must look like a fresh local terminal, not a dead session:
+    for (const k of [
+      'SSH_AUTH_SOCK',
+      'SSH_CLIENT',
+      'SSH_CONNECTION',
+      'SSH_TTY',
+      'SSH_AGENT_PID',
+      'TMUX',
+      'TMUX_PANE',
+      'TMUX_SOCKET',
+      'TMUX_PROGRAM',
+      'TMUX_CONF',
+      'TERM_PROGRAM',
+      'TERM_PROGRAM_VERSION',
+      'STY',
+    ]) {
+      expect(out[k]).toBeUndefined()
+    }
+  })
 })
 
 describe('resolveShellCommand', () => {
