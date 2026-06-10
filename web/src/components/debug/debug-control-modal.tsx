@@ -9,9 +9,15 @@
  */
 
 import { CONTROL_COMMANDS, getControlCommandSpec } from '@shared/cc-control-commands'
-import { Bug } from 'lucide-react'
+import { Bug, Trash2 } from 'lucide-react'
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { getDebugTraces, getVersion, startDebugTrace, subscribe as subscribeTraces } from '@/hooks/debug-control-store'
+import {
+  clearDebugTraces,
+  getDebugTraces,
+  getVersion,
+  startDebugTrace,
+  subscribe as subscribeTraces,
+} from '@/hooks/debug-control-store'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { useCommand } from '@/lib/commands'
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
@@ -134,7 +140,20 @@ export function DebugControlModal() {
               </>
             )}
 
-            <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50 mt-1">Traces</div>
+            <div className="flex items-center justify-between mt-1">
+              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50">Traces</div>
+              {traces.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => clearDebugTraces(selectedConversationId)}
+                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
+                  title="Clear all traces"
+                >
+                  <Trash2 className="size-3" />
+                  Clear
+                </button>
+              )}
+            </div>
             <div className="flex flex-col gap-2">
               {traces.length === 0 && (
                 <div className="text-[10px] text-muted-foreground/50">No traces yet -- send a command.</div>
