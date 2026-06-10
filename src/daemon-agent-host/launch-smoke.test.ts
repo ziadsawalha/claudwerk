@@ -11,9 +11,9 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { ProtocolMismatchError } from '../shared/cc-daemon/client'
 import { type FakeDaemon, type FakeHandler, startFakeDaemon } from '../shared/cc-daemon/fake-daemon'
 import type { DaemonResponse, ListResponse } from '../shared/cc-daemon/types'
@@ -29,6 +29,7 @@ import {
   waitUntil,
 } from './launch-smoke'
 import { fetchJobState, mirrorWorker, runAttachStep } from './launch-smoke-mirror'
+import { transcriptJsonlPath } from './transcript-path'
 
 const ATTACH_ACK = { ok: true, op: 'attach', decModes: [], via: 'fake', tempo: 'idle', state: 'idle' }
 
@@ -235,22 +236,33 @@ describe('mirrorWorker (against a fake daemon)', () => {
 
   it('observes the worker, attaches, and wires the transcript bridge', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'mirror-test-'))
+    // The transcript bridge waits (waitForFileMs) for the worker's JSONL to
+    // appear before it can open it. No real worker runs here, so seed the file
+    // the bridge will watch -- otherwise bootstrap blocks on a file that never
+    // exists and the mirror never resolves.
+    const jsonl = transcriptJsonlPath(cwd, 'cc-smoke-1')
+    mkdirSync(dirname(jsonl), { recursive: true })
+    writeFileSync(jsonl, `${JSON.stringify({ type: 'assistant', message: { content: [] } })}\n`)
     const daemon: FakeDaemon = await startFakeDaemon(
       smokeHandler([{ short: 'abcd1234', sessionId: 'cc-smoke-1', cwd, state: 'working' }]),
     )
     const broker = createInMemoryBroker('conv-mirror')
-    const mirror = await mirrorWorker({
-      controlSock: daemon.sockPath,
-      short: 'abcd1234',
-      mode: 'new',
-      cwd,
-      broker,
-      log: silent,
-    })
-    expect(mirror.ccSessionId).toBe('cc-smoke-1')
-    expect(mirror.attachState).toBe('idle')
-    mirror.stop()
-    await daemon.close()
+    try {
+      const mirror = await mirrorWorker({
+        controlSock: daemon.sockPath,
+        short: 'abcd1234',
+        mode: 'new',
+        cwd,
+        broker,
+        log: silent,
+      })
+      expect(mirror.ccSessionId).toBe('cc-smoke-1')
+      expect(mirror.attachState).toBe('idle')
+      mirror.stop()
+    } finally {
+      await daemon.close()
+      rmSync(jsonl, { force: true })
+    }
   })
 
   it('rejects when no ccSessionId is derived before the bootstrap timeout', async () => {
