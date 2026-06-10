@@ -24,6 +24,7 @@ import {
 } from './conversation-item-helpers'
 import { isDaemonTransport } from './conversation-item-internals'
 import { GhostAttachButton, GhostBadge, GhostStatusDot } from './ghost-attach'
+import { ModelClassPill } from './model-class-pill'
 import { SentinelProfileBadge } from './sentinel-profile-badge'
 import { StatusIndicator } from './status-indicator'
 
@@ -221,6 +222,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
                 launchConfig={conversation.launchConfig}
               />,
             )
+            if (conversation.model) mobileChips.push(<ModelClassPill model={conversation.model} />)
             if (showHostAlias)
               mobileChips.push(
                 <span className="text-muted-foreground/60 font-medium">{conversation.hostSentinelAlias}</span>,
@@ -293,6 +295,7 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
               launchConfig={conversation.launchConfig}
             />,
           )
+          if (conversation.model) items.push(<ModelClassPill key="model" model={conversation.model} />)
           if (showHostAlias)
             items.push(
               <span key="host" className="px-1 py-0.5 text-[8px] rounded bg-muted text-muted-foreground font-medium">
