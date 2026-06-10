@@ -38,7 +38,6 @@ import type {
   TranscriptEntry,
 } from '@/lib/types'
 import { formatRateBucketName, haptic } from '@/lib/utils'
-import { recordActivityPhrase } from './activity-phrase-store'
 import { addDebugTraceEvent, setDebugTraceResult } from './debug-control-store'
 import { clearThinkingProgress, recordThinkingProgress } from './thinking-progress-store'
 import { recordTokenSample } from './token-flow-store'
@@ -59,6 +58,21 @@ export interface DashboardMessage {
   [key: string]: any
 }
 
+/** Task-roster fields with their empty-state fallbacks, lifted out of
+ *  toConversation to keep that mapper under the complexity bar. */
+function toTaskFields(summary: ConversationSummary) {
+  return {
+    taskCount: summary.taskCount ?? 0,
+    pendingTaskCount: summary.pendingTaskCount ?? 0,
+    activeTasks: summary.activeTasks ?? [],
+    pendingTasks: summary.pendingTasks ?? [],
+    completedTaskCount: summary.completedTaskCount ?? 0,
+    completedTasks: summary.completedTasks ?? [],
+    archivedTaskCount: summary.archivedTaskCount ?? 0,
+    archivedTasks: summary.archivedTasks ?? [],
+  }
+}
+
 function toConversation(summary: ConversationSummary): Conversation {
   return {
     id: summary.id,
@@ -75,12 +89,7 @@ function toConversation(summary: ConversationSummary): Conversation {
     activeSubagentCount: summary.activeSubagentCount ?? 0,
     totalSubagentCount: summary.totalSubagentCount ?? 0,
     subagents: summary.subagents ?? [],
-    taskCount: summary.taskCount ?? 0,
-    pendingTaskCount: summary.pendingTaskCount ?? 0,
-    activeTasks: summary.activeTasks ?? [],
-    pendingTasks: summary.pendingTasks ?? [],
-    archivedTaskCount: summary.archivedTaskCount ?? 0,
-    archivedTasks: summary.archivedTasks ?? [],
+    ...toTaskFields(summary),
     runningBgTaskCount: summary.runningBgTaskCount ?? 0,
     bgTasks: summary.bgTasks ?? [],
     monitors: summary.monitors ?? [],
@@ -1338,13 +1347,6 @@ function handleShellOpenResult(msg: DashboardMessage): void {
   )
 }
 
-function handleActivityPhrase(msg: DashboardMessage): void {
-  const conversationId = msg.conversationId as string | undefined
-  if (!conversationId) return
-  const phrase = typeof msg.phrase === 'string' ? (msg.phrase as string) : null
-  recordActivityPhrase(conversationId, phrase, (msg.t as number | undefined) || Date.now())
-}
-
 function handleDebugTraceEvent(msg: DashboardMessage): void {
   const traceId = msg.traceId as string | undefined
   if (!traceId) return
@@ -1476,7 +1478,6 @@ export const handlers: Record<string, MessageHandler> = {
   shell_activity: handleShellActivity,
   shell_open_result: handleShellOpenResult,
   thinking_progress: handleThinkingProgress,
-  activity_phrase: handleActivityPhrase,
   debug_trace_event: handleDebugTraceEvent,
   debug_control_result: handleDebugControlResult,
   claude_health_update: handleClaudeHealthUpdate,

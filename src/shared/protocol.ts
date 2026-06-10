@@ -934,7 +934,6 @@ export type AgentHostMessage =
   | ConversationNameUpdate
   | CwdChangedMessage
   | ThinkingProgress
-  | ActivityPhrase
   | SpawnFailed
   | MonitorUpdate
   | ScheduledTaskFire
@@ -1001,23 +1000,6 @@ export interface ThinkingProgress {
   tokens: number
   /** Increment since the previous ping. Optional -- first ping has no delta. */
   delta?: number
-  /** Wall-clock timestamp at the agent host, ms since epoch. */
-  t: number
-}
-
-/**
- * Backend-agnostic live "activity phrase" -- the short "what it's doing now"
- * line shown on a conversation. Fed by CC's headless `system/task_summary`
- * (the debounced classifier phrase); the daemon transport's equivalent is the
- * `detail` field on DaemonStatePatch. EPHEMERAL like ThinkingProgress: forwarded
- * to live subscribers, never persisted, never replayed. `phrase: null` clears it
- * (CC emits a null task_summary on idle).
- */
-export interface ActivityPhrase {
-  type: 'activity_phrase'
-  conversationId: string
-  /** Human-readable phrase, or null to clear. */
-  phrase: string | null
   /** Wall-clock timestamp at the agent host, ms since epoch. */
   t: number
 }
@@ -4069,6 +4051,8 @@ export interface ConversationSummary {
   pendingTaskCount: number
   activeTasks: Array<{ id: string; subject: string }>
   pendingTasks: Array<{ id: string; subject: string }>
+  completedTaskCount: number
+  completedTasks: Array<{ id: string; subject: string }>
   archivedTaskCount: number
   archivedTasks?: Array<{ id: string; subject: string }>
   taskSubjects?: Record<string, string>

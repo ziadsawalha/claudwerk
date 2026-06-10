@@ -3,7 +3,6 @@
  * Call registerAllHandlers() once at startup before accepting connections.
  */
 
-import { registerActivityPhraseHandlers } from './activity-phrase'
 import { registerBootLifecycleHandlers } from './boot-lifecycle'
 import { registerChannelHandlers } from './channel'
 import { registerDashboardActionHandlers } from './control-panel-actions'
@@ -31,7 +30,6 @@ import { registerVoiceHandlers } from './voice'
 import { registerWebControlHandlers } from './web-control'
 
 export function registerAllHandlers(): void {
-  registerActivityPhraseHandlers()
   registerDebugControlHandlers()
   registerSentinelHandlers()
   registerBootLifecycleHandlers()

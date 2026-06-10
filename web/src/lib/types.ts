@@ -90,6 +90,8 @@ export interface Conversation {
   pendingTaskCount: number
   activeTasks: Array<{ id: string; subject: string }>
   pendingTasks: Array<{ id: string; subject: string }>
+  completedTaskCount?: number
+  completedTasks?: Array<{ id: string; subject: string }>
   archivedTaskCount?: number
   archivedTasks?: Array<{ id: string; subject: string }>
   taskSubjects?: Record<string, string>

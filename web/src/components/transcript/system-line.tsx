@@ -268,9 +268,9 @@ function describeSystemEntry(
         text: `Elicitation complete${entry.mcp_server_name ? ` (${entry.mcp_server_name})` : ''}`,
         color: 'text-muted-foreground/70',
       }
-    // task_summary is an ephemeral activity phrase, not a transcript line; it is
-    // suppressed at the agent host (handled as onActivityPhrase, like thinking_tokens).
-    // Belt-and-suspenders: never render it inline even if one slips through.
+    // task_summary is CC's ephemeral terminal-title classifier, not a transcript
+    // line -- and it does not fire in headless anyway. Belt-and-suspenders: never
+    // render it inline even if one slips through.
     case 'task_summary':
       return null
     default:

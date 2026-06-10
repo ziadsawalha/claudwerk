@@ -27,7 +27,6 @@ import {
   PermissionBanners,
   SpawnApprovalBanners,
 } from '../conversation-detail/conversation-banners'
-import { ActivityPhrasePill } from './activity-phrase-pill'
 import { TranscriptEmptyState } from './ghost-peek'
 import { CompactedDivider, CompactingBanner, MemoizedGroupView, SkillDivider } from './group-view'
 import { type DisplayGroup, useIncrementalGroups } from './grouping'
@@ -1034,7 +1033,6 @@ export const TranscriptView = memo(function TranscriptView({
                     <StreamingThinkingBlock conversationId={selectedConversationId} />
                     <StreamingTextBlock conversationId={selectedConversationId} />
                     <ThinkingPill conversationId={selectedConversationId} />
-                    <ActivityPhrasePill conversationId={selectedConversationId} />
                     <ThinkingSpinner conversationId={selectedConversationId} />
                     <div className="mt-2">
                       <LinkRequestBanners />

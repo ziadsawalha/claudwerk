@@ -431,14 +431,17 @@ export function ConversationItemTasksBlock({
   conversation: Conversation
   selectedSubagentId: string | null
 }) {
+  const completedTasks = conversation.completedTasks ?? []
   const hasContent =
     conversation.activeTasks.length > 0 ||
     conversation.pendingTasks.length > 0 ||
+    completedTasks.length > 0 ||
     conversation.subagents.length > 0 ||
     conversation.teammates.some(t => t.status === 'working')
   if (!hasContent) return null
 
   const overflow = conversation.activeTasks.length + conversation.pendingTasks.length - 5
+  const completedMore = (conversation.completedTaskCount ?? completedTasks.length) - completedTasks.length
   const now = Date.now()
 
   return (
@@ -456,6 +459,15 @@ export function ConversationItemTasksBlock({
         </div>
       ))}
       {overflow > 0 && <div className="text-[10px] text-muted-foreground pl-1 font-mono">..{overflow} more</div>}
+      {completedTasks.map(task => (
+        <div key={task.id} className="text-[11px] text-muted-foreground/50 font-mono truncate pl-1">
+          <span className="text-active/40 mr-1">{'✓'}</span>
+          <span className="line-through">{task.subject}</span>
+        </div>
+      ))}
+      {completedMore > 0 && (
+        <div className="text-[10px] text-muted-foreground pl-1 font-mono">..{completedMore} more</div>
+      )}
       {(() => {
         const runningNodes: ReactNode[] = []
         const stoppedNodes: ReactNode[] = []

@@ -636,6 +636,14 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         .filter(t => t.status === 'pending')
         .slice(0, 4)
         .map(t => ({ id: t.id, subject: t.subject })),
+      completedTaskCount: conv.tasks.filter(t => t.status === 'completed').length,
+      // Most-recently-completed first, capped; the list renders these struck-through
+      // under the active/pending todos. completedTaskCount drives the "..N more" row.
+      completedTasks: conv.tasks
+        .filter(t => t.status === 'completed')
+        .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+        .slice(0, 10)
+        .map(t => ({ id: t.id, subject: t.subject })),
       archivedTaskCount: conv.archivedTasks.reduce((sum, g) => sum + g.tasks.length, 0),
       archivedTasks: conv.archivedTasks
         .flatMap(g => g.tasks)
