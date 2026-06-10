@@ -7,14 +7,33 @@
  *   web_control_response   -> resolve a pending web_control_request (by requestId)
  *
  * The outbound web_control_request is sent by the MCP `web_*` tools via
- * src/broker/web-control.ts (not a handler). All three are gated to the
- * control-panel role -- share viewers must never opt a browser into control.
+ * src/broker/web-control.ts (not a handler). The advertise/revoke/response trio is
+ * gated to the control-panel role -- share viewers must never opt a browser into
+ * control.
+ *
+ * Plus one AGENT-HOST-originated message:
+ *   web_control_relay      -> bridge a web-control op from the HOST MCP site
+ *
+ * In-process agents talk to the host MCP server, which has no direct line to the
+ * broker's web-control registry. The host `web_*` tools mint a brokerRpc and send
+ * `web_control_relay`; this handler resolves the target (explicit clientId or the
+ * implicit single client) and runs the op via the SAME sendWebControlRequest /
+ * listWebControlClients the broker MCP site uses, then replies
+ * web_control_relay_response (matched by requestId). Gated to the agent-host role.
+ * Boundary-clean: reads only op/args/clientId/requestId, never ccSessionId.
  */
 
 import { WEB_CONTROL_OPS, type WebControlOp } from '../../shared/protocol'
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
-import { registerHandlers } from '../message-router'
-import { advertiseWebControl, resolveWebControlResponse, revokeWebControl } from '../web-control'
+import { AGENT_HOST_ONLY, registerHandlers } from '../message-router'
+import {
+  advertiseWebControl,
+  listWebControlClients,
+  resolveImplicitClient,
+  resolveWebControlResponse,
+  revokeWebControl,
+  sendWebControlRequest,
+} from '../web-control'
 
 const OP_SET = new Set<string>(WEB_CONTROL_OPS)
 
@@ -67,6 +86,38 @@ const webControlResponse: MessageHandler = (_ctx: HandlerContext, data: MessageD
   })
 }
 
+/** Coerce a loose `args` field to a plain object (drop arrays / non-objects). */
+function relayArgs(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+}
+
+/** Resolve the relay target: an explicit clientId, else the implicit single client. */
+function relayTarget(data: MessageData): { clientId: string } | { error: string } {
+  const explicit = typeof data.clientId === 'string' && data.clientId ? data.clientId : undefined
+  return explicit ? { clientId: explicit } : resolveImplicitClient()
+}
+
+/** agent host -> broker: relay one web-control op (or a list_clients read) from the
+ *  host MCP site. The broker owns grant state; the agent host only forwards. */
+const webControlRelay: MessageHandler = async (ctx: HandlerContext, data: MessageData) => {
+  const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+  if (!requestId) return
+  const reply = (r: { ok: boolean; result?: unknown; error?: string }) =>
+    ctx.reply({ type: 'web_control_relay_response', requestId, ...r })
+
+  const op = typeof data.op === 'string' ? data.op : ''
+  if (!op) return reply({ ok: false, error: 'web_control_relay requires op' })
+  // Broker-local registry read -- no browser hop.
+  if (op === 'list_clients') return reply({ ok: true, result: listWebControlClients() })
+  if (!OP_SET.has(op)) return reply({ ok: false, error: `unknown web-control op '${op}'` })
+
+  const target = relayTarget(data)
+  if ('error' in target) return reply({ ok: false, error: target.error })
+
+  const r = await sendWebControlRequest(target.clientId, op as WebControlOp, relayArgs(data.args))
+  reply({ ok: r.ok, result: r.result, error: r.error })
+}
+
 export function registerWebControlHandlers(): void {
   registerHandlers(
     {
@@ -76,4 +127,5 @@ export function registerWebControlHandlers(): void {
     },
     ['control-panel'],
   )
+  registerHandlers({ web_control_relay: webControlRelay }, AGENT_HOST_ONLY)
 }

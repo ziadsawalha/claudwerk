@@ -69,3 +69,31 @@ describe('web_control_revoke handler', () => {
     expect(listWebControlClients()).toHaveLength(0)
   })
 })
+
+describe('web_control_relay handler (host bridge)', () => {
+  it('rejects a control-panel caller (relay is agent-host only)', () => {
+    const replies = run('web_control_relay', { requestId: 'rl1', op: 'list_clients' }, CONTROL_PANEL)
+    expect(replies[0]).toMatchObject({ type: 'web_control_relay_result', ok: false, requestId: 'rl1' })
+    expect(String(replies[0].error)).toContain('Forbidden')
+  })
+
+  it('serves list_clients (broker-local) for an agent-host caller', () => {
+    run('web_control_advertise', { ...ADVERTISE }, CONTROL_PANEL)
+    const replies = run('web_control_relay', { requestId: 'rl2', op: 'list_clients' }, {})
+    expect(replies[0]).toMatchObject({ type: 'web_control_relay_response', requestId: 'rl2', ok: true })
+    const result = replies[0].result as Array<{ clientId: string }>
+    expect(result.map(c => c.clientId)).toContain('web_h1')
+  })
+
+  it('rejects an unknown op', () => {
+    const replies = run('web_control_relay', { requestId: 'rl3', op: 'rm_rf' }, {})
+    expect(replies[0]).toMatchObject({ type: 'web_control_relay_response', requestId: 'rl3', ok: false })
+    expect(String(replies[0].error)).toContain('unknown web-control op')
+  })
+
+  it('errors when no browser is opted-in and no clientId is given', () => {
+    const replies = run('web_control_relay', { requestId: 'rl4', op: 'screenshot' }, {})
+    expect(replies[0]).toMatchObject({ type: 'web_control_relay_response', requestId: 'rl4', ok: false })
+    expect(String(replies[0].error)).toContain('No browser is opted-in')
+  })
+})

@@ -552,6 +552,16 @@ export function createWsClient(options: WsClientOptions): WsClient {
           }
           // No requestId -> a broadcast; fall through to normal handling below.
         }
+        if (msgType === 'web_control_relay_response') {
+          // Web-control relay reply (Phase 5 host bridge). Same broker-rpc path as
+          // recap_*: forward only when it carries a requestId we minted; an
+          // unmatched id no-ops in dispatchBrokerRpcResponse.
+          const m = message as unknown as Record<string, unknown>
+          if (typeof m.requestId === 'string') {
+            onBrokerRpcResponse?.(m)
+            break
+          }
+        }
         break
       }
     }

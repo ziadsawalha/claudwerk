@@ -963,6 +963,7 @@ export type AgentHostMessage =
   | EffortChanged
   | DebugTraceEvent
   | DebugControlResult
+  | WebControlRelayRequest
 
 export interface ConversationNameUpdate {
   type: 'conversation_name'
@@ -1627,6 +1628,7 @@ export type BrokerMessage =
   | WebControlAdvertise
   | WebControlRevoke
   | WebControlResponse
+  | WebControlRelayResponse
 
 export interface NotifyConfigUpdated {
   type: 'notify_config_updated'
@@ -1702,6 +1704,34 @@ export interface WebControlRequest {
 /** web -> broker: result of a web_control_request, matched by requestId. */
 export interface WebControlResponse {
   type: 'web_control_response'
+  requestId: string
+  ok: boolean
+  result?: unknown
+  error?: string
+}
+
+/** agent host -> broker: relay a web-control op (or list_clients) to the broker's
+ *  web-control registry on behalf of an in-process agent. The broker resolves the
+ *  target browser (explicit clientId or the implicit single opted-in client), runs
+ *  the op via sendWebControlRequest, and replies with web_control_relay_response
+ *  carrying the same requestId. This bridges the HOST MCP site to the broker-only
+ *  web-control registry (Phase 5 of plan-mcp-toolset-unification.md) -- the broker
+ *  remains the sole owner of grant state; the agent host just forwards. */
+export interface WebControlRelayRequest {
+  type: 'web_control_relay'
+  requestId: string
+  /** Explicit target browser; omit to let the broker resolve the implicit single client. */
+  clientId?: string
+  /** 'list_clients' (broker-local registry read) or a WebControlOp to run on the browser. */
+  op: 'list_clients' | WebControlOp
+  /** Op arguments (ignored for list_clients). */
+  args?: Record<string, unknown>
+}
+
+/** broker -> agent host: result of a web_control_relay, matched by requestId.
+ *  For op='list_clients', result is WebControlClientInfo[]. */
+export interface WebControlRelayResponse {
+  type: 'web_control_relay_response'
   requestId: string
   ok: boolean
   result?: unknown

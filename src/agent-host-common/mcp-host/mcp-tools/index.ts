@@ -8,6 +8,7 @@ import { registerRecapTools } from './recap'
 import { registerSearchTools } from './search'
 import { registerSpawnTools } from './spawn'
 import type { McpToolContext, ToolDef } from './types'
+import { registerWebControlTools } from './web-control'
 
 export type {
   AgentHostIdentity,
@@ -29,5 +30,6 @@ export function registerAllTools(ctx: McpToolContext): Record<string, ToolDef> {
     ...registerDialogTool(ctx),
     ...registerSearchTools(ctx),
     ...registerRecapTools(ctx),
+    ...registerWebControlTools(ctx),
   }
 }

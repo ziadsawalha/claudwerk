@@ -86,7 +86,7 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'recap_search', group: 'recap', sites: HOST_ONLY, summary: 'Search recaps' },
   { name: 'recap_templates', group: 'recap', sites: HOST_ONLY, summary: 'List recap templates + their options' },
 
-  // ── web control (both sites; host binding pending Phase 5) ──────────
+  // ── web control (both sites; host bridged in Phase 5) ──────────────
   { name: 'web_list_clients', group: 'web-control', sites: BOTH, summary: 'List opted-in control-panel browsers' },
   { name: 'web_screenshot', group: 'web-control', sites: BOTH, summary: 'Screenshot the opted-in browser' },
   { name: 'web_list_commands', group: 'web-control', sites: BOTH, summary: 'List command-palette commands' },
@@ -116,6 +116,8 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'web_terminal_read', group: 'web-control', sites: BOTH, summary: "Read a host shell's buffer" },
   { name: 'web_terminal_write', group: 'web-control', sites: BOTH, summary: 'Write bytes to a host shell' },
   { name: 'web_terminal_screenshot', group: 'web-control', sites: BOTH, summary: "Screenshot a host shell's surface" },
+  { name: 'web_set_perf_monitor', group: 'web-control', sites: BOTH, summary: 'Toggle the perf monitor on/off' },
+  { name: 'web_perf_report', group: 'web-control', sites: BOTH, summary: 'Grab the perf report as markdown' },
 ]
 
 export const CATALOG_NAMES: ReadonlySet<string> = new Set(MCP_CATALOG.map(t => t.name))
@@ -130,11 +132,9 @@ export interface DeferredBinding {
  * Tools that a site is MEANT to expose (per `sites`) but does not bind YET.
  * Every gap must be listed here with a reason -- a silent gap is a test failure.
  * Removing an entry without binding the tool re-fails the test (stale defer).
+ *
+ * Empty as of Phase 5 (plan-web-control-host-bridge.md): the web-control group is
+ * now bound at BOTH sites (host via web_control_relay -> broker), so there are no
+ * remaining deferred gaps.
  */
-export const DEFERRED_BINDINGS: readonly DeferredBinding[] = MCP_CATALOG.filter(t => t.group === 'web-control').map(
-  t => ({
-    site: 'host' as const,
-    name: t.name,
-    reason: 'Phase 5 (plan-mcp-toolset-unification.md): web-control not yet bridged to the host MCP server',
-  }),
-)
+export const DEFERRED_BINDINGS: readonly DeferredBinding[] = []

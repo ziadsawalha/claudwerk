@@ -117,8 +117,10 @@ export function dispatchHostRpcResult(msg: Msg, pending: PendingCallbacks, diag:
     handler(msg, pending, diag)
     return true
   }
-  // recap_* broker-RPC replies -- only when they carry a requestId we minted
-  // (dispatchBrokerRpcResponse no-ops on an unmatched id, so this is safe).
+  // recap_* + web_control_relay_response broker-RPC replies -- only when they
+  // carry a requestId we minted (dispatchBrokerRpcResponse no-ops on an unmatched
+  // id, so this is safe).
   if (type.startsWith('recap_') && typeof msg.requestId === 'string') return dispatchBrokerRpcResponse(msg)
+  if (type === 'web_control_relay_response' && typeof msg.requestId === 'string') return dispatchBrokerRpcResponse(msg)
   return false
 }
