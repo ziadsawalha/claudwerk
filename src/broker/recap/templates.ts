@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path'
 import { Liquid } from 'liquidjs'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod/v4'
+import type { RecapTemplateInfo } from '../../shared/protocol'
 
 /** The default template id -- ports today's all-projects human recap byte-for-byte. */
 export const DEFAULT_TEMPLATE_ID = 'project-recap'
@@ -303,4 +304,46 @@ export function pickTemplate(
     return templates.get(DEFAULT_TEMPLATE_ID)
   }
   return undefined
+}
+
+/**
+ * Project a loaded template to its caller-facing discovery shape (id, label,
+ * description, audience, sections, defaults, declared options + their flipped
+ * signal). The Liquid body is internal and deliberately NOT exposed.
+ */
+export function toTemplateInfo(t: RecapTemplate): RecapTemplateInfo {
+  return {
+    id: t.id,
+    label: t.label,
+    description: t.description,
+    scope: t.scope,
+    audience: t.audience,
+    sections: [...t.sections],
+    defaults: t.defaults,
+    options: t.options.map(o => ({
+      id: o.id,
+      label: o.label,
+      default: o.default,
+      ...(o.signal ? { signal: o.signal } : {}),
+    })),
+    isDefault: t.id === DEFAULT_TEMPLATE_ID,
+  }
+}
+
+/**
+ * The single source of truth for "what templates exist + what inputs do they
+ * take". Loads the active template set and projects each to its discovery shape,
+ * default-first then alphabetical (a stable order for a picker or an agent).
+ * Both the REST route (GET /api/recap-templates) and the `recap_templates` MCP
+ * wire handler call this -- so the two paths can never drift.
+ */
+export function buildTemplateList(log: TemplateLogger = defaultLogger): {
+  templates: RecapTemplateInfo[]
+  defaultTemplateId: string
+} {
+  const { templates } = loadTemplates(log)
+  const list = [...templates.values()]
+    .map(toTemplateInfo)
+    .sort((a, b) => (a.id === DEFAULT_TEMPLATE_ID ? -1 : b.id === DEFAULT_TEMPLATE_ID ? 1 : a.id.localeCompare(b.id)))
+  return { templates: list, defaultTemplateId: DEFAULT_TEMPLATE_ID }
 }

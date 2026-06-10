@@ -84,6 +84,7 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'recap_list', group: 'recap', sites: HOST_ONLY, summary: 'List recaps' },
   { name: 'recap_regenerate', group: 'recap', sites: HOST_ONLY, summary: 'Regenerate a recap' },
   { name: 'recap_search', group: 'recap', sites: HOST_ONLY, summary: 'Search recaps' },
+  { name: 'recap_templates', group: 'recap', sites: HOST_ONLY, summary: 'List recap templates + their options' },
 
   // ── web control (both sites; host binding pending Phase 5) ──────────
   { name: 'web_list_clients', group: 'web-control', sites: BOTH, summary: 'List opted-in control-panel browsers' },

@@ -1,13 +1,15 @@
 /**
  * Recap MCP tools.
  *
- * Four tools that expose the broker's period-recap feature to agents:
- *   - recap_search  -- FTS5 across recaps the agent's user can read
- *   - recap_get     -- Full recap markdown + metadata by id
- *   - recap_list    -- Recent recaps for a project (or all accessible projects)
- *   - recap_create  -- Kick off a new recap, returns the recap id
+ * Tools that expose the broker's period-recap feature to agents:
+ *   - recap_search    -- FTS5 across recaps the agent's user can read
+ *   - recap_get       -- Full recap markdown + metadata by id
+ *   - recap_list      -- Recent recaps for a project (or all accessible projects)
+ *   - recap_create    -- Kick off a new recap, returns the recap id
+ *   - recap_regenerate-- Re-run an existing recap from a downstream stage
+ *   - recap_templates -- Enumerate available templates + their declared options
  *
- * All four are pass-throughs: the tool minted an MCP-side requestId via
+ * All are pass-throughs: the tool minted an MCP-side requestId via
  * brokerRpc and waits for the matching broker reply. Permission gating happens
  * server-side (the broker resolves the agent host's user + project scope).
  *
@@ -22,6 +24,7 @@ import type {
   RecapSearchHit,
   RecapSignal,
   RecapSummary,
+  RecapTemplateInfo,
 } from '../../../shared/protocol'
 import { brokerRpc, hasBrokerRpcSender } from './lib/broker-rpc'
 import type { McpToolContext, ToolDef, ToolResult } from './types'
@@ -249,9 +252,9 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
       'Returns the recap id immediately -- set inform_on_complete to be pushed the ' +
       'result when it finishes, instead of polling recap_get. ' +
       'TEMPLATES: pass `template` (a named deliverable, e.g. the default "project-recap" ' +
-      'reflective recap; list them via GET /api/recap-templates) and `options` (a map of ' +
-      "the template's declared option ids -> booleans) to render a different deliverable " +
-      'shape from the same gathered data. ' +
+      'reflective recap; call recap_templates to list them + their options) and `options` ' +
+      "(a map of the template's declared option ids -> booleans) to render a different " +
+      'deliverable shape from the same gathered data. ' +
       'BENEVOLENT EVAL HARNESS: pass `tuning` (per-stage models, thresholds, chunkSize, ' +
       'forceMode, per-stage temperature/maxTokens) + `tuning.variantLabel` to A/B recipes -- ' +
       'fire several with different tuning, then compare cost + grounding across the stored ' +
@@ -311,7 +314,7 @@ function recapCreateTool(ctx: McpToolContext): ToolDef {
           description:
             'Named presentation template id (default "project-recap", the reflective recap). ' +
             'Selects the deliverable shape; templates re-present, never re-extract. ' +
-            'List available templates + their options via GET /api/recap-templates. ' +
+            'List available templates + their options via the recap_templates tool. ' +
             'An unknown id falls back to the default.',
         },
         options: {
@@ -511,6 +514,49 @@ function recapRegenerateTool(_ctx: McpToolContext): ToolDef {
   }
 }
 
+function recapTemplatesTool(_ctx: McpToolContext): ToolDef {
+  return {
+    description:
+      'List the available recap presentation templates and the inputs each one accepts. ' +
+      'Call this BEFORE recap_create whenever you want a deliverable other than the default, ' +
+      'so you know which `template` ids exist and which `options` keys each accepts. Each entry ' +
+      'returns its id, label, description, audience ("human" narrative | "agent" orientation ' +
+      'brief), the sections it renders, its default modes/signals, and its options -- each with ' +
+      'an id, label, default boolean, and (for a "technical" option) the gather signal it flips. ' +
+      'Feed a returned `template` id + an `options` map straight into recap_create. The optional ' +
+      '`audience` filter narrows the list to human- or agent-oriented templates.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        audience: {
+          type: 'string',
+          enum: ['agent', 'human'],
+          description: 'Optional filter: only return templates for this audience.',
+        },
+      },
+    },
+    async handle(params) {
+      if (!hasBrokerRpcSender()) return notConnected()
+      const audience = params.audience === 'human' || params.audience === 'agent' ? params.audience : undefined
+      try {
+        const response = await brokerRpc<{
+          ok: boolean
+          templates?: RecapTemplateInfo[]
+          defaultTemplateId?: string
+          error?: string
+        }>('recap_templates_request', { ...(audience ? { audience } : {}) })
+        const templates = Array.isArray(response.templates) ? response.templates : []
+        if (templates.length === 0) {
+          return { content: [{ type: 'text', text: 'No recap templates available.' }] }
+        }
+        return jsonResult({ defaultTemplateId: response.defaultTemplateId, templates })
+      } catch (caught) {
+        return err(caught instanceof Error ? caught.message : String(caught))
+      }
+    },
+  }
+}
+
 export function registerRecapTools(ctx: McpToolContext): Record<string, ToolDef> {
   return {
     recap_search: recapSearchTool(ctx),
@@ -518,5 +564,6 @@ export function registerRecapTools(ctx: McpToolContext): Record<string, ToolDef>
     recap_list: recapListTool(ctx),
     recap_create: recapCreateTool(ctx),
     recap_regenerate: recapRegenerateTool(ctx),
+    recap_templates: recapTemplatesTool(ctx),
   }
 }

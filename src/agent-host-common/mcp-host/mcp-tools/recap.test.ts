@@ -70,15 +70,17 @@ describe('recap MCP tools registration', () => {
   beforeEach(() => _resetBrokerRpc())
   afterEach(() => _resetBrokerRpc())
 
-  test('exposes the five expected tool names', () => {
+  test('exposes the six expected tool names', () => {
     const t = tools()
-    // recap_regenerate (Pillar C++) joined the original four in v2.1.
+    // recap_regenerate (Pillar C++) joined the original four in v2.1;
+    // recap_templates (template discovery) joined them after.
     expect(Object.keys(t).sort()).toEqual([
       'recap_create',
       'recap_get',
       'recap_list',
       'recap_regenerate',
       'recap_search',
+      'recap_templates',
     ])
   })
 
@@ -376,5 +378,97 @@ describe('recap_create', () => {
     }))
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain('orchestrator down')
+  })
+})
+
+describe('recap_templates', () => {
+  beforeEach(() => _resetBrokerRpc())
+  afterEach(() => _resetBrokerRpc())
+
+  const TEMPLATES = [
+    {
+      id: 'project-recap',
+      label: 'Project recap',
+      description: 'The reflective recap.',
+      scope: 'fleet',
+      audience: 'human',
+      sections: ['features', 'fixes'],
+      defaults: { retrospect: false, customerFriendly: false, signals: ['commits'] },
+      options: [],
+      isDefault: true,
+    },
+    {
+      id: 'agent-handoff',
+      label: 'Agent handoff',
+      description: 'Terse orientation brief.',
+      scope: 'fleet',
+      audience: 'agent',
+      sections: ['features'],
+      defaults: { retrospect: false, customerFriendly: false, signals: [] },
+      options: [{ id: 'terse', label: 'Terse tone', default: false }],
+      isDefault: false,
+    },
+  ]
+
+  test('errors when broker is not connected', async () => {
+    const t = tools()
+    const result = await t.recap_templates.handle({} as Record<string, string>, { rawArgs: {}, extra: {} })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('broker connection not ready')
+  })
+
+  test('sends recap_templates_request and returns the list as JSON', async () => {
+    const t = tools()
+    const { result, sent } = await callTool(t.recap_templates, {}, () => ({
+      ok: true,
+      templates: TEMPLATES,
+      defaultTemplateId: 'project-recap',
+    }))
+    expect(result.isError).toBeUndefined()
+    expect(sent).toHaveLength(1)
+    expect(sent[0].type).toBe('recap_templates_request')
+    expect(sent[0].payload.audience).toBeUndefined()
+    const parsed = JSON.parse(result.content[0].text)
+    expect(parsed.defaultTemplateId).toBe('project-recap')
+    expect(parsed.templates).toHaveLength(2)
+    expect(parsed.templates[0].id).toBe('project-recap')
+    expect(parsed.templates[1].options[0]).toMatchObject({ id: 'terse', default: false })
+  })
+
+  test('forwards a valid audience filter', async () => {
+    const t = tools()
+    const { sent } = await callTool(t.recap_templates, { audience: 'agent' }, () => ({
+      ok: true,
+      templates: [TEMPLATES[1]],
+      defaultTemplateId: 'project-recap',
+    }))
+    expect(sent[0].payload.audience).toBe('agent')
+  })
+
+  test('drops an invalid audience value', async () => {
+    const t = tools()
+    const { sent } = await callTool(t.recap_templates, { audience: 'robot' }, () => ({
+      ok: true,
+      templates: TEMPLATES,
+      defaultTemplateId: 'project-recap',
+    }))
+    expect(sent[0].payload.audience).toBeUndefined()
+  })
+
+  test('reports an empty template set gracefully', async () => {
+    const t = tools()
+    const { result } = await callTool(t.recap_templates, {}, () => ({
+      ok: true,
+      templates: [],
+      defaultTemplateId: 'project-recap',
+    }))
+    expect(result.content[0].text).toBe('No recap templates available.')
+  })
+
+  test('propagates broker errors', async () => {
+    const t = tools()
+    const { result } = await callTool(t.recap_templates, {}, () => ({ ok: false, error: 'boom' }))
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('boom')
   })
 })

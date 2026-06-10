@@ -4788,6 +4788,47 @@ export interface RecapMcpListResult {
   recaps?: RecapSummary[]
   error?: string
 }
+/** One declared input/knob of a recap template. A "prompt-tweak" option (no
+ *  `signal`) flips a Liquid `options.<id>` boolean in the body; a "technical"
+ *  option additionally adds/removes a gather signal. */
+export interface RecapTemplateOptionInfo {
+  id: string
+  label: string
+  default: boolean
+  signal?: RecapSignal
+}
+/** A recap presentation template + its declared inputs, as surfaced to callers
+ *  (the discovery shape behind `recap_templates` + GET /api/recap-templates). The
+ *  Liquid body is internal and deliberately omitted. */
+export interface RecapTemplateInfo {
+  id: string
+  label: string
+  description: string
+  scope: 'fleet'
+  audience: RecapAudience
+  sections: string[]
+  defaults: { retrospect: boolean; customerFriendly: boolean; signals: RecapSignal[] }
+  options: RecapTemplateOptionInfo[]
+  isDefault: boolean
+}
+/** MCP RPC pass-through: enumerate the available presentation templates + their
+ *  declared options, so a caller knows which `template` ids + `options` keys
+ *  recap_create accepts. Read-only built-in fleet metadata -- NOT project data,
+ *  so no per-project scope and no benevolent-trust gate. Optional `audience`
+ *  narrows the list to human- or agent-oriented templates. */
+export interface RecapTemplatesRequest {
+  type: 'recap_templates_request'
+  requestId: string
+  audience?: RecapAudience
+}
+export interface RecapTemplatesResult {
+  type: 'recap_templates_result'
+  requestId: string
+  ok: boolean
+  templates?: RecapTemplateInfo[]
+  defaultTemplateId?: string
+  error?: string
+}
 
 // Configuration
 export const DEFAULT_BROKER_URL = 'ws://localhost:9999'

@@ -1,6 +1,13 @@
-import type { RecapAudience, RecapCreateMessage, RecapStatus } from '../../shared/protocol'
+import type {
+  RecapAudience,
+  RecapCreateMessage,
+  RecapStatus,
+  RecapTemplatesRequest,
+  RecapTemplatesResult,
+} from '../../shared/protocol'
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
 import { DASHBOARD_ROLES, detectRole, registerHandlers, type WsRole } from '../message-router'
+import { buildTemplateList } from '../recap/templates'
 import { getRecapOrchestrator } from '../recap-orchestrator'
 import { requireStrings } from './validate'
 
@@ -266,6 +273,26 @@ function recapMcpList(ctx: HandlerContext, data: MessageData): void {
   ctx.reply({ type: 'recap_mcp_list_result', requestId: fields.requestId, ok: true, recaps })
 }
 
+function recapTemplates(ctx: HandlerContext, data: MessageData): void {
+  const fields = requireStrings(ctx, data, ['requestId'] as const, 'recap_templates_request')
+  if (!fields) return
+  // NO trust gate. Templates are read-only built-in fleet metadata (deliverable
+  // shapes + their option knobs), NOT project data -- unlike recap_create (spends
+  // tokens) and the recap_mcp_* read tools (expose recap CONTENT), which require
+  // benevolent trust for agent-host. Any role the router admitted may enumerate.
+  const audience: RecapTemplatesRequest['audience'] =
+    data.audience === 'agent' || data.audience === 'human' ? data.audience : undefined
+  const { templates, defaultTemplateId } = buildTemplateList()
+  const filtered = audience ? templates.filter(t => t.audience === audience) : templates
+  ctx.reply({
+    type: 'recap_templates_result',
+    requestId: fields.requestId,
+    ok: true,
+    templates: filtered,
+    defaultTemplateId,
+  } satisfies RecapTemplatesResult)
+}
+
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -287,6 +314,7 @@ export function registerRecapHandlers(): void {
       recap_search_request: recapSearch,
       recap_mcp_get_request: recapMcpGet,
       recap_mcp_list_request: recapMcpList,
+      recap_templates_request: recapTemplates,
     } satisfies Record<string, MessageHandler>,
     RECAP_AGENT_HOST_ROLES,
   )

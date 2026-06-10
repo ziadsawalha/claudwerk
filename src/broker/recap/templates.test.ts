@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  buildTemplateList,
   DEFAULT_TEMPLATE_ID,
   loadTemplates,
   loadTemplatesFromDir,
@@ -14,6 +15,7 @@ import {
   resolveTemplatesDir,
   type TemplateLoadEvent,
   templateManifestSchema,
+  toTemplateInfo,
 } from './templates'
 
 const TEST_DIR = join(import.meta.dir, '.test-recap-templates')
@@ -300,5 +302,53 @@ describe('templateManifestSchema', () => {
       body: 'hello',
     })
     expect(parsed.success).toBe(true)
+  })
+})
+
+describe('toTemplateInfo', () => {
+  const base: RecapTemplate = {
+    id: 'sample',
+    label: 'Sample',
+    description: 'd',
+    scope: 'fleet',
+    audience: 'human',
+    defaults: { retrospect: false, customerFriendly: false, signals: ['commits'] },
+    sections: ['features', 'fixes'],
+    options: [
+      { id: 'terse', label: 'Terse', default: false },
+      { id: 'include_cost', label: 'Cost', default: true, signal: 'cost' },
+    ],
+    body: 'b',
+  }
+
+  it('projects the discovery shape and omits the Liquid body', () => {
+    const info = toTemplateInfo(base)
+    expect(info).not.toHaveProperty('body')
+    expect(info).toMatchObject({ id: 'sample', label: 'Sample', audience: 'human', isDefault: false })
+    expect(info.sections).toEqual(['features', 'fixes'])
+  })
+
+  it('emits signal only on technical options', () => {
+    const info = toTemplateInfo(base)
+    expect(info.options[0]).toEqual({ id: 'terse', label: 'Terse', default: false })
+    expect(info.options[0]).not.toHaveProperty('signal')
+    expect(info.options[1]).toEqual({ id: 'include_cost', label: 'Cost', default: true, signal: 'cost' })
+  })
+
+  it('marks the default template id', () => {
+    expect(toTemplateInfo({ ...base, id: DEFAULT_TEMPLATE_ID }).isDefault).toBe(true)
+  })
+})
+
+describe('buildTemplateList', () => {
+  it('lists the built-in templates default-first, then alphabetical', () => {
+    const { templates, defaultTemplateId } = buildTemplateList(() => {})
+    expect(defaultTemplateId).toBe(DEFAULT_TEMPLATE_ID)
+    expect(templates.length).toBeGreaterThan(0)
+    // Default sorts first regardless of its alphabetical position.
+    expect(templates[0].id).toBe(DEFAULT_TEMPLATE_ID)
+    expect(templates[0].isDefault).toBe(true)
+    const rest = templates.slice(1).map(t => t.id)
+    expect(rest).toEqual([...rest].sort())
   })
 })

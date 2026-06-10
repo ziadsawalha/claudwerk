@@ -102,3 +102,29 @@ describe('recap_create role + benevolent trust gate', () => {
     expect(replies[0].error).not.toBe('Requires benevolent trust level')
   })
 })
+
+describe('recap_templates -- no trust gate (read-only fleet metadata)', () => {
+  it('serves a NON-benevolent agent-host the template list + echoes requestId', () => {
+    // The distinguishing assertion: unlike recap_create, a default-trust agent-host
+    // is NOT barred -- templates are deliverable-shape metadata, not project data.
+    const replies = run('recap_templates_request', { requestId: 'tpl-1' }, {}, settings('default'))
+    expect(replies).toHaveLength(1)
+    expect(replies[0]).toMatchObject({ type: 'recap_templates_result', ok: true, requestId: 'tpl-1' })
+    expect(replies[0].error).toBeUndefined()
+    expect(replies[0].defaultTemplateId).toBe('project-recap')
+    const templates = replies[0].templates as Array<{ id: string }>
+    expect(templates.some(t => t.id === 'project-recap')).toBe(true)
+  })
+
+  it('serves a dashboard caller too', () => {
+    const replies = run('recap_templates_request', { requestId: 'tpl-2' }, { userName: 'jonas' }, settings('default'))
+    expect(replies[0]).toMatchObject({ type: 'recap_templates_result', ok: true, requestId: 'tpl-2' })
+  })
+
+  it('narrows to the requested audience', () => {
+    const replies = run('recap_templates_request', { requestId: 'tpl-3', audience: 'agent' }, {}, settings('default'))
+    const templates = replies[0].templates as Array<{ audience: string }>
+    expect(templates.length).toBeGreaterThan(0)
+    expect(templates.every(t => t.audience === 'agent')).toBe(true)
+  })
+})
