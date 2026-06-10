@@ -154,6 +154,8 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
             {(conversation.title || conversation.agentName || '').slice(0, 24) || conversation.id.slice(0, 8)}
           </span>
         )}
+        {/* Model class -- identity marker, right of the name in both layouts */}
+        {conversation.model && <ModelClassPill model={conversation.model} />}
         {/* Action / attention badges -- always on title row in both layouts */}
         {isGhost && <GhostBadge compact />}
         {isGhost && <GhostAttachButton conversationId={conversation.id} compact />}
@@ -222,7 +224,6 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
                 launchConfig={conversation.launchConfig}
               />,
             )
-            if (conversation.model) mobileChips.push(<ModelClassPill model={conversation.model} />)
             if (showHostAlias)
               mobileChips.push(
                 <span className="text-muted-foreground/60 font-medium">{conversation.hostSentinelAlias}</span>,
@@ -295,7 +296,6 @@ export const ConversationItemCompact = memo(function ConversationItemCompact({
               launchConfig={conversation.launchConfig}
             />,
           )
-          if (conversation.model) items.push(<ModelClassPill key="model" model={conversation.model} />)
           if (showHostAlias)
             items.push(
               <span key="host" className="px-1 py-0.5 text-[8px] rounded bg-muted text-muted-foreground font-medium">
