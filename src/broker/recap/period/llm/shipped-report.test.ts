@@ -46,12 +46,18 @@ function renderOneshot(overrides: Record<string, boolean> = {}): string {
 }
 
 describe('shipped-report: loads + validates', () => {
-  test('the template is present, fleet-scoped, human audience, with the four declared options', () => {
+  test('the template is present, fleet-scoped, human audience, with the five declared options', () => {
     const t = shippedTemplate()
     expect(t.id).toBe('shipped-report')
     expect(t.scope).toBe('fleet')
     expect(t.audience).toBe('human')
-    expect(t.options.map(o => o.id).sort()).toEqual(['commit_stats', 'group_by_project', 'include_cost', 'terse'])
+    expect(t.options.map(o => o.id).sort()).toEqual([
+      'commit_stats',
+      'group_by_project',
+      'include_cost',
+      'link_conversations',
+      'terse',
+    ])
   })
 
   test('the option->signal declarations: include_cost/commit_stats are technical, the rest pure prompt-tweaks', () => {
@@ -60,6 +66,7 @@ describe('shipped-report: loads + validates', () => {
     expect(signalOf('commit_stats')).toBe('commits')
     expect(signalOf('group_by_project')).toBeUndefined()
     expect(signalOf('terse')).toBeUndefined()
+    expect(signalOf('link_conversations')).toBeUndefined()
   })
 })
 
@@ -73,6 +80,7 @@ describe('shipped-report: TECHNICAL option wire (signals, via resolveRecipe)', (
       include_cost: false,
       commit_stats: true,
       terse: false,
+      link_conversations: true,
     })
     expect(r.signals).toContain('commits')
     expect(r.signals).not.toContain('cost')
@@ -104,6 +112,17 @@ describe('shipped-report: PROMPT-TWEAK option wire (Liquid booleans flip the tex
     expect(sys).toContain('Do NOT mention cost')
     // terse default false
     expect(sys).toContain('narrative intro per section')
+    // link_conversations default true -> attribution on, no "just the data" override
+    expect(sys).toContain('and conversation id(s) (8-char)')
+    expect(sys).not.toContain('NO CONVERSATION LINKS')
+  })
+
+  test('link_conversations=false drops conversation attribution (just-the-data ship log)', () => {
+    const sys = renderOneshot({ link_conversations: false })
+    expect(sys).toContain('NO CONVERSATION LINKS')
+    expect(sys).toContain('do NOT include conversation ids')
+    // the attribution directive is replaced, not retained
+    expect(sys).not.toContain('and conversation id(s) (8-char)')
   })
 
   test('group_by_project=false flips to the fleet-wide listing directive', () => {

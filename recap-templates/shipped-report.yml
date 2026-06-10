@@ -31,6 +31,12 @@ options:
   - id: terse
     label: Terse tone
     default: false
+  # Prompt-tweak (no signal): exposed as options.link_conversations. Default ON
+  # (preserves conversation attribution). Set false for a "just the data" ship
+  # log -- facts + commit hashes only, zero conversation ids/links.
+  - id: link_conversations
+    label: Link conversations
+    default: true
 
 # THE MARQUEE NEW DELIVERABLE -- a fleet ship log. Authored with the SAME contract
 # the anchor uses: the `path` discriminator carries the PROCESS framing (extract
@@ -91,8 +97,9 @@ body: |-
     - Neutral, blameless tone throughout: state what shipped and what changed, never
       who struggled ("reworked the auth flow after the first approach proved brittle",
       NOT "wasted a day fighting auth").
-    - Every item names its commit hash(es) (7-char) and conversation id(s) (8-char).
-  {% if options.group_by_project %}  - GROUP every item under a "### <project>" heading inside its section.
+  {% if options.link_conversations %}  - Every item names its commit hash(es) (7-char) and conversation id(s) (8-char).
+  {% else %}  - Every item names its commit hash(es) (7-char). NO CONVERSATION LINKS: do NOT include conversation ids (8-char) or [text](/sessions/conv_xxx) links ANYWHERE in the body. This is a "just the data" ship log and OVERRIDES every "link conversations" / "cite the conversation" directive in the body format above.
+  {% endif %}{% if options.group_by_project %}  - GROUP every item under a "### <project>" heading inside its section.
   {% else %}  - List items fleet-wide, most impactful first; do NOT group by project.
   {% endif %}{% if options.commit_stats %}  - For each item include its commit stats where the input shows them: files changed and +insertions/-deletions.
   {% else %}  - Cite commit hashes but OMIT the files/+/- stats.

@@ -8,7 +8,14 @@ defaults:
   customerFriendly: false
   signals: [user_prompts, assistant_final_turn, commits, task_results, tool_summaries, errors_hooks, cost, open_questions]
 sections: [features, bugs, fixes, incidents, decisions, dead_ends, gotchas, frustrations, open_questions]
-options: []
+options:
+  # Prompt-tweak (no signal): exposed as options.link_conversations in the body.
+  # Default ON preserves the anchor byte-for-byte (the override below renders
+  # nothing when true). Set false for a "just the data" recap -- prose + commit
+  # hashes only, no conversation ids/links in the body.
+  - id: link_conversations
+    label: Link conversations
+    default: true
 
 # ANCHOR TEMPLATE -- reproduces today's all-projects HUMAN recap BYTE-IDENTICALLY.
 # ONE body, TWO framings: the `path` discriminator selects the oneshot framing
@@ -61,3 +68,7 @@ body: |-
   {{ frontmatter_spec }}
 
   {{ body_spec }}
+  {%- if options.link_conversations == false %}
+
+  NO CONVERSATION LINKS (this OVERRIDES every "link conversations via [text](/sessions/conv_xxx)" and "cite the conversation" directive in the body format above): do NOT emit any conversation links or conversation ids ANYWHERE in the body -- this is a "just the data" recap. Drop the "## Notable conversations" section ENTIRELY. In "## Loose ends -- forgotten threads", still render every thread, but name it by its title/synthesis WITHOUT the [label](/sessions/conv_xxx) link. KEEP commit hashes and all other facts -- only conversation references are removed.
+  {%- endif %}

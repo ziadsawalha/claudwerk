@@ -43,7 +43,8 @@ describe('resolveRecipe', () => {
     expect(r.templateId).toBe(DEFAULT_TEMPLATE_ID)
     expect(r.template?.id).toBe(DEFAULT_TEMPLATE_ID)
     expect(r.audience).toBe('human')
-    expect(r.optionFlags).toEqual({})
+    // project-recap declares one prompt-tweak option (link_conversations, default on).
+    expect(r.optionFlags).toEqual({ link_conversations: true })
     expect(r.signals).toEqual(DEFAULT_SIGNAL_SET)
   })
 
@@ -77,8 +78,14 @@ describe('resolveRecipe', () => {
     expect(explicit.audience).toBe(implicit.audience)
   })
 
-  test('options on a no-option template resolve to empty flags (unknown keys ignored)', () => {
+  test('only declared options resolve; unknown keys ignored', () => {
+    // The default template (project-recap) declares one option: link_conversations.
     const r = resolveRecipe(makeArgs({ options: { not_a_real_option: true } }))
-    expect(r.optionFlags).toEqual({})
+    expect(r.optionFlags).toEqual({ link_conversations: true })
+  })
+
+  test('link_conversations=false override flips the declared flag', () => {
+    const r = resolveRecipe(makeArgs({ options: { link_conversations: false } }))
+    expect(r.optionFlags).toEqual({ link_conversations: false })
   })
 })

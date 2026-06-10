@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { makePromptInputs } from '../../__tests__/synthetic-fixtures'
-import { DEFAULT_TEMPLATE_ID, loadTemplates, pickTemplate } from '../../templates'
+import { DEFAULT_TEMPLATE_ID, loadTemplates, pickTemplate, resolveOptionFlags } from '../../templates'
 import golden from './__golden__/anchor-prompt.golden.json'
 import { buildPrompt } from './prompt-builder'
 
@@ -45,5 +45,32 @@ describe('anchor: project-recap template reproduces the pre-change prompt byte-f
     // fallback: prove the rendered output matches the golden exactly.
     const out = buildPrompt(makePromptInputs('small'), 'human', false, false)
     expect(out.system).toBe((golden as Record<string, { system: string }>)['small|human-default'].system)
+  })
+})
+
+describe('project-recap: link_conversations toggle', () => {
+  const projectRecap = () => {
+    const t = pickTemplate(loadTemplates().templates, DEFAULT_TEMPLATE_ID)
+    if (!t) throw new Error('project-recap did not load')
+    return t
+  }
+  const render = (overrides: Record<string, boolean>) => {
+    const template = projectRecap()
+    return buildPrompt(makePromptInputs('small'), 'human', false, false, {
+      template,
+      optionFlags: resolveOptionFlags(template, overrides),
+    }).system
+  }
+
+  test('default (link_conversations=true) renders BYTE-IDENTICAL to the anchor -- no override leaks in', () => {
+    expect(render({})).toBe((golden as Record<string, { system: string }>)['small|human-default'].system)
+    expect(render({})).not.toContain('NO CONVERSATION LINKS')
+  })
+
+  test('link_conversations=false injects the "just the data" override', () => {
+    const sys = render({ link_conversations: false })
+    expect(sys).toContain('NO CONVERSATION LINKS')
+    expect(sys).toContain('Drop the "## Notable conversations" section ENTIRELY')
+    expect(sys).toContain('KEEP commit hashes')
   })
 })
