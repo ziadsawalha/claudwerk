@@ -143,3 +143,48 @@ describe('useIncrementalGroups wires stable group ids', () => {
     expect(new Set(after).size).toBe(after.length) // all unique
   })
 })
+
+describe('useIncrementalGroups backfill breaks (prepend anchor granularity)', () => {
+  // Native anchorTo:'end' anchoring is ITEM-granular: a prepend that merges
+  // into the reader's boundary group slides content under them uncompensated.
+  // breakSeqs forces the boundary entry to start a NEW group so prepended
+  // entries form separate items above. (2026-06-10 scroll-back-to-top bug.)
+  it('splits at the boundary seq and keeps the boundary group id stable across a prepend', () => {
+    const breaks = new Set<number>()
+    const tail = [asst(100, 'boundary turn'), usr(101, 'reply'), asst(102, 'latest')]
+    const { result, rerender } = renderHook(
+      ({ entries, signal }) => useIncrementalGroups(entries, undefined, signal, breaks),
+      { initialProps: { entries: tail, signal: 100 } },
+    )
+    const boundaryId = result.current.groups[0].id
+    expect(result.current.groups).toHaveLength(3)
+
+    // Backfill: register the break at the old top entry, prepend older
+    // assistant entries that would otherwise MERGE into the boundary group,
+    // and flip the reset signal (as the windowing does via regroupSignal).
+    breaks.add(100)
+    const prepended = [asst(98, 'older turn'), asst(99, 'older still'), ...tail]
+    rerender({ entries: prepended, signal: 98 })
+
+    const after = result.current.groups
+    // The prepended assistant entries form their OWN group; the boundary
+    // entry starts a fresh group below them (no merge across the break).
+    expect(after[0].entries.map(e => (e as { seq?: number }).seq)).toEqual([98, 99])
+    expect(after[1].entries[0]).toMatchObject({ seq: 100 })
+    // Boundary group id carried (firstK match) -> virtualizer key stable ->
+    // native anchor finds it and compensates by its start shift.
+    expect(after[1].id).toBe(boundaryId)
+  })
+
+  it('without a break, the same prepend merges into the boundary group (the bug shape)', () => {
+    const tail = [asst(100, 'boundary turn'), usr(101, 'reply')]
+    const { result, rerender } = renderHook(
+      ({ entries, signal }) => useIncrementalGroups(entries, undefined, signal, undefined),
+      { initialProps: { entries: tail, signal: 100 } },
+    )
+    expect(result.current.groups).toHaveLength(2)
+    rerender({ entries: [asst(98, 'older'), asst(99, 'older2'), ...tail], signal: 98 })
+    // Documents the merge behavior the break exists to prevent.
+    expect(result.current.groups[0].entries.map(e => (e as { seq?: number }).seq)).toEqual([98, 99, 100])
+  })
+})

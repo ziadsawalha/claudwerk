@@ -282,6 +282,10 @@ export const TranscriptView = memo(function TranscriptView({
   // the derived index just decrements -- windowed stays a pure tail-append and
   // grouping stays on the cheap incremental path. null = no window (show all).
   const [windowAnchorSeq, setWindowAnchorSeq] = useState<number | null>(() => defaultAnchorSeq(entries))
+  // Forced group-break seqs, one per backfill boundary (see loadEarlier below).
+  // Per-conversation; cleared on switch. Mutated in place BEFORE the anchor
+  // state change that triggers the regroup, so grouping reads it fresh.
+  const backfillBreaksRef = useRef<Set<number>>(new Set())
   const prevCacheKeyRef = useRef(cacheKey)
   // True once we've sized the window against a NON-EMPTY transcript for the
   // current cacheKey. A cold switch (MISS) opens the conversation with entries=[]
@@ -306,6 +310,7 @@ export const TranscriptView = memo(function TranscriptView({
     // (null for a MISS; the real default anchor for a HIT).
     prevCacheKeyRef.current = cacheKey
     windowInitRef.current = entries.length > 0
+    backfillBreaksRef.current = new Set()
     setWindowAnchorSeq(defaultAnchorSeq(entries))
   } else if (!windowInitRef.current && entries.length > 0) {
     // Cold-open transcript just arrived (MISS -> fetch). Size the window now.
@@ -362,7 +367,7 @@ export const TranscriptView = memo(function TranscriptView({
   const cacheKeyRef = useRef(cacheKey)
   cacheKeyRef.current = cacheKey
 
-  const { getResult, groups } = useIncrementalGroups(windowed, cacheKey, regroupSignal)
+  const { getResult, groups } = useIncrementalGroups(windowed, cacheKey, regroupSignal, backfillBreaksRef.current)
 
   // Lift the per-group display settings ONCE (shared, virtualizer-agnostic).
   const transcriptSettings = useTranscriptSettings()
@@ -662,7 +667,13 @@ export const TranscriptView = memo(function TranscriptView({
   // Refine the per-entry height average from currently-measured REAL groups
   // (exclude the synthetic spacer + live slot). Drives the scrollback spacer's
   // reserved height; one-frame lag is fine (the spacer is an estimate).
-  if (reserveScrollback) {
+  // FROZEN while scrolled back (follow off): the avg swings wildly with the
+  // visible group mix (observed 60->357 px/entry in one session), and every
+  // swing resizes a 20k-120k px spacer ABOVE the reader -- a scrollHeight
+  // earthquake under their feet. While reading history, only olderCount may
+  // move the spacer (prepends, compensated by the native anchor); the avg
+  // re-calibrates when the user is back at the bottom.
+  if (reserveScrollback && follow) {
     let hSum = 0
     let eSum = 0
     for (const g of renderGroups) {
@@ -834,21 +845,37 @@ export const TranscriptView = memo(function TranscriptView({
 
   // "Load earlier": prepend a chunk of older entries from the local window.
   // Scroll stability on prepend is handled natively by anchorTo:'end' (see the
-  // PREPEND STABILITY note above) -- the count change keeps the viewport-top item
-  // pinned, so revealing older entries does not move what you are reading.
+  // PREPEND STABILITY note above) -- BUT native anchoring is ITEM-granular: it
+  // compensates by the anchored item's start shift, so a prepend that MERGES
+  // into the head of the reader's (giant) boundary group moves nothing it can
+  // see and the content slides under the reader uncompensated (2026-06-10:
+  // 8000px slide -> view lands at the top -> nearTop re-fires -> backfill loop).
+  // registerBackfillBreak forces the boundary entry to START A NEW GROUP, so
+  // prepended entries always form separate items ABOVE the anchored one.
+  const registerBackfillBreak = useCallback((seq: number | undefined) => {
+    if (seq === undefined || backfillBreaksRef.current.has(seq)) return
+    if (backfillBreaksRef.current.size >= 128) backfillBreaksRef.current.clear()
+    backfillBreaksRef.current.add(seq)
+    console.debug(`[window] backfill-break seq=${seq} (total=${backfillBreaksRef.current.size})`)
+  }, [])
   const loadEarlier = useCallback(() => {
     const ents = entriesRef.current
+    // The current top-visible entry becomes a forced group boundary.
+    registerBackfillBreak(ents[windowStartRef.current]?.seq)
     const newStart = Math.max(0, windowStartRef.current - LOAD_CHUNK)
     // Move the anchor to the newly-revealed boundary entry (null = reached the
     // top, show all). Derived windowStart re-resolves from this on the next render.
     setWindowAnchorSeq(newStart <= 0 ? null : (ents[newStart]?.seq ?? null))
-  }, [])
+  }, [registerBackfillBreak])
 
   // Infinite scrollback: fetch older entries from the broker.
   const fetchOlder = useCallback(() => {
     const cid = cacheKeyRef.current
     const oldestSeq = entriesRef.current[0]?.seq
     if (!cid || oldestSeq === undefined || oldestSeq <= 1) return
+    // The current oldest entry becomes a forced group boundary -- the fetched
+    // entries prepend ABOVE it as their own groups.
+    registerBackfillBreak(oldestSeq)
     fetchingOlderRef.current = true
     fetchTranscriptBefore(cid, oldestSeq, LOAD_CHUNK)
       .then(res => {
@@ -860,7 +887,7 @@ export const TranscriptView = memo(function TranscriptView({
       .catch(() => {
         fetchingOlderRef.current = false
       })
-  }, [])
+  }, [registerBackfillBreak])
 
   // Scroll handler: auto-load older entries on scroll-up.
   useEffect(() => {

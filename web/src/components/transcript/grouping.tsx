@@ -218,7 +218,22 @@ function getGroupingCache(key: string): GroupingCache {
 // the incremental path (slice(cache.len) == tail) would mis-group. Streaming
 // (window start unchanged) leaves the signal stable, so tail append stays
 // incremental. Undefined for callers that never window (e.g. subagent view).
-export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: string | null, resetSignal?: unknown) {
+// `breakSeqs` (optional): entry seqs where a NEW group must start regardless of
+// merge rules. The transcript view registers each backfill boundary here so a
+// prepend forms SEPARATE virtualizer items above the reader instead of merging
+// into the head of the existing boundary group. Native anchorTo:'end' prepend
+// anchoring is ITEM-granular -- it compensates scrollOffset by the anchored
+// item's start shift, so growth INSIDE the anchored item is invisible to it
+// (observed 2026-06-10: a 100-entry backfill merged into a giant group slid
+// 8000px of content under the reader with zero compensation, teleporting the
+// view to the top and re-triggering the backfill). The set is mutated in place
+// by the caller right before it changes resetSignal, so it needs no memo dep.
+export function useIncrementalGroups(
+  entries: TranscriptEntry[],
+  cacheKey?: string | null,
+  resetSignal?: unknown,
+  breakSeqs?: Set<number>,
+) {
   // Per-instance fallback used when cacheKey is null/undefined (no shared
   // cache slot to point at). Created lazily and reused across renders of the
   // same hook instance, so a keyless view (e.g. subagent transcript) is
@@ -330,6 +345,9 @@ export function useIncrementalGroups(entries: TranscriptEntry[], cacheKey?: stri
       pendingSkillName: cache.pendingSkillName,
     }
     for (const entry of newEntries) {
+      // Forced group break at a backfill boundary (see breakSeqs doc above).
+      const seq = (entry as { seq?: number }).seq
+      if (breakSeqs?.size && seq !== undefined && breakSeqs.has(seq)) state.current = null
       processEntry(entry, state)
     }
     lastGroup = state.current
