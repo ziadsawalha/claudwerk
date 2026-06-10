@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { resolveContextWindow } from './context-window'
-import { ALL_CC_SLUGS, isDefault1MFamily, resolveModelFamily, validateModel } from './models'
+import { ALL_CC_SLUGS, canonicalizeModelSlug, isDefault1MFamily, resolveModelFamily, validateModel } from './models'
+import { resolveSpawnConfig } from './spawn-defaults'
 import { MODEL_OPTION_GROUPS } from './spawn-schema'
 
 describe('Fable 5 / Mythos 5 registry', () => {
@@ -61,6 +62,38 @@ describe('Fable 5 / Mythos 5 registry', () => {
   test('Fable lands in the Current dropdown group as the `fable` alias', () => {
     const current = MODEL_OPTION_GROUPS.find(g => g.group === 'Current')
     expect(current?.options.some(o => o.value === 'fable')).toBe(true)
+  })
+})
+
+describe('bare `mythos` shorthand (claudewerk-only alias)', () => {
+  test('canonicalizeModelSlug expands mythos -> claude-mythos-5 (case-insensitive)', () => {
+    expect(canonicalizeModelSlug('mythos')).toBe('claude-mythos-5')
+    expect(canonicalizeModelSlug('MYTHOS')).toBe('claude-mythos-5')
+  })
+
+  test('canonicalizeModelSlug passes non-aliases + undefined through unchanged', () => {
+    expect(canonicalizeModelSlug('claude-mythos-5')).toBe('claude-mythos-5')
+    expect(canonicalizeModelSlug('fable')).toBe('fable') // real CC alias, not ours
+    expect(canonicalizeModelSlug('claude-opus-4-8')).toBe('claude-opus-4-8')
+    expect(canonicalizeModelSlug(undefined)).toBeUndefined()
+  })
+
+  test('mythos validates, resolves to the Mythos family, and is 1M', () => {
+    expect(ALL_CC_SLUGS).toContain('mythos')
+    expect(validateModel('mythos').valid).toBe(true)
+    expect(resolveModelFamily('mythos')?.familyId).toBe('claude-mythos-5')
+    expect(resolveContextWindow('mythos')).toBe(1_000_000)
+  })
+
+  test('resolveSpawnConfig expands a `mythos` model to claude-mythos-5', () => {
+    expect(resolveSpawnConfig({ model: 'mythos' }).model).toBe('claude-mythos-5')
+    // a real CC alias is left untouched (auto-tracks latest)
+    expect(resolveSpawnConfig({ model: 'fable' }).model).toBe('fable')
+  })
+
+  test('Mythos 5 is offered in the Current dropdown group', () => {
+    const current = MODEL_OPTION_GROUPS.find(g => g.group === 'Current')
+    expect(current?.options.some(o => o.value === 'claude-mythos-5')).toBe(true)
   })
 })
 

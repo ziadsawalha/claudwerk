@@ -5,8 +5,21 @@
  * PTY writes raw slash commands into CC's CLI input layer.
  */
 
+import { canonicalizeModelSlug } from '../shared/models'
 import type { AgentHostContext } from './agent-host-context'
 import { beginLaunch, emitLaunchEvent } from './launch-events'
+
+type ControlArgs = { model?: string; effort?: string; permissionMode?: string; source?: string }
+
+/**
+ * Expand claudewerk-only model aliases (e.g. `mythos` -> claude-mythos-5) before
+ * either backend writes the slug to CC, which doesn't resolve them. Only
+ * set_model carries a model; every other action passes through untouched.
+ */
+function canonicalizeControlArgs(action: string, args: ControlArgs): ControlArgs {
+  if (action !== 'set_model' || !args.model) return args
+  return { ...args, model: canonicalizeModelSlug(args.model) }
+}
 
 /**
  * Execute a control action against the local CC process.
@@ -15,13 +28,14 @@ import { beginLaunch, emitLaunchEvent } from './launch-events'
 export function executeControl(
   ctx: AgentHostContext,
   action: 'clear' | 'quit' | 'interrupt' | 'set_model' | 'set_effort' | 'set_permission_mode',
-  args: { model?: string; effort?: string; permissionMode?: string; source?: string } = {},
+  args: ControlArgs = {},
 ): boolean {
   const source = args.source || 'unknown'
+  const resolved = canonicalizeControlArgs(action, args)
   if (ctx.headless) {
-    return executeHeadlessControl(ctx, action, args, source)
+    return executeHeadlessControl(ctx, action, resolved, source)
   }
-  return executePtyControl(ctx, action, args, source)
+  return executePtyControl(ctx, action, resolved, source)
 }
 
 function executeHeadlessControl(

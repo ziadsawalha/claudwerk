@@ -12,6 +12,7 @@
  */
 
 import type { LaunchProfile } from './launch-profile'
+import { canonicalizeModelSlug } from './models'
 import type { SpawnRequest } from './spawn-schema'
 
 export type DefaultsSource = {
@@ -141,9 +142,12 @@ export function resolveSpawnConfig(
   global?: DefaultsSource | null,
   profile?: DefaultsSource | null,
 ): ResolvedSpawnConfig {
-  const model = pickString(partial.model, profile?.defaultModel, project?.defaultModel, global?.defaultModel) as
-    | SpawnRequest['model']
-    | undefined
+  // Expand claudewerk-only aliases (e.g. `mythos` -> claude-mythos-5) here, the
+  // canonical resolver every spawn/revive entry point funnels through, so the
+  // stored + dispatched model is already a CC-resolvable slug.
+  const model = canonicalizeModelSlug(
+    pickString(partial.model, profile?.defaultModel, project?.defaultModel, global?.defaultModel),
+  ) as SpawnRequest['model'] | undefined
   const effort = pickString(partial.effort, profile?.defaultEffort, project?.defaultEffort, global?.defaultEffort) as
     | SpawnRequest['effort']
     | undefined

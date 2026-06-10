@@ -257,15 +257,53 @@ const CC_MODELS: readonly CCModelFamily[] = [
  */
 const DYNAMIC_ALIASES: readonly string[] = ['best', 'opusplan']
 
-/** Every slug CC accepts as a flat array -- drives zod schema validation. */
-export const ALL_CC_SLUGS: readonly string[] = [...CC_MODELS.flatMap(m => m.acceptedSlugs), ...DYNAMIC_ALIASES]
+/**
+ * Claudewerk-only convenience aliases that CC does NOT accept as input. CC's
+ * bare-alias map is exactly `{fable, opus, sonnet, haiku}` -- `mythos` only
+ * appears in a cosmetic codename list there, so `--model mythos` falls through
+ * to a generic `claude` (wrong model). We let users type the short `mythos`
+ * mnemonic and expand it to the Mythos family's full slug via
+ * `canonicalizeModelSlug` at EVERY point a slug is handed to CC (spawn resolve,
+ * runtime /model change). Keys are matched case-insensitively.
+ */
+const CLAUDWERK_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  mythos: 'claude-mythos-5',
+}
+
+/**
+ * Expand a claudewerk-only alias (e.g. `mythos`) to a CC-resolvable slug.
+ * Idempotent; anything that isn't a known alias passes through unchanged. MUST
+ * be applied wherever a model slug crosses into CC, since CC won't resolve our
+ * aliases itself. `undefined` passes through (callers thread optional models).
+ */
+export function canonicalizeModelSlug(slug: string): string
+export function canonicalizeModelSlug(slug: string | undefined): string | undefined
+export function canonicalizeModelSlug(slug: string | undefined): string | undefined {
+  if (!slug) return slug
+  return CLAUDWERK_MODEL_ALIASES[slug.toLowerCase()] ?? slug
+}
+
+/**
+ * Every slug rclaude accepts as a flat array -- drives zod schema validation.
+ * Includes the claudewerk-only alias keys so `mythos` validates; they expand to
+ * a CC slug via `canonicalizeModelSlug` before reaching CC.
+ */
+export const ALL_CC_SLUGS: readonly string[] = [
+  ...CC_MODELS.flatMap(m => m.acceptedSlugs),
+  ...DYNAMIC_ALIASES,
+  ...Object.keys(CLAUDWERK_MODEL_ALIASES),
+]
 
 /** Set of every slug CC accepts -- for fast lookup. */
 const ALL_ACCEPTED_SLUGS: ReadonlySet<string> = new Set(ALL_CC_SLUGS)
 
-/** Find the model family for a given slug (case-insensitive, strips [1m]). */
+/**
+ * Find the model family for a given slug (case-insensitive, strips [1m]).
+ * Expands claudewerk-only aliases first so `mythos` resolves to the Mythos
+ * family (and thus its context window / pricing).
+ */
 export function resolveModelFamily(slug: string): CCModelFamily | undefined {
-  const lower = slug.toLowerCase()
+  const lower = canonicalizeModelSlug(slug).toLowerCase()
   return CC_MODELS.find(m => m.acceptedSlugs.some(s => s.toLowerCase() === lower))
 }
 
@@ -373,7 +411,7 @@ function formatModelError(slug: string): string {
   }
 
   lines.push('')
-  lines.push('  Aliases: opus, sonnet, haiku, fable, best, opusplan')
+  lines.push('  Aliases: opus, sonnet, haiku, fable, mythos, best, opusplan')
   return lines.join('\n')
 }
 
@@ -408,13 +446,14 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
     showInCompleter: true,
   },
   {
-    // Mythos is the underlying class label for Fable 5 -- same limits. Kept
-    // completer-only (typeable) so it doesn't double up Fable in the dropdown.
+    // Mythos is the underlying class label for Fable 5 -- same limits. Shown in
+    // the dropdown alongside Fable; the bare `mythos` mnemonic (typeable) maps
+    // here via canonicalizeModelSlug since CC won't resolve bare `mythos`.
     id: 'claude-mythos-5',
     label: 'Mythos 5',
     info: 'Mythos 5 · 1M default · 128K output (class label for Fable 5)',
     window: 1_000_000,
-    showInDropdown: false,
+    showInDropdown: true,
     showInCompleter: true,
   },
 
