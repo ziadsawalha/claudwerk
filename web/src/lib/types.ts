@@ -21,6 +21,7 @@ export type {
 import type {
   AgentHostCapability,
   BgTaskInfo as BgTaskSummary,
+  ConversationTaskFields,
   LaunchConfig,
   MonitorInfo,
   ProjectSettings,
@@ -48,8 +49,11 @@ export function canShell(s: Conversation): boolean {
   return s.status !== 'ended' && !!s.shellCapable
 }
 
-// Client-side conversation model (derived from SessionSummary wire format with defaults applied)
-export interface Conversation {
+// Client-side conversation model (derived from SessionSummary wire format with defaults applied).
+// Task fields live in the shared ConversationTaskFields (single source of truth with the broker
+// wire type). The web builder in use-websocket-handlers.ts defaults every one of them
+// (`?? 0` / `?? []`), so they are always populated -- hence required here, not optional.
+export interface Conversation extends ConversationTaskFields {
   id: string
   project: string
   /** Live working directory CC is using right now. `project` stays pinned to the
@@ -86,15 +90,9 @@ export interface Conversation {
     eventCount: number
     tokenUsage?: { totalInput: number; totalOutput: number; cacheCreation: number; cacheRead: number }
   }>
-  taskCount: number
-  pendingTaskCount: number
-  activeTasks: Array<{ id: string; subject: string }>
-  pendingTasks: Array<{ id: string; subject: string }>
-  completedTaskCount?: number
-  completedTasks?: Array<{ id: string; subject: string }>
-  archivedTaskCount?: number
-  archivedTasks?: Array<{ id: string; subject: string }>
-  taskSubjects?: Record<string, string>
+  // taskCount / pendingTaskCount / activeTasks / pendingTasks / completedTaskCount /
+  // completedTasks / archivedTaskCount / archivedTasks / taskSubjects come from
+  // ConversationTaskFields (shared with the broker ConversationSummary wire type).
   runningBgTaskCount: number
   bgTasks: BgTaskSummary[]
   monitors?: MonitorInfo[]

@@ -4015,8 +4015,28 @@ export interface SentinelStatus {
   connected: boolean
 }
 
+// Foreground-task fields shared by the broker wire type (ConversationSummary)
+// and the web client model (Conversation). Those two interfaces are hand-mirrored
+// across two separate TS builds with no shared runtime package, so the whole
+// Conversation shape is duplicated on purpose. The task block is the one slice
+// worth centralising: pulling it into a single referenced interface keeps both
+// sides in lockstep AND stops it re-surfacing as a fallow cross-file duplication
+// clone on every future edit to the region. `{ id: string; subject: string }` is
+// the minimal task-ref the card carries (a narrower view than TaskInfo).
+export interface ConversationTaskFields {
+  taskCount: number
+  pendingTaskCount: number
+  activeTasks: Array<{ id: string; subject: string }>
+  pendingTasks: Array<{ id: string; subject: string }>
+  completedTaskCount: number
+  completedTasks: Array<{ id: string; subject: string }>
+  archivedTaskCount: number
+  archivedTasks?: Array<{ id: string; subject: string }>
+  taskSubjects?: Record<string, string>
+}
+
 // Conversation summary: broker -> dashboard wire format
-export interface ConversationSummary {
+export interface ConversationSummary extends ConversationTaskFields {
   id: string
   project: string
   /** Live working directory the agent is in now (worktree, sub-project, cd).
@@ -4047,15 +4067,9 @@ export interface ConversationSummary {
     eventCount: number
     tokenUsage?: { totalInput: number; totalOutput: number; cacheCreation: number; cacheRead: number }
   }>
-  taskCount: number
-  pendingTaskCount: number
-  activeTasks: Array<{ id: string; subject: string }>
-  pendingTasks: Array<{ id: string; subject: string }>
-  completedTaskCount: number
-  completedTasks: Array<{ id: string; subject: string }>
-  archivedTaskCount: number
-  archivedTasks?: Array<{ id: string; subject: string }>
-  taskSubjects?: Record<string, string>
+  // taskCount / pendingTaskCount / activeTasks / pendingTasks /
+  // completedTaskCount / completedTasks / archivedTaskCount / archivedTasks /
+  // taskSubjects come from ConversationTaskFields (shared with web Conversation).
   runningBgTaskCount: number
   bgTasks: Array<{
     taskId: string

@@ -81,6 +81,8 @@ function injectConversation(overview: Record<string, unknown>) {
     pendingTaskCount: 0,
     activeTasks: [],
     pendingTasks: [],
+    completedTaskCount: 0,
+    completedTasks: [],
     archivedTaskCount: 0,
     archivedTasks: [],
     runningBgTaskCount: 0,
