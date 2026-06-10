@@ -27,7 +27,8 @@ const SEED_SPECS: SeedSpec[] = [
     icon: 'Zap',
     color: 'success',
     chord: 's',
-    spawn: { backend: 'claude', model: 'claude-haiku-4-5', effort: 'low', headless: true },
+    // Bare CC aliases auto-track the latest build -- no pinned slug to bump.
+    spawn: { backend: 'claude', model: 'haiku', effort: 'low', headless: true },
   },
   {
     idSlug: 'seed-opus',
@@ -36,7 +37,7 @@ const SEED_SPECS: SeedSpec[] = [
     icon: 'Brain',
     color: 'primary',
     chord: 'o',
-    spawn: { backend: 'claude', model: 'claude-opus-4-8', effort: 'high', headless: true },
+    spawn: { backend: 'claude', model: 'opus', effort: 'high', headless: true },
   },
   {
     idSlug: 'seed-sonnet-pty',
@@ -45,7 +46,7 @@ const SEED_SPECS: SeedSpec[] = [
     icon: 'Terminal',
     color: 'info',
     chord: 'p',
-    spawn: { backend: 'claude', model: 'claude-sonnet-4-6', effort: 'medium', headless: false },
+    spawn: { backend: 'claude', model: 'sonnet', effort: 'medium', headless: false },
   },
 ]
 

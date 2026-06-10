@@ -64,6 +64,12 @@ export interface CCModelFamily {
   tier: ModelTier
   /** All input slugs CC accepts that resolve to this family. */
   acceptedSlugs: string[]
+  /**
+   * Static list price (USD per million tokens) used ONLY as a fallback when
+   * LiteLLM has not yet published this model -- e.g. a model released today.
+   * The live LiteLLM value always wins once it lands. Set for brand-new models.
+   */
+  fallbackPriceUsdPerMTok?: { input: number; output: number }
 }
 
 export type ModelTier = 'current' | 'previous' | 'legacy'
@@ -86,6 +92,8 @@ const CC_MODELS: readonly CCModelFamily[] = [
     default1M: true,
     tier: 'current',
     acceptedSlugs: ['claude-fable-5', 'claude-fable-5[1m]', 'fable', 'fable[1m]'],
+    // Anthropic launch pricing (2026-06-10). Fallback until LiteLLM publishes it.
+    fallbackPriceUsdPerMTok: { input: 10, output: 50 },
   },
   {
     familyId: 'claude-mythos-5',
@@ -98,6 +106,8 @@ const CC_MODELS: readonly CCModelFamily[] = [
     default1M: true,
     tier: 'current',
     acceptedSlugs: ['claude-mythos-5', 'claude-mythos-preview'],
+    // Same Mythos-class pricing as Fable 5.
+    fallbackPriceUsdPerMTok: { input: 10, output: 50 },
   },
   {
     familyId: 'claude-opus-4-8',
@@ -108,8 +118,9 @@ const CC_MODELS: readonly CCModelFamily[] = [
     default1M: true,
     tier: 'current',
     // CC v2.1.170 maps the bare `opus` alias to this family
-    // (i8_={opus:"claude-opus-4-8",...} in the binary).
-    acceptedSlugs: ['claude-opus-4-8', 'claude-opus-4-8[1m]', 'opus'],
+    // (i8_={opus:"claude-opus-4-8",...} in the binary). `opus[1m]` is a valid
+    // bare alias in CC's alias array ($NH) -- include it so it validates + resolves.
+    acceptedSlugs: ['claude-opus-4-8', 'claude-opus-4-8[1m]', 'opus', 'opus[1m]'],
   },
   {
     familyId: 'claude-opus-4-7',
@@ -139,7 +150,8 @@ const CC_MODELS: readonly CCModelFamily[] = [
     supports1M: true,
     default1M: false,
     tier: 'current',
-    acceptedSlugs: ['claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'sonnet'],
+    // `sonnet[1m]` is a valid bare alias in CC's alias array ($NH).
+    acceptedSlugs: ['claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'sonnet', 'sonnet[1m]'],
   },
   {
     familyId: 'claude-haiku-4-5',
@@ -374,15 +386,21 @@ function formatModelError(slug: string): string {
 /**
  * Authoritative model catalog for UI. Ordered the way they appear in the dropdown.
  *
- * The "latest" aliases at the top are pinned to the current 1M-capable build
- * on purpose -- CC's bare `sonnet` alias still resolves to 200K today, and we
- * want picking "Sonnet (latest)" from our UI to unambiguously mean 1M.
- * Bump the pinned id when Anthropic releases a newer one.
+ * The "latest" rows USE CC's bare aliases (`fable`, `opus[1m]`, `haiku`) so they
+ * auto-track Anthropic's newest build with no maintenance -- no more "bump the
+ * pinned id" when a new model ships. Safe because the agent host upgrades a stored
+ * alias to the resolved family id at runtime (`deriveModelName`), and default-1M
+ * families (opus/fable) stay 1M either way.
+ *
+ * EXCEPTION: Sonnet's "latest, 1M" row stays pinned to `claude-sonnet-4-6[1m]`.
+ * Sonnet 1M is opt-in (not default-1M), and `deriveModelName` would drop a bare
+ * `sonnet[1m]` back to the 200K family id -- the qualified slug must survive.
  */
 const MODEL_CATALOG: readonly ModelEntry[] = [
   // --- Current flagship: Fable 5 (Mythos-class, default 1M) ---
   {
-    id: 'claude-fable-5',
+    // Bare `fable` alias -> claude-fable-5 (auto-tracks the latest Fable build).
+    id: 'fable',
     label: 'Fable 5',
     info: 'Fable 5 · 1M default · 128K output',
     window: 1_000_000,
@@ -402,7 +420,8 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
 
   // --- "Latest" aliases: prominent, explicit 1M where supported ---
   {
-    id: 'claude-opus-4-8[1m]',
+    // Bare `opus[1m]` alias -> claude-opus-4-8 (1M). Auto-tracks the latest Opus.
+    id: 'opus[1m]',
     label: 'Opus (latest, 1M)',
     info: 'Opus 4.8 · 1M · 128K output',
     window: 1_000_000,
@@ -422,7 +441,8 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
     showInCompleter: true,
   },
   {
-    id: 'claude-haiku-4-5-20251001',
+    // Bare `haiku` alias -> latest Haiku (200K). Auto-tracks.
+    id: 'haiku',
     label: 'Haiku (latest)',
     info: 'Haiku 4.5 · 200K · 64K output',
     window: 200_000,
@@ -548,15 +568,9 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
     showInCompleter: true,
   },
 
-  // --- Bare CC aliases ---
-  {
-    id: 'fable',
-    label: 'fable',
-    info: 'CC alias -> Fable 5 (1M default)',
-    window: 1_000_000,
-    showInDropdown: false,
-    showInCompleter: true,
-  },
+  // --- Bare CC aliases (rows whose alias isn't already a "latest" row above) ---
+  // `fable` and `haiku` are the ids of the flagship/latest rows above, so they
+  // are not repeated here.
   {
     id: 'best',
     label: 'best',
@@ -585,14 +599,6 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
     id: 'sonnet',
     label: 'sonnet',
     info: 'CC alias -> Sonnet 4.6 (200K)',
-    window: 200_000,
-    showInDropdown: false,
-    showInCompleter: true,
-  },
-  {
-    id: 'haiku',
-    label: 'haiku',
-    info: 'CC alias -> Haiku 4.5 (200K)',
     window: 200_000,
     showInDropdown: false,
     showInCompleter: true,

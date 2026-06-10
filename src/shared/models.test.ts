@@ -41,19 +41,39 @@ describe('Fable 5 / Mythos 5 registry', () => {
     expect(resolveContextWindow('claude-opus-4-5')).toBe(200_000)
   })
 
-  test('validation accepts Fable + dynamic meta-aliases', () => {
+  test('validation accepts Fable + every bare/meta alias CC ships', () => {
     expect(validateModel('claude-fable-5').valid).toBe(true)
-    expect(validateModel('fable').valid).toBe(true)
-    expect(validateModel('best').valid).toBe(true)
-    expect(validateModel('opusplan').valid).toBe(true)
     expect(validateModel('claude-bogus-9').valid).toBe(false)
-    for (const slug of ['fable', 'fable[1m]', 'best', 'opusplan']) {
+    // The full CC bare-alias set ($NH in the binary) all validate.
+    for (const slug of ['fable', 'fable[1m]', 'opus[1m]', 'sonnet[1m]', 'best', 'opusplan']) {
+      expect(validateModel(slug).valid).toBe(true)
       expect(ALL_CC_SLUGS).toContain(slug)
     }
   })
 
-  test('Fable lands in the Current dropdown group', () => {
+  test('the [1m] aliases resolve to their family + 1M window', () => {
+    expect(resolveModelFamily('opus[1m]')?.familyId).toBe('claude-opus-4-8')
+    expect(resolveModelFamily('sonnet[1m]')?.familyId).toBe('claude-sonnet-4-6')
+    expect(resolveContextWindow('opus[1m]')).toBe(1_000_000)
+    expect(resolveContextWindow('sonnet[1m]')).toBe(1_000_000)
+  })
+
+  test('Fable lands in the Current dropdown group as the `fable` alias', () => {
     const current = MODEL_OPTION_GROUPS.find(g => g.group === 'Current')
-    expect(current?.options.some(o => o.value === 'claude-fable-5')).toBe(true)
+    expect(current?.options.some(o => o.value === 'fable')).toBe(true)
+  })
+})
+
+describe('registry pricing fallback', () => {
+  test('Fable/Mythos price from CC_MODELS when LiteLLM is empty', async () => {
+    // initModelPricing has not run in this test, so the LiteLLM map is empty --
+    // getModelInfo must fall back to the registry launch price ($10/$50 per MTok).
+    const { getModelInfo } = await import('../broker/model-pricing')
+    const fable = getModelInfo('claude-fable-5')
+    expect(fable?.inputCostPerToken).toBe(10 / 1_000_000)
+    expect(fable?.outputCostPerToken).toBe(50 / 1_000_000)
+    expect(getModelInfo('claude-mythos-5')?.outputCostPerToken).toBe(50 / 1_000_000)
+    // a model with no fallback price + not in LiteLLM => undefined (unchanged)
+    expect(getModelInfo('claude-opus-4-8')).toBeUndefined()
   })
 })

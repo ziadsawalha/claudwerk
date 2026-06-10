@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { resolveModelFamily } from '../shared/models'
 
 const LITELLM_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
 const CACHE_FILENAME = 'litellm-pricing.json'
@@ -119,6 +120,19 @@ export function getModelInfo(modelName: string): ModelInfo | undefined {
   const lower = modelName.toLowerCase()
   for (const [name, info] of Object.entries(models)) {
     if (lower.includes(name) || name.includes(lower)) return info
+  }
+
+  // Registry fallback: a model released today is absent from LiteLLM for days.
+  // Use the static launch price from CC_MODELS so cost isn't $0 in the gap. The
+  // live LiteLLM value wins above once it lands (exact/stripped/fuzzy match).
+  const fam = resolveModelFamily(modelName)
+  if (fam?.fallbackPriceUsdPerMTok) {
+    return {
+      maxInputTokens: fam.default1M ? 1_000_000 : 200_000,
+      maxOutputTokens: fam.maxOutputTokens,
+      inputCostPerToken: fam.fallbackPriceUsdPerMTok.input / 1_000_000,
+      outputCostPerToken: fam.fallbackPriceUsdPerMTok.output / 1_000_000,
+    }
   }
 
   return undefined
