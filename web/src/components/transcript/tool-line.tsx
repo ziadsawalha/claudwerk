@@ -2,12 +2,13 @@ import { memo, type ReactNode } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { resolveToolDisplay, type ToolDisplayKey } from '@/lib/control-panel-prefs'
 import { ensureCanonical } from '@/lib/legacy-to-canonical'
-import { projectPath, type TranscriptContentBlock } from '@/lib/types'
+import type { TranscriptContentBlock } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { JsonInspector } from '../json-inspector'
 import { Collapsible, getToolStyle } from './shared'
 import type { ToolCaseInput } from './tool-case-types'
 import { dispatchToolCase, renderErrorFallback, renderPersistedOutput } from './tool-dispatch'
+import { useConversationPath } from './use-conversation-path'
 
 function isDockerfileOperation(input: Record<string, unknown>): boolean {
   const filePath = input.path as string | undefined
@@ -47,12 +48,7 @@ export function ToolLine({
   const toolDefaultOpen = useConversationsStore(
     state => resolveToolDisplay(state.controlPanelPrefs, displayKey as ToolDisplayKey).defaultOpen,
   )
-  const conversationPath = useConversationsStore(s => {
-    if (s.controlPanelPrefs.sanitizePaths === false) return undefined
-    const sid = s.selectedConversationId
-    const conversation = sid ? s.conversationsById[sid] : undefined
-    return conversation ? projectPath(conversation.project) : undefined
-  })
+  const conversationPath = useConversationPath()
   // Resolve the inline-rendered subagent's id with a NARROW selector that
   // returns the agentId STRING (or undefined for non-Agent tools / no match).
   // A primitive return means this subscription only re-renders the row when

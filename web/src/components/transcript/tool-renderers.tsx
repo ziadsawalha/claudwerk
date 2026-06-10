@@ -8,22 +8,13 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import JsonHighlight from '@/components/json-highlight'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { resolveToolDisplay, type ToolDisplayKey } from '@/lib/control-panel-prefs'
-import { projectPath } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { AnsiText, cleanCdPrefix, cleanReplShCalls, escapeHtml, TruncatedPre } from './shared'
-import { ensureLang, getHighlighter, langFromPath } from './syntax'
+import { computeDiffHighlight, diffHighlightKey, getCachedDiffHighlight } from './diff-highlight'
+import { AnsiText, cleanCdPrefix, cleanReplShCalls, TruncatedPre } from './shared'
+import { langFromPath } from './syntax'
 import { patchesEqual } from './tool-renderers-utils'
-
-// Single selector: returns project path if sanitizePaths is enabled, undefined otherwise.
-// Returns a primitive (string|undefined) so Zustand skips re-renders when the value is stable.
-function useConversationPath(): string | undefined {
-  return useConversationsStore(s => {
-    if (s.controlPanelPrefs.sanitizePaths === false) return undefined
-    const sid = s.selectedConversationId
-    const conversation = sid ? s.conversationsById[sid] : undefined
-    return conversation ? projectPath(conversation.project) : undefined
-  })
-}
+import { useBlockHighlight } from './use-block-highlight'
+import { useConversationPath } from './use-conversation-path'
 
 interface DiffLine {
   prefix: string
@@ -89,57 +80,39 @@ export const DiffView = memo(
     patches: Array<{ oldStart: number; lines: string[] }>
     filePath?: string
   }) {
-    const [highlighted, setHighlighted] = useState<Map<string, string> | null>(null)
+    const lang = filePath ? langFromPath(filePath) : undefined
+    const cacheKey = useMemo(
+      () => (lang && patches.length > 0 ? diffHighlightKey(lang, patches) : null),
+      [lang, patches],
+    )
+    // Seed synchronously from the content-keyed cache: a REMOUNT (virtualizer
+    // key change, e.g. the live-slot swap at turn end) then paints colored on
+    // its first frame instead of flashing plain -> colored through the async
+    // tokenize round-trip.
+    const [highlighted, setHighlighted] = useState<Map<string, string> | null>(() =>
+      cacheKey ? (getCachedDiffHighlight(cacheKey) ?? null) : null,
+    )
     const [revealed, setRevealed] = useState(false)
     const prefs = useConversationsStore(s => s.controlPanelPrefs)
     const limit = resolveToolDisplay(prefs, 'Edit').lineLimit
 
     useEffect(() => {
-      const lang = filePath ? langFromPath(filePath) : undefined
-      if (!lang) return
-      if (patches.length === 0) return
-
-      ensureLang(lang)
-        .then(async ok => {
-          if (!ok) return
-          const highlighter = await getHighlighter()
-          const lineMap = new Map<string, string>()
-          // Highlight each patch separately, and within a patch run TWO passes:
-          // one over (context + removed) lines and one over (context + added) lines.
-          // Mixing +/- lines or concatenating across hunks creates syntactically
-          // broken code that shiki's tokenizer can't recover from (e.g. a stray
-          // unterminated string makes it emit the rest as one plain token).
-          const runPass = (lines: string[]) => {
-            if (lines.length === 0) return
-            try {
-              const tokens = highlighter.codeToTokens(lines.join('\n'), { lang, theme: 'tokyo-night' })
-              for (let i = 0; i < tokens.tokens.length; i++) {
-                const lineTokens = tokens.tokens[i] as Array<{ color?: string; content: string }>
-                const html = lineTokens
-                  .map(t => `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`)
-                  .join('')
-                lineMap.set(lines[i], html)
-              }
-            } catch {
-              // skip -- line stays plain
-            }
-          }
-          for (const patch of patches) {
-            const beforeLines: string[] = []
-            const afterLines: string[] = []
-            for (const line of patch.lines) {
-              const prefix = line[0]
-              const content = line.slice(1)
-              if (prefix === ' ' || prefix === '-') beforeLines.push(content)
-              if (prefix === ' ' || prefix === '+') afterLines.push(content)
-            }
-            runPass(beforeLines)
-            runPass(afterLines)
-          }
-          setHighlighted(lineMap)
+      if (!cacheKey || !lang) return
+      const cached = getCachedDiffHighlight(cacheKey)
+      if (cached) {
+        setHighlighted(prev => (prev === cached ? prev : cached))
+        return
+      }
+      let alive = true
+      computeDiffHighlight(cacheKey, lang, patches)
+        .then(map => {
+          if (alive && map) setHighlighted(map)
         })
         .catch(() => {})
-    }, [patches, filePath])
+      return () => {
+        alive = false
+      }
+    }, [cacheKey, lang, patches])
 
     const allLines = useMemo(() => buildDiffLines(patches), [patches])
     const totalLines = allLines.length
@@ -347,31 +320,13 @@ function stripLeadingComment(cmd: string): string {
 
 // Syntax-highlighted shell command block (max 10 lines by default)
 export function ShellCommand({ command, maxLines = 10 }: { command: string; maxLines?: number }) {
-  const [html, setHtml] = useState<string | null>(null)
   const root = useConversationPath()
   const stripped = stripLeadingComment(command)
   const cleaned = root ? cleanCdPrefix(stripped, root) : stripped
   const lines = cleaned.split('\n')
   const truncated = lines.length > maxLines
   const display = truncated ? lines.slice(0, maxLines).join('\n') : cleaned
-
-  useEffect(() => {
-    getHighlighter()
-      .then(highlighter => {
-        try {
-          const tokens = highlighter.codeToTokens(display, { lang: 'shellscript', theme: 'tokyo-night' })
-          const highlighted = tokens.tokens
-            .map((lineTokens: Array<{ color?: string; content: string }>) =>
-              lineTokens.map(t => `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`).join(''),
-            )
-            .join('\n')
-          setHtml(highlighted)
-        } catch {
-          // Fall back to plain
-        }
-      })
-      .catch(() => {})
-  }, [display])
+  const html = useBlockHighlight('shellscript', display)
 
   return (
     <pre className="text-[10px] bg-black/30 p-2 overflow-auto whitespace-pre-wrap font-mono border-l-2 border-green-500/40">
@@ -392,7 +347,6 @@ export function ShellCommand({ command, maxLines = 10 }: { command: string; maxL
 
 // Syntax-highlighted preview for Write operations
 export function WritePreview({ content, filePath }: { content: string; filePath?: string }) {
-  const [html, setHtml] = useState<string | null>(null)
   const [revealed, setRevealed] = useState(false)
   const writePrefs = useConversationsStore(s => s.controlPanelPrefs)
   const writeDisplay = resolveToolDisplay(writePrefs, 'Write')
@@ -400,29 +354,7 @@ export function WritePreview({ content, filePath }: { content: string; filePath?
   const truncated = content.length > 3000 ? content.slice(0, 3000) : content
   const lines = truncated.split('\n')
   const lineTruncate = limit > 0 && lines.length > limit && !revealed
-
-  useEffect(() => {
-    const lang = filePath ? langFromPath(filePath) : undefined
-    if (!lang) return
-
-    ensureLang(lang)
-      .then(async ok => {
-        if (!ok) return
-        const highlighter = await getHighlighter()
-        try {
-          const tokens = highlighter.codeToTokens(truncated, { lang, theme: 'tokyo-night' })
-          const highlighted = tokens.tokens
-            .map((lineTokens: Array<{ color?: string; content: string }>) =>
-              lineTokens.map(t => `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`).join(''),
-            )
-            .join('\n')
-          setHtml(highlighted)
-        } catch {
-          // Fall back to plain
-        }
-      })
-      .catch(() => {})
-  }, [truncated, filePath])
+  const html = useBlockHighlight(filePath ? langFromPath(filePath) : undefined, truncated)
 
   const gutterWidth = String(lines.length).length
   const visibleLines = lineTruncate ? limit : lines.length
@@ -571,27 +503,13 @@ export function BashOutput({
 
 // REPL code block - always visible, JS syntax highlighted
 export function ReplView({ code, isError }: { code: string; isError?: boolean }) {
-  const [codeHtml, setCodeHtml] = useState<string | null>(null)
   const replPrefs = useConversationsStore(s => s.controlPanelPrefs)
   const replDisplay = resolveToolDisplay(replPrefs, 'REPL' as ToolDisplayKey)
   const lineLimit = replDisplay.lineLimit
   const [revealed, setRevealed] = useState(false)
   const root = useConversationPath()
   const displayCode = root ? cleanReplShCalls(code, root) : code
-
-  useEffect(() => {
-    getHighlighter()
-      .then(highlighter => {
-        const tokens = highlighter.codeToTokens(displayCode, { lang: 'javascript', theme: 'tokyo-night' })
-        const highlighted = tokens.tokens
-          .map((lineTokens: Array<{ color?: string; content: string }>) =>
-            lineTokens.map(t => `<span style="color:${t.color}">${escapeHtml(t.content)}</span>`).join(''),
-          )
-          .join('\n')
-        setCodeHtml(highlighted)
-      })
-      .catch(() => {})
-  }, [displayCode])
+  const codeHtml = useBlockHighlight('javascript', displayCode)
 
   const codeLines = displayCode.split('\n')
   const codeTruncate = lineLimit > 0 && codeLines.length > lineLimit && !revealed
