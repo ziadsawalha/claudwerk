@@ -13,8 +13,9 @@ import { sendInput, useConversationsStore } from '@/hooks/use-conversations'
 import { executeCommand, getCommands } from './commands'
 import { isPerfEnabled } from './perf-metrics'
 import { buildPerfReport } from './perf-report'
-import { captureNodeToUrl } from './web-control-capture'
 import { getActiveWebControlGrant } from './web-control-grant'
+import { describeError, logControlOp } from './web-control-log'
+import { captureScreenToUrl } from './web-control-screen-capture'
 import {
   type TermResult,
   terminalAttach,
@@ -63,6 +64,9 @@ function toast(op: WebControlOp, detail: string): void {
 export async function handleWebControlRequest(msg: WebControlRequestMsg, send: Send): Promise<void> {
   const { requestId, op } = msg
   const args = msg.args ?? {}
+
+  // Front-end audit: log every control op so the user sees what the agent ran.
+  logControlOp(op, args)
 
   // Default-deny: a live local grant is required for every op.
   if (!getActiveWebControlGrant()) {
@@ -121,19 +125,24 @@ export async function handleWebControlRequest(msg: WebControlRequestMsg, send: S
         respond(send, requestId, false, undefined, `Unknown op '${op}'`)
     }
   } catch (e) {
-    respond(send, requestId, false, undefined, e instanceof Error ? e.message : String(e))
+    respond(send, requestId, false, undefined, describeError(e))
   }
 }
 
 async function opScreenshot(send: Send, requestId: string, args: Record<string, unknown>): Promise<void> {
+  // getDisplayMedia capture: freeze-free + Safari-correct. A selector crops the
+  // captured frame to that element's viewport rect; omit for the whole viewport.
   const selector = typeof args.selector === 'string' ? args.selector : undefined
-  const el = selector ? document.querySelector<HTMLElement>(selector) : document.body
-  if (!el) {
-    respond(send, requestId, false, undefined, `No element matched selector '${selector}'`)
-    return
+  let cropEl: HTMLElement | null = null
+  if (selector) {
+    cropEl = document.querySelector<HTMLElement>(selector)
+    if (!cropEl) {
+      respond(send, requestId, false, undefined, `No element matched selector '${selector}'`)
+      return
+    }
   }
   toast('screenshot', selector ?? 'viewport')
-  const { url, error } = await captureNodeToUrl(el, selector ? 2 : 1)
+  const { url, error } = await captureScreenToUrl(cropEl)
   if (!url) {
     respond(send, requestId, false, undefined, error ?? 'screenshot failed')
     return
