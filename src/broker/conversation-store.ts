@@ -45,6 +45,7 @@ import {
   type ConversationStoreContext,
 } from './conversation-store/event-context'
 import { createListenerRegistry } from './conversation-store/listeners'
+import { createPermissionMemo, createProjectPermissionMemo } from './conversation-store/permission-cache'
 import { persistTranscriptEntries } from './conversation-store/persist-transcript'
 import { createProjectLinkRegistry } from './conversation-store/project-links'
 import {
@@ -70,6 +71,7 @@ import {
   type PendingRestartInfo,
   type RendezvousInfo,
 } from './conversation-store/spawn-jobs'
+import { createSummaryCache } from './conversation-store/summary-cache'
 import {
   createSyncState,
   handleSyncCheck as handleSyncCheckImpl,
@@ -603,7 +605,34 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     addSubagentTranscriptEntries,
   }
 
-  // Helper to create conversation summary for broadcasting
+  // Per-conversation cache of the broadcast summary + its serialized fragment.
+  // Invalidated at every summary-visible mutation site -- see summary-cache.ts
+  // for the invalidation contract. `invalidateSummary` is the single hook all
+  // those sites call.
+  const summaryCache = createSummaryCache()
+  function invalidateSummary(conversationId: string): void {
+    summaryCache.invalidate(conversationId)
+  }
+
+  /** Build-or-reuse the cached summary entry for a conversation. The expensive
+   *  object construction + `JSON.stringify` happen once per (conversation,
+   *  mutation); idle conversations are serialized once and reused across every
+   *  dashboard connection. */
+  function getSummaryEntry(conv: Conversation): { summary: ConversationSummary; json: string } {
+    const cached = summaryCache.get(conv.id)
+    if (cached) return cached
+    const summary = toConversationSummary(conv)
+    const entry = { summary, json: JSON.stringify(summary) }
+    summaryCache.set(conv.id, entry)
+    return entry
+  }
+  function getConversationSummary(conv: Conversation): ConversationSummary {
+    return getSummaryEntry(conv).summary
+  }
+
+  // Helper to create conversation summary for broadcasting (pure builder; all
+  // callers go through getConversationSummary / getSummaryEntry so the result is
+  // cached. Do NOT call this directly outside getSummaryEntry.)
   function toConversationSummary(conv: Conversation): ConversationSummary {
     const wrappers = conversationSockets.get(conv.id)
     return {
@@ -733,6 +762,11 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
 
   // Broadcast to all dashboard subscribers (sequenced + buffered for sync catchup)
   function broadcast(message: ControlPanelMessage): void {
+    // B-H7: with no dashboard subscribers the sync ring buffer is dead weight --
+    // a future reconnect gets a fresh `conversations_list` snapshot stamped with
+    // the current seq, so nothing buffered during a zero-subscriber window is
+    // ever replayed. Skip the stamp+buffer entirely.
+    if (controlPanelSubscribers.size === 0) return
     const json = stampAndBuffer(message)
     for (const ws of controlPanelSubscribers) {
       try {
@@ -748,8 +782,17 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     }
   }
 
-  /** Broadcast a conversation message only to subscribers who have chat:read for that project */
-  function broadcastConversationScoped(message: ControlPanelMessage, project: string): void {
+  /** Broadcast a conversation message only to subscribers who have chat:read for that project.
+   *  `permMemo` (optional) dedups `resolvePermissions` across a single flush -- see
+   *  permission-cache.ts. */
+  function broadcastConversationScoped(
+    message: ControlPanelMessage,
+    project: string,
+    permMemo?: ReturnType<typeof createPermissionMemo>,
+  ): void {
+    // B-H7: no dashboards => the sync ring buffer is dead weight (reconnect
+    // resyncs from a fresh snapshot). Skip stamp+buffer.
+    if (controlPanelSubscribers.size === 0) return
     const json = stampAndBuffer(message)
     // Share-scoped messages carry a conversationId we can match against the
     // viewer's bound share. Use it to keep per-conversation shares from
@@ -763,7 +806,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         const wsData = ws.data as { grants?: UserGrant[]; shareConversationId?: string }
         const grants = wsData.grants
         if (grants) {
-          const { permissions } = resolvePermissions(grants, project)
+          const { permissions } = permMemo ? permMemo.resolve(ws, grants, project) : resolvePermissions(grants, project)
           if (!permissions.has('chat:read')) continue
         }
         // Per-conversation share scope: never leak sibling conversations.
@@ -813,6 +856,11 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
   let conversationUpdateScheduled = false
 
   function scheduleConversationUpdate(conversationId: string): void {
+    // Universal chokepoint: every meaningful conversation mutation funnels here
+    // (directly or via broadcastConversationUpdate). Invalidating the summary
+    // cache here is what keeps it from ever serving stale state on the coalesced
+    // conversation_update path and on subsequent conversations_list builds.
+    invalidateSummary(conversationId)
     pendingConversationUpdates.add(conversationId)
     if (!conversationUpdateScheduled) {
       conversationUpdateScheduled = true
@@ -822,6 +870,18 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
 
   function flushConversationUpdates(): void {
     conversationUpdateScheduled = false
+    // No dashboards => nothing to send. The summary cache was already
+    // invalidated at schedule time, so summaries rebuild lazily on the next
+    // connection's conversations_list. Don't pay per-conversation rebuild cost
+    // for an empty audience.
+    if (controlPanelSubscribers.size === 0) {
+      pendingConversationUpdates.clear()
+      return
+    }
+    // One permission memo for the whole flush: many conversations in one tick
+    // often share (subscriber, project), e.g. broadcastForProject. Discarded
+    // when the flush returns -- never reused across flushes (grant expiry).
+    const permMemo = createPermissionMemo()
     for (const id of pendingConversationUpdates) {
       const conv = conversations.get(id)
       if (conv) {
@@ -829,9 +889,10 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           {
             type: 'conversation_update',
             conversationId: id,
-            conversation: toConversationSummary(conv),
+            conversation: getConversationSummary(conv),
           },
           conv.project,
+          permMemo,
         )
       }
     }
@@ -1332,7 +1393,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       {
         type: 'conversation_created',
         conversationId: id,
-        conversation: toConversationSummary(conv),
+        conversation: getConversationSummary(conv),
       },
       conv.project,
     )
@@ -1451,12 +1512,15 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         conv.project,
       )
 
+      // resumeConversation mutates conv directly without going through
+      // scheduleConversationUpdate -- invalidate before building the summary.
+      invalidateSummary(id)
       // Notify dashboards that this conversation resumed - triggers transcript re-fetch
       broadcastConversationScoped(
         {
           type: 'conversation_update',
           conversationId: id,
-          conversation: toConversationSummary(conv),
+          conversation: getConversationSummary(conv),
         },
         conv.project,
       )
@@ -1543,11 +1607,13 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       isInitial: true,
     })
 
+    // /clear mutates conv directly (not via scheduleConversationUpdate).
+    invalidateSummary(conversationId)
     broadcastConversationScoped(
       {
         type: 'conversation_update',
         conversationId,
-        conversation: toConversationSummary(conv),
+        conversation: getConversationSummary(conv),
       },
       conv.project,
     )
@@ -1602,6 +1668,11 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       if (conv.status === 'idle') {
         conv.status = 'active'
       }
+      // updateActivity mutates summary-visible fields (lastActivity, status,
+      // recapFresh) but intentionally does NOT broadcast (it's a high-frequency
+      // activity bump). Invalidate the cached summary so the next broadcast or
+      // conversations_list snapshot rebuilds with the fresh state.
+      invalidateSummary(conversationId)
     }
   }
 
@@ -1736,12 +1807,15 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         }
       }
 
+      // endConversation mutates conv directly (status/subagents/teammates/bgTasks)
+      // without scheduleConversationUpdate -- invalidate before building.
+      invalidateSummary(conversationId)
       // Broadcast to dashboard subscribers (scoped by grants)
       broadcastConversationScoped(
         {
           type: 'conversation_ended',
           conversationId,
-          conversation: toConversationSummary(conv),
+          conversation: getConversationSummary(conv),
         },
         conv.project,
       )
@@ -1763,6 +1837,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     }
     conversations.delete(conversationId)
     conversationSockets.delete(conversationId)
+    invalidateSummary(conversationId)
     transcriptCache.delete(conversationId)
     transcriptSeqCounters.delete(conversationId)
     dirtyTranscripts.delete(conversationId)
@@ -1913,6 +1988,8 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       conversationSockets.set(conversationId, wrappers)
     }
     wrappers.set(connectionId, ws)
+    // connectionIds changed -> the cached summary is stale.
+    invalidateSummary(conversationId)
 
     if (existingWs && existingWs !== ws) {
       closeOrphanedSocket(
@@ -1927,6 +2004,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
   function pruneDeadSockets(conversationId: string): number {
     const wrappers = conversationSockets.get(conversationId)
     if (!wrappers) return 0
+    let dropped = false
     for (const [connId, ws] of wrappers.entries()) {
       const readyState = (ws as { readyState?: number }).readyState
       if (readyState !== WebSocket.OPEN) {
@@ -1935,8 +2013,11 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           `[prune] ${conversationId.slice(0, 8)}/${connId.slice(0, 8)} readyState=${readyState ?? '?'} buffered=${bufferedAmount ?? '?'} -- dropping dead socket`,
         )
         wrappers.delete(connId)
+        dropped = true
       }
     }
+    // connectionIds changed -> invalidate the cached summary.
+    if (dropped) invalidateSummary(conversationId)
     if (wrappers.size === 0) {
       conversationSockets.delete(conversationId)
       return 0
@@ -1973,6 +2054,8 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     const wrappers = conversationSockets.get(conversationId)
     if (wrappers) {
       wrappers.delete(connectionId)
+      // connectionIds changed -> invalidate the cached summary.
+      invalidateSummary(conversationId)
       if (wrappers.size === 0) conversationSockets.delete(conversationId)
     }
   }
@@ -1994,6 +2077,8 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       }
       if (removedHere) {
         touched.push(convId)
+        // connectionIds changed -> invalidate the cached summary.
+        invalidateSummary(convId)
         if (wrappers.size === 0) conversationSockets.delete(convId)
       }
     }
@@ -2152,37 +2237,29 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     }
   }
 
-  /** Filter sessions by user's grants - only show sessions they have chat:read for.
-   *  When `restrictToConversationId` is set (share-link scoping), the result is
-   *  further narrowed to exactly that one conversation. This is how we keep
-   *  per-conversation share links from leaking the rest of the project. */
-  function filterConversationsByGrants(
-    allConversations: ConversationSummary[],
-    grants?: UserGrant[],
-    restrictToConversationId?: string,
-  ): ConversationSummary[] {
-    let result = allConversations
-    if (grants) {
-      result = result.filter(s => {
-        const { permissions } = resolvePermissions(grants, s.project)
-        return permissions.has('chat:read')
-      })
-    }
-    if (restrictToConversationId) {
-      result = result.filter(s => s.id === restrictToConversationId)
-    }
-    return result
-  }
-
+  /**
+   * Build the `conversations_list` snapshot for one subscriber.
+   *
+   * Filters on the live Conversation objects (by `chat:read` grant + optional
+   * per-conversation share scope) and concatenates each survivor's CACHED JSON
+   * fragment. The expensive summary serialization happens once per conversation
+   * (in getSummaryEntry) and is reused across every connection -- not redone per
+   * subscriber as the old `.map(toConversationSummary)` + `JSON.stringify(whole
+   * array)` did. `resolvePermissions` is memoized per build (one grants array,
+   * many shared projects). Output is byte-identical to stringifying
+   * `{type, conversations, serverVersion, _epoch, _seq}` in that key order.
+   */
   function buildConversationsListMessage(grants?: UserGrant[], restrictToConversationId?: string): string {
-    const allSummaries = Array.from(conversations.values()).map(toConversationSummary)
-    return JSON.stringify({
-      type: 'conversations_list',
-      conversations: filterConversationsByGrants(allSummaries, grants, restrictToConversationId),
-      serverVersion: BUILD_VERSION.gitHashShort,
-      _epoch: sync.epoch,
-      _seq: sync.seq,
-    })
+    const permFor = grants ? createProjectPermissionMemo(grants) : undefined
+    const fragments: string[] = []
+    for (const conv of conversations.values()) {
+      if (restrictToConversationId && conv.id !== restrictToConversationId) continue
+      if (permFor && !permFor(conv.project).permissions.has('chat:read')) continue
+      fragments.push(getSummaryEntry(conv).json)
+    }
+    return `{"type":"conversations_list","conversations":[${fragments.join(',')}],"serverVersion":${JSON.stringify(
+      BUILD_VERSION.gitHashShort,
+    )},"_epoch":${JSON.stringify(sync.epoch)},"_seq":${sync.seq}}`
   }
 
   function sendConversationsList(ws: ServerWebSocket<unknown>): void {
@@ -2403,7 +2480,16 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         if (record) alias = record.aliases[0]
       }
     }
-    return setSentinelImpl(sentinelState, ws, broadcast, { ...info, sentinelId, alias })
+    const ok = setSentinelImpl(sentinelState, ws, broadcast, { ...info, sentinelId, alias })
+    // A (re)registering sentinel may change features.shell, which feeds the
+    // shellCapable summary field for every conversation it hosts. Invalidate
+    // those cached summaries. Rare event (sentinel connect), so the scan is cheap.
+    if (sentinelId) {
+      for (const [id, conv] of conversations) {
+        if (conv.hostSentinelId === sentinelId) invalidateSummary(id)
+      }
+    }
+    return ok
   }
 
   function getSentinel(): ServerWebSocket<unknown> | undefined {
@@ -2855,16 +2941,47 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
   const projectLinkReg = createProjectLinkRegistry(conversations, conversationSockets)
   const {
     checkProjectLink,
-    linkProjects,
-    unlinkProjects,
-    blockProject,
     queueProjectMessage,
     drainProjectMessages,
     broadcastToConversationsForProject,
     checkConvLink,
-    linkConversations,
-    unlinkConversations,
   } = projectLinkReg
+
+  // Link mutations change the linkedProjects / linkedConversations fields of the
+  // affected conversations' summaries -- wrap each mutator so it invalidates the
+  // cache. Project-level links touch every conversation in the two projects;
+  // conversation-level links touch exactly the two conversations.
+  function invalidateSummariesForProject(arg: string): void {
+    const project = conversations.get(arg)?.project ?? projectLinkReg.toProjectUri(arg)
+    for (const [id, conv] of conversations) {
+      if (conv.project === project) invalidateSummary(id)
+    }
+  }
+  function linkProjects(a: string, b: string): void {
+    projectLinkReg.linkProjects(a, b)
+    invalidateSummariesForProject(a)
+    invalidateSummariesForProject(b)
+  }
+  function unlinkProjects(a: string, b: string): void {
+    projectLinkReg.unlinkProjects(a, b)
+    invalidateSummariesForProject(a)
+    invalidateSummariesForProject(b)
+  }
+  function blockProject(blocker: string, blocked: string): void {
+    projectLinkReg.blockProject(blocker, blocked)
+    invalidateSummariesForProject(blocker)
+    invalidateSummariesForProject(blocked)
+  }
+  function linkConversations(a: string, b: string): void {
+    projectLinkReg.linkConversations(a, b)
+    invalidateSummary(a)
+    invalidateSummary(b)
+  }
+  function unlinkConversations(a: string, b: string): void {
+    projectLinkReg.unlinkConversations(a, b)
+    invalidateSummary(a)
+    invalidateSummary(b)
+  }
 
   function getLinkedProjects(conversationId: string): Array<{ project: string; name: string }> {
     return projectLinkReg.getLinkedProjects(conversationId)

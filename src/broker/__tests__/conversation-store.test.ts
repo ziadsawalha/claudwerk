@@ -511,12 +511,26 @@ describe('sync state', () => {
     expect(typeof state.seq).toBe('number')
   })
 
-  it('seq increments after conversation creation (createConversation triggers broadcast which stamps)', () => {
+  it('seq increments after conversation creation when a subscriber is present (broadcast stamps)', () => {
+    // B-H7: with a dashboard subscriber present, createConversation's broadcast
+    // stamps + buffers, advancing the sync seq.
+    const ws = mockSocket()
+    store.addSubscriber(ws, 2)
     const before = store.getSyncState().seq
     store.createConversation('seq-sess', '/cwd')
-    // createConversation calls broadcastConversationScoped which calls stampAndBuffer -> syncSeq++
     const after = store.getSyncState().seq
     expect(after).toBeGreaterThan(before)
+  })
+
+  it('seq is frozen when there are no subscribers (B-H7: ring buffering skipped)', () => {
+    // No dashboards => the sync ring is dead weight; a future reconnect resyncs
+    // from a fresh snapshot stamped with the current seq. So broadcasts skip
+    // stamp+buffer entirely and seq does not advance. This is safe precisely
+    // because any connected client makes the subscriber set non-empty.
+    const before = store.getSyncState().seq
+    store.createConversation('seq-sess-empty', '/cwd')
+    const after = store.getSyncState().seq
+    expect(after).toBe(before)
   })
 
   it('handleSyncCheck with matching epoch and current seq responds sync_ok', () => {
@@ -557,6 +571,86 @@ describe('sync state', () => {
     const response = JSON.parse(received[0])
     expect(response.type).toBe('sync_stale')
     expect(response.reason).toBe('epoch_changed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5b. Summary cache invalidation (B-H1 / B-H2)
+//
+// The cache is observed through the conversations_list snapshot, which is the
+// path that reuses the cached per-conversation JSON fragment. Every test mutates
+// a conversation and asserts the snapshot reflects the change -- i.e. the cache
+// was invalidated. A stale summary here = silently-wrong control-panel UI.
+// ---------------------------------------------------------------------------
+
+describe('summary cache invalidation', () => {
+  function snapshot(): Array<Record<string, unknown>> {
+    const out: { conversations?: Array<Record<string, unknown>> } = {}
+    const ws = {
+      ...mockSocket(),
+      data: {},
+      send: (m: string) => {
+        Object.assign(out, JSON.parse(m))
+        return 0
+      },
+    } as unknown as ServerWebSocket<unknown>
+    store.sendConversationsList(ws)
+    return out.conversations ?? []
+  }
+  function summaryOf(id: string): Record<string, unknown> | undefined {
+    return snapshot().find(c => c.id === id)
+  }
+
+  it('serves a cached fragment but reflects status flips (endConversation)', () => {
+    store.createConversation('inv-end', '/cwd')
+    expect(summaryOf('inv-end')?.status).not.toBe('ended')
+    // Second read with no mutation must still be correct (cache hit).
+    expect(summaryOf('inv-end')?.status).not.toBe('ended')
+    store.endConversation('inv-end', { source: 'cc-exit-normal' })
+    expect(summaryOf('inv-end')?.status).toBe('ended')
+  })
+
+  it('reflects task updates (updateTasks -> scheduleConversationUpdate chokepoint)', () => {
+    store.createConversation('inv-tasks', '/cwd')
+    expect(summaryOf('inv-tasks')?.taskCount).toBe(0)
+    store.updateTasks('inv-tasks', [
+      { id: 't1', subject: 'a', status: 'pending', updatedAt: Date.now() },
+      { id: 't2', subject: 'b', status: 'in_progress', updatedAt: Date.now() },
+    ])
+    expect(summaryOf('inv-tasks')?.taskCount).toBe(2)
+  })
+
+  it('reflects connectionIds changes (setConversationSocket / removeConversationSocket)', () => {
+    store.createConversation('inv-sock', '/cwd')
+    expect(summaryOf('inv-sock')?.connectionIds).toEqual([])
+    const ws = mockSocket()
+    store.setConversationSocket('inv-sock', 'conn-1', ws)
+    expect(summaryOf('inv-sock')?.connectionIds).toEqual(['conn-1'])
+    store.removeConversationSocket('inv-sock', 'conn-1')
+    expect(summaryOf('inv-sock')?.connectionIds).toEqual([])
+  })
+
+  it('reflects resumeConversation (status back to idle)', () => {
+    store.createConversation('inv-resume', '/cwd')
+    store.endConversation('inv-resume', { source: 'cc-exit-normal' })
+    expect(summaryOf('inv-resume')?.status).toBe('ended')
+    store.resumeConversation('inv-resume')
+    expect(summaryOf('inv-resume')?.status).toBe('idle')
+  })
+
+  it('reflects clearConversation (event count reset)', () => {
+    store.createConversation('inv-clear', '/cwd')
+    store.addEvent('inv-clear', makeHookEvent('inv-clear', 'UserPromptSubmit'))
+    expect((summaryOf('inv-clear')?.eventCount as number) ?? 0).toBeGreaterThan(0)
+    store.clearConversation('inv-clear', '/cwd')
+    expect(summaryOf('inv-clear')?.eventCount).toBe(0)
+  })
+
+  it('drops the entry on removeConversation', () => {
+    store.createConversation('inv-remove', '/cwd')
+    expect(summaryOf('inv-remove')).toBeDefined()
+    store.removeConversation('inv-remove')
+    expect(summaryOf('inv-remove')).toBeUndefined()
   })
 })
 
