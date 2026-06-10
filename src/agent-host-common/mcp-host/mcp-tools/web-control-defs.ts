@@ -10,27 +10,15 @@
  * ('web_control_relay'). `clientId` is a standard optional param on every tool
  * except web_list_clients (which takes none); the factory injects it, so buildArgs
  * returns only the op-specific args.
+ *
+ * Types + the `str` helper live in web-control-defs-base.ts; the 7 terminal
+ * descriptors live in web-control-defs-terminal.ts (split for the size bar).
  */
 
-import type { WebControlOp } from '../../../shared/protocol'
+import { clampScriptTimeout, str, type WebToolDescriptor } from './web-control-defs-base'
+import { TERMINAL_TOOL_DEFS } from './web-control-defs-terminal'
 
-type Params = Record<string, unknown>
-type JsonSchemaProps = Record<string, unknown>
-
-export interface WebToolDescriptor {
-  name: string
-  op: 'list_clients' | WebControlOp
-  description: string
-  /** Op-specific schema properties (clientId is added by the factory unless noClientId). */
-  properties: JsonSchemaProps
-  required?: string[]
-  /** This tool takes NO clientId param (web_list_clients). */
-  noClientId?: boolean
-  /** Map validated params -> the op `args` payload (clientId handled separately). */
-  buildArgs?: (p: Params) => Record<string, unknown>
-}
-
-const str = (description: string) => ({ type: 'string', description })
+export type { WebToolDescriptor } from './web-control-defs-base'
 
 export const WEB_CONTROL_TOOL_DEFS: readonly WebToolDescriptor[] = [
   {
@@ -99,76 +87,7 @@ export const WEB_CONTROL_TOOL_DEFS: readonly WebToolDescriptor[] = [
     required: ['conversationId', 'text'],
     buildArgs: p => ({ conversationId: p.conversationId, text: p.text }),
   },
-  {
-    name: 'web_terminal_list',
-    op: 'terminal_list',
-    description:
-      'List host shells visible to the opted-in browser. Returns shellId, title, path, projectUri, status, agentAttached (driven by you, off-screen) and readable (has a live buffer you can read now). Start a new one with web_terminal_start or attach an existing one with web_terminal_attach.',
-    properties: {},
-  },
-  {
-    name: 'web_terminal_start',
-    op: 'terminal_start',
-    description:
-      'Open a NEW host shell in the given project and attach to it detached (off-screen, never pops the overlay). Title is prefixed "[debug] ". Returns shellId. After ~1.5s the buffer is ready for web_terminal_read. projectUri is claude://sentinel/path -- discover via list_hosts / list_conversations.',
-    properties: {
-      projectUri: str('claude://sentinel/path -- where to run the shell.'),
-      title: str('Label (will be prefixed "[debug] ").'),
-    },
-    required: ['projectUri'],
-    buildArgs: p => ({ projectUri: p.projectUri, title: p.title }),
-  },
-  {
-    name: 'web_terminal_attach',
-    op: 'terminal_attach',
-    description:
-      "Attach to an EXISTING host shell (by shellId from web_terminal_list) detached/off-screen so you can read and write it without taking over the user's screen. Wait ~1.5s after attaching before web_terminal_read.",
-    properties: { shellId: str('Shell to attach (from web_terminal_list).') },
-    required: ['shellId'],
-    buildArgs: p => ({ shellId: p.shellId }),
-  },
-  {
-    name: 'web_terminal_detach',
-    op: 'terminal_detach',
-    description:
-      'Detach from a host shell (unmounts the off-screen pane / unsubscribes). The shell keeps running; you just stop reading it.',
-    properties: { shellId: str('Shell to detach.') },
-    required: ['shellId'],
-    buildArgs: p => ({ shellId: p.shellId }),
-  },
-  {
-    name: 'web_terminal_read',
-    op: 'terminal_read',
-    description:
-      "Read a host shell's terminal buffer (scrollback + viewport) as plain text. The shell must be attached first (web_terminal_start / web_terminal_attach). Capped to the last maxLines rows (default 2000).",
-    properties: {
-      shellId: str('Shell to read.'),
-      maxLines: { type: 'number', description: 'Cap on rows returned (default 2000, from the bottom).' },
-    },
-    required: ['shellId'],
-    buildArgs: p => ({ shellId: p.shellId, maxLines: p.maxLines }),
-  },
-  {
-    name: 'web_terminal_write',
-    op: 'terminal_write',
-    description:
-      'Write raw bytes to a host shell (keystrokes / input). Text is sent EXACTLY as given -- append "\\n" (or "\\r") yourself to submit a command. Control chars work too (e.g. "\\x03" for Ctrl-C). The shell need not be attached to write, but attach to read the result.',
-    properties: {
-      shellId: str('Shell to write to.'),
-      data: str('Raw bytes to send. Include the trailing newline to submit.'),
-    },
-    required: ['shellId', 'data'],
-    buildArgs: p => ({ shellId: p.shellId, data: p.data }),
-  },
-  {
-    name: 'web_terminal_screenshot',
-    op: 'terminal_screenshot',
-    description:
-      "Screenshot a host shell's terminal surface and return a public image URL. The shell must be attached first. Usually web_terminal_read (text) is more useful; use this for TUIs / rendering issues.",
-    properties: { shellId: str('Shell to screenshot.') },
-    required: ['shellId'],
-    buildArgs: p => ({ shellId: p.shellId }),
-  },
+  ...TERMINAL_TOOL_DEFS,
   {
     name: 'web_set_perf_monitor',
     op: 'set_perf_monitor',
@@ -192,5 +111,27 @@ export const WEB_CONTROL_TOOL_DEFS: readonly WebToolDescriptor[] = [
       },
     },
     buildArgs: p => ({ significantOnly: p.significantOnly === true }),
+  },
+  {
+    name: 'web_execute_script',
+    op: 'execute_script',
+    description:
+      'Run arbitrary JavaScript in the opted-in browser and return its result. The code runs in an async function in the page context (window/document/app stores in scope), so you can `await` and `return` a value. The result must be JSON-serializable (non-serializable values are stringified). Returns `{ result }` on success or an error.\n\nGATED: the browser needs a SEPARATE "Allow script execution" opt-in (beyond remote-control) -- if it is off this returns an error. Benevolent trust only. Every execution is logged in the browser\'s debug log (the user sees what you ran) and audited broker-side. Use for one-off debugging the fixed web_* ops do not cover (probe a store, read a computed style, drive getDisplayMedia capture, etc.).\n\nTIMEOUT covers async hangs (awaits) only -- a synchronous infinite loop still blocks the page; do not write one.',
+    properties: {
+      code: str(
+        'JavaScript to run. Body of an async function: you may `await` and `return` a JSON-serializable value.',
+      ),
+      timeoutMs: {
+        type: 'number',
+        description: 'Max run time in ms before the script is abandoned. Default 20000, max 3600000 (1h).',
+      },
+    },
+    required: ['code'],
+    buildArgs: p => ({
+      code: p.code,
+      ...(p.timeoutMs !== undefined ? { timeoutMs: clampScriptTimeout(p.timeoutMs) } : {}),
+    }),
+    // Host brokerRpc must outlast the broker's per-op timeout (script + 5s); give +10s.
+    relayTimeoutMs: p => clampScriptTimeout(p.timeoutMs) + 10_000,
   },
 ]

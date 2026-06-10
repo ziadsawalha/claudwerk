@@ -97,6 +97,43 @@ function relayTarget(data: MessageData): { clientId: string } | { error: string 
   return explicit ? { clientId: explicit } : resolveImplicitClient()
 }
 
+const EXECUTE_SCRIPT_DEFAULT_MS = 20_000
+const EXECUTE_SCRIPT_MAX_MS = 60 * 60 * 1000 // 1h ceiling (Jonas)
+// The browser races the script at timeoutMs; the broker must wait a touch longer
+// than the browser so the browser's own timeout reply wins (legible error).
+const RELAY_BUFFER_MS = 5_000
+
+function clampScriptTimeout(raw: unknown): number {
+  const requested = typeof raw === 'number' ? raw : EXECUTE_SCRIPT_DEFAULT_MS
+  return Math.min(Math.max(1000, requested), EXECUTE_SCRIPT_MAX_MS)
+}
+
+/** execute_script is benevolent-only. This host-relay is the ONLY entry (the
+ *  external broker MCP never registers web_execute_script), so this is the gate. */
+function scriptForbidden(ctx: HandlerContext, op: string): boolean {
+  return op === 'execute_script' && ctx.callerSettings?.trustLevel !== 'benevolent'
+}
+
+/** Send opts for execute_script: a long per-op timeout matching the script timeout
+ *  (so the browser's own timeout reply wins), plus the server-half AUDIT log. Other
+ *  ops use the default timeout (undefined). */
+function scriptOpts(
+  ctx: HandlerContext,
+  op: string,
+  args: Record<string, unknown>,
+  clientId: string,
+): { timeoutMs: number } | undefined {
+  if (op !== 'execute_script') return undefined
+  const timeoutMs = clampScriptTimeout(args.timeoutMs)
+  const code = typeof args.code === 'string' ? args.code : ''
+  const caller = ctx.ws.data.conversationId ? String(ctx.ws.data.conversationId).slice(0, 8) : '?'
+  console.log(
+    `[web-control][audit] execute_script client=${clientId} caller=${caller} ` +
+      `codeLen=${code.length} timeoutMs=${timeoutMs} preview=${JSON.stringify(code.slice(0, 120))}`,
+  )
+  return { timeoutMs: timeoutMs + RELAY_BUFFER_MS }
+}
+
 /** agent host -> broker: relay one web-control op (or a list_clients read) from the
  *  host MCP site. The broker owns grant state; the agent host only forwards. */
 const webControlRelay: MessageHandler = async (ctx: HandlerContext, data: MessageData) => {
@@ -110,11 +147,19 @@ const webControlRelay: MessageHandler = async (ctx: HandlerContext, data: Messag
   // Broker-local registry read -- no browser hop.
   if (op === 'list_clients') return reply({ ok: true, result: listWebControlClients() })
   if (!OP_SET.has(op)) return reply({ ok: false, error: `unknown web-control op '${op}'` })
+  // Trust gate before resolving a target -- reject unauthorized eval up front.
+  if (scriptForbidden(ctx, op)) return reply({ ok: false, error: 'web_execute_script requires benevolent trust level' })
 
   const target = relayTarget(data)
   if ('error' in target) return reply({ ok: false, error: target.error })
 
-  const r = await sendWebControlRequest(target.clientId, op as WebControlOp, relayArgs(data.args))
+  const args = relayArgs(data.args)
+  const r = await sendWebControlRequest(
+    target.clientId,
+    op as WebControlOp,
+    args,
+    scriptOpts(ctx, op, args, target.clientId),
+  )
   reply({ ok: r.ok, result: r.result, error: r.error })
 }
 

@@ -1,6 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { turnOffWebControl, turnOnWebControl } from '@/lib/web-control-actions'
-import { getActiveWebControlGrant, getWebControlSnapshot, subscribeWebControl } from '@/lib/web-control-grant'
+import { setScriptExecution, turnOffWebControl, turnOnWebControl } from '@/lib/web-control-actions'
+import {
+  getActiveWebControlGrant,
+  getWebControlSnapshot,
+  isScriptEnabled,
+  subscribeWebControl,
+} from '@/lib/web-control-grant'
 import {
   hasScreenShare,
   startScreenShare,
@@ -20,6 +25,7 @@ import {
 export function WebControlToggle({ ariaLabel }: { ariaLabel?: string }) {
   const grant = useSyncExternalStore(subscribeWebControl, getWebControlSnapshot, () => null)
   const sharing = useSyncExternalStore(subscribeScreenShare, hasScreenShare, () => false)
+  const scriptOn = useSyncExternalStore(subscribeWebControl, isScriptEnabled, () => false)
   const [, forceTick] = useState(0)
   const [shareErr, setShareErr] = useState<string | null>(null)
 
@@ -92,6 +98,20 @@ export function WebControlToggle({ ariaLabel }: { ariaLabel?: string }) {
           )}
           {shareErr && <span className="text-destructive">{shareErr}</span>}
         </div>
+      )}
+      {active && (
+        <label className="flex items-center gap-2 pl-6 text-[11px] text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={scriptOn}
+            onChange={e => setScriptExecution(e.target.checked)}
+            className="accent-destructive size-3.5"
+          />
+          <span>
+            Allow script execution{' '}
+            <span className="text-destructive/80">(lets the agent run arbitrary JS in this browser)</span>
+          </span>
+        </label>
       )}
     </div>
   )

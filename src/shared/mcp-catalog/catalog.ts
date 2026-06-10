@@ -118,6 +118,14 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'web_terminal_screenshot', group: 'web-control', sites: BOTH, summary: "Screenshot a host shell's surface" },
   { name: 'web_set_perf_monitor', group: 'web-control', sites: BOTH, summary: 'Toggle the perf monitor on/off' },
   { name: 'web_perf_report', group: 'web-control', sites: BOTH, summary: 'Grab the perf report as markdown' },
+  // HOST_ONLY: arbitrary JS eval is benevolent-gated at the host relay; never
+  // exposed on the external broker MCP site.
+  {
+    name: 'web_execute_script',
+    group: 'web-control',
+    sites: HOST_ONLY,
+    summary: 'Run JS in the opted-in browser (separate consent, benevolent-only)',
+  },
 ]
 
 export const CATALOG_NAMES: ReadonlySet<string> = new Set(MCP_CATALOG.map(t => t.name))

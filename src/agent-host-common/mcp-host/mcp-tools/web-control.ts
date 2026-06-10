@@ -66,11 +66,12 @@ function buildToolDef(def: WebToolDescriptor): ToolDef {
       const p = params as Record<string, unknown>
       const clientId = relayClientId(def, p)
       const args = def.buildArgs ? def.buildArgs(p) : {}
+      const timeoutMs = def.relayTimeoutMs ? def.relayTimeoutMs(p) : RELAY_TIMEOUT_MS
       try {
         const res = await brokerRpc<{ ok: boolean; result?: unknown; error?: string }>(
           'web_control_relay',
           { op: def.op, ...(clientId ? { clientId } : {}), args },
-          { timeoutMs: RELAY_TIMEOUT_MS },
+          { timeoutMs },
         )
         return formatRelayResult(def, res.result)
       } catch (caught) {

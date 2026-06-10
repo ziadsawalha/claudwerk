@@ -16,12 +16,29 @@ function captureSends() {
   return sent
 }
 
-test('registers all 16 web_* tools including the two perf tools', () => {
+test('registers all 17 web_* tools including perf + execute_script', () => {
   const names = Object.keys(tools)
-  expect(names).toHaveLength(16)
-  for (const n of ['web_list_clients', 'web_screenshot', 'web_perf_report', 'web_set_perf_monitor']) {
+  expect(names).toHaveLength(17)
+  for (const n of [
+    'web_list_clients',
+    'web_screenshot',
+    'web_perf_report',
+    'web_set_perf_monitor',
+    'web_execute_script',
+  ]) {
     expect(names).toContain(n)
   }
+})
+
+test('execute_script relays code + clamped timeout', () => {
+  const sent = captureSends()
+  void callHandle('web_execute_script', { code: 'return 1+1', timeoutMs: 90_000 })
+  const msg = sent[0]
+  expect(msg.op).toBe('execute_script')
+  expect((msg.args as Record<string, unknown>).code).toBe('return 1+1')
+  // timeoutMs is clamped (here unchanged) and forwarded so the broker + browser
+  // race at the same bound; relayTimeoutMs scales the host brokerRpc accordingly.
+  expect((msg.args as Record<string, unknown>).timeoutMs).toBe(90_000)
 })
 
 test('relays op + args and surfaces a string result', async () => {

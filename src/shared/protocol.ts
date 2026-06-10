@@ -1662,6 +1662,10 @@ export const WEB_CONTROL_OPS = [
   // Performance monitor (the "Details for Nerds" perf HUD).
   'perf_report',
   'set_perf_monitor',
+  // Arbitrary JS eval in the browser. STRICTLY gated: a SEPARATE "Allow script
+  // execution" opt-in (advertised only when that toggle is on), benevolent-only
+  // at the relay, host-MCP-only (never the external broker MCP), and audited.
+  'execute_script',
 ] as const
 export type WebControlOp = (typeof WEB_CONTROL_OPS)[number]
 

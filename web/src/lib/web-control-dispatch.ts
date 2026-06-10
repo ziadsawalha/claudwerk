@@ -3,21 +3,30 @@
  *
  * Executes a broker-relayed `web_control_request` in THIS browser and replies
  * with `web_control_response`. Every op is gated on a live local grant first
- * (default-deny): if the user has not opted in (or the grant expired), the op
- * is refused regardless of what the broker sent. Each executed op raises a
- * visibility toast so the user always sees the browser being driven.
+ * (default-deny): if the user has not opted in (or the grant expired), the op is
+ * refused regardless of what the broker sent. Every op is also logged to the
+ * debug log (the user sees what the agent ran) and raises a visibility toast (in
+ * the op handler). Op bodies live in web-control-ops.ts; this is just the router.
  */
 
-import type { TranscriptContentBlock, TranscriptEntry, WebControlOp } from '@shared/protocol'
-import { sendInput, useConversationsStore } from '@/hooks/use-conversations'
-import { executeCommand, getCommands } from './commands'
-import { isPerfEnabled } from './perf-metrics'
-import { buildPerfReport } from './perf-report'
+import type { WebControlOp } from '@shared/protocol'
 import { getActiveWebControlGrant } from './web-control-grant'
 import { describeError, logControlOp } from './web-control-log'
-import { captureScreenToUrl } from './web-control-screen-capture'
 import {
-  type TermResult,
+  opExecuteCommand,
+  opExecuteScript,
+  opListCommands,
+  opPerfReport,
+  opReadTranscript,
+  opScreenshot,
+  opSendPrompt,
+  opSetConversation,
+  opSetPerfMonitor,
+  respond,
+  type Send,
+  sendTerm,
+} from './web-control-ops'
+import {
   terminalAttach,
   terminalDetach,
   terminalList,
@@ -27,37 +36,10 @@ import {
   terminalWrite,
 } from './web-control-terminal'
 
-type Send = (msg: Record<string, unknown>) => void
-
 interface WebControlRequestMsg {
   requestId: string
   op: WebControlOp
   args?: Record<string, unknown>
-}
-
-const TRANSCRIPT_TEXT_CAP = 16_000
-
-function respond(send: Send, requestId: string, ok: boolean, result?: unknown, error?: string): void {
-  send({ type: 'web_control_response', requestId, ok, result, error })
-}
-
-/** Relay a terminal-op result (TermResult) back, with a visibility toast. */
-function sendTerm(send: Send, requestId: string, op: WebControlOp, r: TermResult): void {
-  const target = (r.result as { shellId?: string } | undefined)?.shellId
-  toast(op, target ? target.slice(0, 12) : '')
-  respond(send, requestId, r.ok, r.result, r.error)
-}
-
-function toast(op: WebControlOp, detail: string): void {
-  window.dispatchEvent(
-    new CustomEvent('rclaude-toast', {
-      detail: {
-        title: 'Agent remote-control',
-        body: `${op}${detail ? `: ${detail}` : ''}`,
-        variant: 'info',
-      },
-    }),
-  )
 }
 
 /** Entry point wired into the WS onmessage bypass. */
@@ -121,179 +103,13 @@ export async function handleWebControlRequest(msg: WebControlRequestMsg, send: S
       case 'set_perf_monitor':
         opSetPerfMonitor(send, requestId, args)
         break
+      case 'execute_script':
+        await opExecuteScript(send, requestId, args)
+        break
       default:
         respond(send, requestId, false, undefined, `Unknown op '${op}'`)
     }
   } catch (e) {
     respond(send, requestId, false, undefined, describeError(e))
   }
-}
-
-async function opScreenshot(send: Send, requestId: string, args: Record<string, unknown>): Promise<void> {
-  // getDisplayMedia capture: freeze-free + Safari-correct. A selector crops the
-  // captured frame to that element's viewport rect; omit for the whole viewport.
-  const selector = typeof args.selector === 'string' ? args.selector : undefined
-  let cropEl: HTMLElement | null = null
-  if (selector) {
-    cropEl = document.querySelector<HTMLElement>(selector)
-    if (!cropEl) {
-      respond(send, requestId, false, undefined, `No element matched selector '${selector}'`)
-      return
-    }
-  }
-  toast('screenshot', selector ?? 'viewport')
-  const { url, error } = await captureScreenToUrl(cropEl)
-  if (!url) {
-    respond(send, requestId, false, undefined, error ?? 'screenshot failed')
-    return
-  }
-  respond(send, requestId, true, { url })
-}
-
-function opListCommands(send: Send, requestId: string): void {
-  toast('list_commands', '')
-  const commands = getCommands().map(c => ({ id: c.id, label: c.label, group: c.group, shortcut: c.shortcut }))
-  respond(send, requestId, true, commands)
-}
-
-function opExecuteCommand(send: Send, requestId: string, args: Record<string, unknown>): void {
-  const id = typeof args.id === 'string' ? args.id : ''
-  const cmdArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : []
-  if (!id) {
-    respond(send, requestId, false, undefined, 'execute_command requires an id')
-    return
-  }
-  toast('execute_command', id)
-  const executed = executeCommand(id, ...cmdArgs)
-  if (!executed) {
-    respond(send, requestId, false, undefined, `Command '${id}' not found or not currently available`)
-    return
-  }
-  respond(send, requestId, true, { executed: true, id })
-}
-
-function opSetConversation(send: Send, requestId: string, args: Record<string, unknown>): void {
-  const conversationId = typeof args.conversationId === 'string' ? args.conversationId : ''
-  if (!conversationId) {
-    respond(send, requestId, false, undefined, 'set_conversation requires conversationId')
-    return
-  }
-  toast('set_conversation', conversationId.slice(0, 8))
-  useConversationsStore.getState().selectConversation(conversationId, 'remote-control')
-  respond(send, requestId, true, { selected: conversationId })
-}
-
-function opReadTranscript(send: Send, requestId: string, args: Record<string, unknown>): void {
-  const store = useConversationsStore.getState()
-  const conversationId = typeof args.conversationId === 'string' ? args.conversationId : store.selectedConversationId
-  const format = args.format === 'json' ? 'json' : 'text'
-  if (!conversationId) {
-    respond(send, requestId, false, undefined, 'No conversation is active and none was specified')
-    return
-  }
-  const entries = store.transcripts[conversationId]
-  if (!entries) {
-    respond(
-      send,
-      requestId,
-      false,
-      undefined,
-      `Conversation '${conversationId.slice(0, 8)}' is not loaded in this browser (open it first or pass a loaded one)`,
-    )
-    return
-  }
-  toast('read_transcript', conversationId.slice(0, 8))
-  if (format === 'json') {
-    respond(send, requestId, true, { conversationId, count: entries.length, entries })
-    return
-  }
-  respond(send, requestId, true, {
-    conversationId,
-    count: entries.length,
-    text: serializeTranscript(entries),
-  })
-}
-
-function opSendPrompt(send: Send, requestId: string, args: Record<string, unknown>): void {
-  const conversationId = typeof args.conversationId === 'string' ? args.conversationId : ''
-  const text = typeof args.text === 'string' ? args.text : ''
-  if (!conversationId || !text) {
-    respond(send, requestId, false, undefined, 'send_prompt requires conversationId and text')
-    return
-  }
-  toast('send_prompt', `${conversationId.slice(0, 8)}: ${text.slice(0, 40)}`)
-  const ok = sendInput(conversationId, text)
-  respond(send, requestId, ok, { sent: ok, conversationId }, ok ? undefined : 'Send failed (socket not open?)')
-}
-
-function opPerfReport(send: Send, requestId: string, args: Record<string, unknown>): void {
-  if (!isPerfEnabled()) {
-    respond(
-      send,
-      requestId,
-      false,
-      undefined,
-      'Perf monitor is OFF, so no samples are being recorded. Turn it on with set_perf_monitor {enabled:true}, reproduce the activity, then grab the report.',
-    )
-    return
-  }
-  const significantOnly = args.significantOnly === true
-  toast('perf_report', significantOnly ? 'significant only' : 'full')
-  respond(send, requestId, true, { report: buildPerfReport({ significantOnly }) })
-}
-
-function opSetPerfMonitor(send: Send, requestId: string, args: Record<string, unknown>): void {
-  if (typeof args.enabled !== 'boolean') {
-    respond(send, requestId, false, undefined, 'set_perf_monitor requires { enabled: boolean }')
-    return
-  }
-  toast('set_perf_monitor', args.enabled ? 'ON' : 'OFF')
-  // Mirror the Settings toggle exactly: updateControlPanelPrefs persists the
-  // pref AND calls setPerfEnabled() to start/stop the ring buffer.
-  useConversationsStore.getState().updateControlPanelPrefs({ showPerfMonitor: args.enabled })
-  respond(send, requestId, true, { showPerfMonitor: args.enabled })
-}
-
-// ── Transcript text serialization (bounded) ──────────────────────────────
-
-function blocksToText(content: string | TranscriptContentBlock[] | undefined): string {
-  if (!content) return ''
-  if (typeof content === 'string') return content
-  const parts: string[] = []
-  for (const block of content) {
-    const b = block as TranscriptContentBlock & Record<string, unknown>
-    if (b.type === 'text' && typeof b.text === 'string') parts.push(b.text)
-    else if (b.type === 'thinking') parts.push('[thinking]')
-    else if (b.type === 'tool_use') parts.push(`[tool_use: ${String(b.name ?? '')}]`)
-    else if (b.type === 'tool_result') parts.push('[tool_result]')
-    else parts.push(`[${String(b.type)}]`)
-  }
-  return parts.join('\n')
-}
-
-function serializeTranscript(entries: TranscriptEntry[]): string {
-  const lines: string[] = []
-  for (const entry of entries) {
-    const e = entry as TranscriptEntry & Record<string, unknown>
-    let line: string
-    switch (e.type) {
-      case 'user':
-        line = `USER: ${blocksToText((e.message as { content?: string | TranscriptContentBlock[] })?.content)}`
-        break
-      case 'assistant':
-        line = `ASSISTANT: ${blocksToText((e.message as { content?: string | TranscriptContentBlock[] })?.content)}`
-        break
-      case 'system':
-        line = `SYSTEM${e.subtype ? `(${String(e.subtype)})` : ''}: ${String(e.content ?? '')}`
-        break
-      default:
-        line = `[${String(e.type)}${e.step ? ` ${String(e.step)}` : ''}${e.detail ? `: ${String(e.detail)}` : ''}]`
-    }
-    lines.push(line.trim())
-  }
-  let out = lines.filter(Boolean).join('\n\n')
-  if (out.length > TRANSCRIPT_TEXT_CAP) {
-    out = `${out.slice(-TRANSCRIPT_TEXT_CAP)}\n\n[...truncated to last ${TRANSCRIPT_TEXT_CAP} chars]`
-  }
-  return out
 }

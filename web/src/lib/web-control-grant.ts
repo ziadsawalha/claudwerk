@@ -17,6 +17,9 @@ import { WEB_CONTROL_MAX_GRANT_MS, WEB_CONTROL_OPS, type WebControlOp } from '@s
 
 const CLIENT_ID_KEY = 'webControl.clientId'
 const GRANT_KEY = 'webControl.grant'
+// SEPARATE, scarier consent: arbitrary JS eval. Off by default; the `execute_script`
+// capability is advertised ONLY while this is on (and a remote-control grant is live).
+const SCRIPT_KEY = 'webControl.scriptEnabled'
 
 export interface WebControlGrant {
   grantId: string
@@ -38,9 +41,12 @@ function getWebControlClientId(): string {
   }
 }
 
-/** The ops this browser will perform when opted-in (single grant = all ops). */
+/** The ops this browser will perform when opted-in. `execute_script` is advertised
+ *  ONLY when its separate opt-in is on -- otherwise the broker rejects it (the
+ *  browser never claimed the capability). */
 function webControlCapabilities(): WebControlOp[] {
-  return [...WEB_CONTROL_OPS]
+  const all = [...WEB_CONTROL_OPS]
+  return isScriptEnabled() ? all : all.filter(op => op !== 'execute_script')
 }
 
 /** A human label for the agent's client picker, e.g. "jonas - macOS / Chrome". */
@@ -118,6 +124,34 @@ export function subscribeWebControl(cb: () => void): () => void {
   return () => {
     listeners.delete(cb)
   }
+}
+
+// ── Script-execution sub-consent (separate, scarier toggle) ──────────────
+
+let scriptEnabled: boolean | undefined // undefined = not yet loaded
+
+/** Whether the "Allow script execution" sub-consent is on (drives the cap). */
+export function isScriptEnabled(): boolean {
+  if (scriptEnabled === undefined) {
+    try {
+      scriptEnabled = localStorage.getItem(SCRIPT_KEY) === '1'
+    } catch {
+      scriptEnabled = false
+    }
+  }
+  return scriptEnabled
+}
+
+/** Toggle the script sub-consent. Notifies subscribers so the caller re-advertises. */
+export function setScriptEnabled(on: boolean): void {
+  scriptEnabled = on
+  try {
+    if (on) localStorage.setItem(SCRIPT_KEY, '1')
+    else localStorage.removeItem(SCRIPT_KEY)
+  } catch {
+    /* storage disabled */
+  }
+  for (const l of listeners) l()
 }
 
 /** Stable snapshot for useSyncExternalStore (same ref until grant changes). */

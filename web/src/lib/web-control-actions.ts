@@ -11,6 +11,7 @@ import {
   disableWebControl,
   enableWebControl,
   getActiveWebControlGrant,
+  setScriptEnabled,
 } from './web-control-grant'
 
 /** Opt in (or renew): fresh 1h grant + advertise to the broker. */
@@ -34,4 +35,11 @@ export function toggleWebControl(): boolean {
   }
   turnOnWebControl()
   return true
+}
+
+/** Flip the separate script-execution consent and re-advertise the updated caps. */
+export function setScriptExecution(on: boolean): void {
+  setScriptEnabled(on)
+  const adv = buildWebControlAdvertise()
+  if (adv) wsSend('web_control_advertise', adv)
 }

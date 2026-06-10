@@ -12,12 +12,18 @@ afterEach(() => {
   __resetWebControlForTests()
 })
 
-function run(type: string, data: MessageData, wsData: Partial<WsData>): Record<string, unknown>[] {
+function run(
+  type: string,
+  data: MessageData,
+  wsData: Partial<WsData>,
+  callerSettings?: { trustLevel?: string },
+): Record<string, unknown>[] {
   const replies: Record<string, unknown>[] = []
   const ctx = {
     ws: { data: wsData, send() {} },
     reply: (m: Record<string, unknown>) => replies.push(m),
     requirePermission: () => {},
+    callerSettings,
     log: { info() {}, error() {}, debug() {} },
   } as unknown as HandlerContext
   routeMessage(ctx, type, data)
@@ -94,6 +100,24 @@ describe('web_control_relay handler (host bridge)', () => {
   it('errors when no browser is opted-in and no clientId is given', () => {
     const replies = run('web_control_relay', { requestId: 'rl4', op: 'screenshot' }, {})
     expect(replies[0]).toMatchObject({ type: 'web_control_relay_response', requestId: 'rl4', ok: false })
+    expect(String(replies[0].error)).toContain('No browser is opted-in')
+  })
+
+  it('rejects execute_script from a non-benevolent caller (before resolving a target)', () => {
+    const replies = run('web_control_relay', { requestId: 'rl5', op: 'execute_script', code: 'return 1' }, {})
+    expect(replies[0]).toMatchObject({ type: 'web_control_relay_response', requestId: 'rl5', ok: false })
+    expect(String(replies[0].error)).toContain('benevolent trust level')
+  })
+
+  it('a benevolent caller passes the trust gate (then fails only on no opted-in client)', () => {
+    const replies = run(
+      'web_control_relay',
+      { requestId: 'rl6', op: 'execute_script', code: 'return 1' },
+      {},
+      { trustLevel: 'benevolent' },
+    )
+    expect(replies[0]).toMatchObject({ type: 'web_control_relay_response', requestId: 'rl6', ok: false })
+    // Past the trust gate -> the only remaining failure is target resolution.
     expect(String(replies[0].error)).toContain('No browser is opted-in')
   })
 })
