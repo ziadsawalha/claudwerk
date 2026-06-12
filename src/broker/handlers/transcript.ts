@@ -344,6 +344,37 @@ const conversationInfo: MessageHandler = (ctx, data) => {
   )
 }
 
+// A runtime model switch the agent host parsed from CC's "Model changed to X"
+// notice. The visible transcript line already told the user WHAT happened; this
+// only updates the tracked model so the header pill follows. The snapshot's
+// model is synced too, so the next conversation_info diff doesn't re-announce
+// the same switch as a model_changed card. Idempotent: no-ops when unchanged.
+export const conversationModel: MessageHandler = (ctx, data) => {
+  const wsConversationId = ctx.ws.data.conversationId as string | undefined
+  const conversation =
+    (wsConversationId ? ctx.conversations.getConversation(wsConversationId) : null) ||
+    (wsConversationId ? ctx.conversations.findConversationByConversationId(wsConversationId) : null)
+  if (!conversation) {
+    ctx.log.debug(`conversation_model: no conversation found (conversationId=${wsConversationId?.slice(0, 8)})`)
+    return
+  }
+  const raw = typeof data.model === 'string' ? data.model.trim() : ''
+  if (!raw) return
+  // Normalize a bare alias ("fable") to its canonical family id so the header
+  // renders in the same style as the launch model and matches what the next
+  // init reports; fall back to the raw token for anything unrecognized.
+  const next = resolveModelFamily(raw)?.familyId ?? raw
+  if (conversation.model === next) return
+  const prev = conversation.model
+  conversation.model = next
+  if (conversation.conversationInfo) {
+    ;(conversation.conversationInfo as ConversationInfoSnapshot).model = next
+  }
+  ctx.conversations.persistConversationById(conversation.id)
+  ctx.conversations.broadcastConversationUpdate(conversation.id)
+  ctx.log.info(`Conversation model: ${prev || '?'} -> ${next} (${conversation.id.slice(0, 8)})`)
+}
+
 // Headless stream deltas -- forward raw API SSE events to subscribers WATCHING
 // this conversation's transcript only.
 //
@@ -720,6 +751,7 @@ export function registerTranscriptHandlers(): void {
       stream_delta: streamDelta,
       rate_limit_status: rateLimitStatusHandler,
       conversation_info: conversationInfo,
+      conversation_model: conversationModel,
       result_text: resultText,
       monitor_update: monitorUpdate,
       scheduled_task_fire: scheduledTaskFire,

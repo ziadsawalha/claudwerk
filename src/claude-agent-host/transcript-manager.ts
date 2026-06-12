@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { structuredPatch as computeStructuredPatch } from 'diff'
 import type {
+  ConversationModelUpdate,
   ConversationNameUpdate,
   TaskInfo,
   TasksUpdate,
@@ -295,6 +296,9 @@ export async function sendTranscriptEntriesChunked(
   // Detect /rename from local_command transcript entries
   if (!agentId) detectRename(ctx, entries)
 
+  // Detect runtime model switches (/model fable -> "Model changed to fable")
+  if (!agentId) detectModelChange(ctx, entries)
+
   // Upload image Read results and strip base64 before sending over WS
   await processImageReadResults(ctx, entries)
 
@@ -356,6 +360,32 @@ function detectRename(ctx: AgentHostContext, entries: TranscriptEntry[]): void {
       }
       ctx.wsClient?.send(msg)
     }
+  }
+}
+
+// Detect a runtime model switch and forward it as a structured message.
+//
+// CC announces a switch (whether via the user's `/model fable` or our own
+// set_model control verb) with a `system/informational` line whose content is
+// `Model changed to <model>`. This is the only place that line is parsed -- the
+// broker NEVER reads CC output. Idempotent downstream: the broker no-ops when
+// the model is unchanged, so duplicate notices (CC-native + our synthesized one)
+// collapse to a single update. Mirrors detectRename; runs for BOTH transports.
+function detectModelChange(ctx: AgentHostContext, entries: TranscriptEntry[]): void {
+  for (const entry of entries) {
+    const e = entry as Record<string, unknown>
+    if (e.type !== 'system' || e.subtype !== 'informational' || typeof e.content !== 'string') continue
+    const match = e.content.match(/^Model changed to (.+)$/)
+    if (!match) continue
+    const model = match[1].trim()
+    if (!model) continue
+    debug(`Detected model change: "${model}"`)
+    const msg: ConversationModelUpdate = {
+      type: 'conversation_model',
+      conversationId: ctx.claudeSessionId || ctx.conversationId,
+      model,
+    }
+    ctx.wsClient?.send(msg)
   }
 }
 

@@ -947,6 +947,7 @@ export type AgentHostMessage =
   | AgentHostRateLimitStatus
   | ConversationInfoUpdate
   | ConversationNameUpdate
+  | ConversationModelUpdate
   | CwdChangedMessage
   | ThinkingProgress
   | SpawnFailed
@@ -970,6 +971,23 @@ export interface ConversationNameUpdate {
   conversationId: string
   name: string
   description?: string
+}
+
+/**
+ * Backend-agnostic "the agent switched its active model mid-session" signal.
+ *
+ * Claude Code announces a runtime model switch (`/model fable`, or our own
+ * set_model control verb) with a `system/informational` transcript line whose
+ * content is `Model changed to <model>`. The informational line shows the user
+ * WHAT happened, but it never updates the conversation's tracked model -- so the
+ * header pill kept showing the launch model. The agent host parses that line
+ * (the only place allowed to read CC output) and emits this structured message;
+ * the broker updates `conversation.model` so the header reflects the switch.
+ */
+export interface ConversationModelUpdate {
+  type: 'conversation_model'
+  conversationId: string
+  model: string
 }
 
 /**

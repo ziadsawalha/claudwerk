@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { TranscriptEntry } from '../../shared/protocol'
 import type { HandlerContext, MessageData } from '../handler-context'
-import { streamDelta, transcriptEntries } from './transcript'
+import { conversationModel, streamDelta, transcriptEntries } from './transcript'
 
 const e = (o: Record<string, unknown>): TranscriptEntry => o as unknown as TranscriptEntry
 
@@ -159,5 +159,69 @@ describe('streamDelta gate (T-2, B-H2)', () => {
     streamDelta(ctx, { conversationId: 'gone', event: { type: 'ping' } } as unknown as MessageData)
     expect(channelBroadcasts).toHaveLength(0)
     expect(scopedBroadcasts).toHaveLength(0)
+  })
+})
+
+describe('conversationModel handler', () => {
+  function fakeModelCtx(initial: { model?: string; conversationInfo?: Record<string, unknown> }) {
+    const conv = {
+      id: 'conv-model',
+      model: initial.model,
+      conversationInfo: initial.conversationInfo,
+    } as Record<string, unknown>
+    const persisted: string[] = []
+    const broadcasts: string[] = []
+    const infoLogs: string[] = []
+    const ctx = {
+      ws: { data: { conversationId: 'conv-model' } },
+      log: { info: (m: string) => infoLogs.push(m), debug: () => {} },
+      conversations: {
+        getConversation: (id: string) => (id === 'conv-model' ? conv : undefined),
+        findConversationByConversationId: () => undefined,
+        persistConversationById: (id: string) => persisted.push(id),
+        broadcastConversationUpdate: (id: string) => broadcasts.push(id),
+      },
+    } as unknown as HandlerContext
+    return { ctx, conv, persisted, broadcasts, infoLogs }
+  }
+
+  it('updates conversation.model and syncs the snapshot, normalizing a bare alias', () => {
+    const { ctx, conv, persisted, broadcasts } = fakeModelCtx({
+      model: 'claude-opus-4-8[1m]',
+      conversationInfo: { model: 'claude-opus-4-8[1m]' },
+    })
+    conversationModel(ctx, { conversationId: 'conv-model', model: 'fable' } as unknown as MessageData)
+    expect(conv.model).toBe('claude-fable-5')
+    expect((conv.conversationInfo as { model: string }).model).toBe('claude-fable-5')
+    expect(persisted).toEqual(['conv-model'])
+    expect(broadcasts).toEqual(['conv-model'])
+  })
+
+  it('falls back to the raw token for an unrecognized model', () => {
+    const { ctx, conv } = fakeModelCtx({ model: 'claude-opus-4-8' })
+    conversationModel(ctx, { conversationId: 'conv-model', model: 'some-custom-model' } as unknown as MessageData)
+    expect(conv.model).toBe('some-custom-model')
+  })
+
+  it('no-ops when the resolved model is unchanged (idempotent for duplicate notices)', () => {
+    const { ctx, persisted, broadcasts } = fakeModelCtx({ model: 'claude-fable-5' })
+    conversationModel(ctx, { conversationId: 'conv-model', model: 'fable' } as unknown as MessageData)
+    expect(persisted).toHaveLength(0)
+    expect(broadcasts).toHaveLength(0)
+  })
+
+  it('ignores an empty or missing model', () => {
+    const { ctx, conv, persisted } = fakeModelCtx({ model: 'claude-opus-4-8' })
+    conversationModel(ctx, { conversationId: 'conv-model', model: '   ' } as unknown as MessageData)
+    conversationModel(ctx, { conversationId: 'conv-model' } as unknown as MessageData)
+    expect(conv.model).toBe('claude-opus-4-8')
+    expect(persisted).toHaveLength(0)
+  })
+
+  it('tolerates a conversation with no prior snapshot (PTY before init)', () => {
+    const { ctx, conv } = fakeModelCtx({ model: undefined })
+    conversationModel(ctx, { conversationId: 'conv-model', model: 'fable' } as unknown as MessageData)
+    expect(conv.model).toBe('claude-fable-5')
+    expect(conv.conversationInfo).toBeUndefined()
   })
 })
