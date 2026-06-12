@@ -68,6 +68,21 @@ export function useGlobalCommands(toggleSidebar: () => void) {
     { label: 'Sheaf (24/48h fleet overview)', group: 'Navigation' },
   )
 
+  const openCanvas = useCallback(() => {
+    window.location.hash = '/canvas'
+  }, [])
+
+  useCommand('open-canvas', openCanvas, {
+    label: 'THE CANVAS (fleet map)',
+    group: 'Navigation',
+  })
+
+  useChordCommand('open-canvas-chord', openCanvas, {
+    label: 'THE CANVAS',
+    key: 'c',
+    group: 'Navigation',
+  })
+
   useChordCommand(
     'toggle-debug',
     () => {

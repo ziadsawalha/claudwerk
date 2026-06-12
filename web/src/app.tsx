@@ -68,6 +68,7 @@ const SearchIndexManagerDialog = lazy(() =>
   import('@/components/search-index-manager').then(m => ({ default: m.SearchIndexManagerDialog })),
 )
 const SheafPage = lazy(() => import('@/sheaf/sheaf-page').then(m => ({ default: m.SheafPage })))
+const CanvasPage = lazy(() => import('@/components/canvas-mode/canvas-page').then(m => ({ default: m.CanvasPage })))
 // Admin-only debug tool -- kept out of the index bundle (incl. its lazy YAML view).
 const DebugControlModal = lazy(() =>
   import('@/components/debug/debug-control-modal').then(m => ({ default: m.DebugControlModal })),
@@ -530,6 +531,34 @@ function ShareGate({ token }: { token: string }) {
   return <SharedConversationView token={token} />
 }
 
+/** Full-screen lazy pages routed by bare hash (`#/canvas`, `#/sheaf`). */
+function FullscreenRoute({ fallbackLabel, children }: { fallbackLabel: string; children: React.ReactNode }) {
+  return (
+    <AuthGate>
+      <Suspense
+        fallback={
+          <div className="fixed inset-0 flex items-center justify-center text-muted-foreground">{fallbackLabel}</div>
+        }
+      >
+        {children}
+      </Suspense>
+    </AuthGate>
+  )
+}
+
+const FULLSCREEN_PAGES: Record<string, () => React.ReactElement> = {
+  canvas: () => (
+    <FullscreenRoute fallbackLabel="Loading the canvas…">
+      <CanvasPage />
+    </FullscreenRoute>
+  ),
+  sheaf: () => (
+    <FullscreenRoute fallbackLabel="Loading sheaf…">
+      <SheafPage />
+    </FullscreenRoute>
+  ),
+}
+
 function useHash(): string {
   const [hash, setHash] = useState(() => window.location.hash.slice(1))
   useEffect(() => {
@@ -575,18 +604,9 @@ export function App() {
     )
   }
 
-  if (hash === '/sheaf' || hash === 'sheaf') {
-    return (
-      <AuthGate>
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 flex items-center justify-center text-muted-foreground">Loading sheaf…</div>
-          }
-        >
-          <SheafPage />
-        </Suspense>
-      </AuthGate>
-    )
+  const fullscreenPage = FULLSCREEN_PAGES[hash.replace(/^\//, '')]
+  if (fullscreenPage) {
+    return fullscreenPage()
   }
 
   return (
