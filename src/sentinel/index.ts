@@ -113,6 +113,7 @@ import {
 import { ShellDataWs } from './shell-data-ws'
 import { ACTIVITY_COALESCE_MS, ShellRegistry } from './shell-pty'
 import { headlessNdjsonPath, parseHookStage, RingBuffer, tailHeadlessNdjson } from './spawn-error'
+import { deriveUsageHeadroom, snapshotHasWindows } from './usage-headroom'
 import { buildSentinelUsageReport, pollProfileUsage, snapshotToLegacyUsageUpdate } from './usage-poller'
 
 /** Pre-flight warnings stashed per-conversation. Surfaced when CC dies early
@@ -330,20 +331,22 @@ const USAGE_STALE_MS = 10 * 60 * 1000
 /** Headroom source for `pickProfile` -- reads the latest per-profile poll
  *  result and exposes the 5h and 7d windows SEPARATELY so the ranker can
  *  treat the 5h as a hard gate and the 7d as a soft drain-pressure
- *  preference (Smart Balance v3, see `rankCandidate`). `undefined` for
- *  unauthed / errored / missing snapshots so the picker falls through to
- *  live-load. */
+ *  preference (Smart Balance v3, see `rankCandidate`).
+ *
+ *  CARRY-FORWARD: when the latest poll is errored (notably an HTTP 429 from
+ *  the per-account usage API, which says nothing about the account's actual
+ *  capacity), fall back to the last error-free snapshot so a healthy profile
+ *  keeps ranking on real headroom instead of collapsing into the UNKNOWN band
+ *  and losing every balanced spawn to a sibling. See `usage-headroom.ts`.
+ *  `undefined` only when neither the latest nor a recent last-good snapshot has
+ *  usable windows -- then the picker falls through to live-load. */
 function usageHeadroomForProfile(profileName: string): UsageHeadroom | undefined {
-  const snap = getLatestProfileUsage().get(profileName)
-  if (!snap?.authed || snap.error || !snap.fiveHour || !snap.sevenDay) return undefined
-  const now = Date.now()
-  return {
-    fiveHourUsedPercent: snap.fiveHour.usedPercent,
-    sevenDayUsedPercent: snap.sevenDay.usedPercent,
-    msUntilFiveHourReset: Math.max(0, new Date(snap.fiveHour.resetAt).getTime() - now),
-    msUntilSevenDayReset: Math.max(0, new Date(snap.sevenDay.resetAt).getTime() - now),
-    stale: now - snap.polledAt > USAGE_STALE_MS,
-  }
+  return deriveUsageHeadroom(
+    getLatestProfileUsage().get(profileName),
+    getLastGoodProfileUsage().get(profileName),
+    Date.now(),
+    { staleMs: USAGE_STALE_MS, carryForwardStaleMs: RATE_LIMIT_MAX_BACKOFF_MS },
+  )
 }
 
 /** Dead PIDs discovered from registry on startup (reported once WS connects) */
@@ -2410,8 +2413,14 @@ function computeRateLimitBackoffMs(retryAfterMs: number | undefined): number {
 let usagePollTimer: ReturnType<typeof setInterval> | null = null
 
 /** In-process latest-per-profile snapshots, populated by the polling cycle.
- *  Phase 3 reads this from `pickProfile` for Smart Balance. */
+ *  Phase 3 reads this from `pickProfile` for Smart Balance. Holds errored
+ *  snapshots too (the wire report + panel need to show throttles honestly). */
 const latestProfileUsage = new Map<string, ProfileUsageSnapshot>()
+
+/** Last ERROR-FREE snapshot per profile (has both windows). Survives a 429 so
+ *  the Balanced picker can carry forward real headroom while the usage API
+ *  throttles the probe -- see `usage-headroom.ts` / `usageHeadroomForProfile`. */
+const lastGoodProfileUsage = new Map<string, ProfileUsageSnapshot>()
 
 /** Profile name -> epoch ms until which polling is suppressed (429 backoff). */
 const profileBackoffUntil = new Map<string, number>()
@@ -2419,6 +2428,11 @@ const profileBackoffUntil = new Map<string, number>()
 /** Read-only view of the latest snapshots. Exported for Smart Balance + tests. */
 export function getLatestProfileUsage(): ReadonlyMap<string, ProfileUsageSnapshot> {
   return latestProfileUsage
+}
+
+/** Read-only view of the last-good snapshots (429 carry-forward source). */
+export function getLastGoodProfileUsage(): ReadonlyMap<string, ProfileUsageSnapshot> {
+  return lastGoodProfileUsage
 }
 
 /** LOG-EVERYTHING covenant: one structured line per profile per cycle. */
@@ -2479,6 +2493,10 @@ async function pollOneProfileSafely(
   try {
     const snap = await pollProfileUsage(profile)
     latestProfileUsage.set(profile.name, snap)
+    // Preserve the last error-free reading so the picker can carry it forward
+    // when the next poll is throttled (429) -- a probe failure must not blank a
+    // healthy profile out of the Balanced ranking. See `usage-headroom.ts`.
+    if (snapshotHasWindows(snap)) lastGoodProfileUsage.set(profile.name, snap)
     logProfilePollResult(snap)
     updateBackoff(profile.name, cycleStart, snap)
     return snap
