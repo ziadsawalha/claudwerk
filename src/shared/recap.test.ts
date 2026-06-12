@@ -57,4 +57,15 @@ describe('parseRecapContent', () => {
     expect(result.title).toBe('Refactor store')
     expect(result.recap).toBe('Extracted shared utilities from monolithic store.')
   })
+
+  it('parses the suggested conversation name', () => {
+    const result = parseRecapContent('{"title":"Fix spawn timeout","recap":"Done.","name":"bug: spawn timeout"}')
+    expect(result.name).toBe('bug: spawn timeout')
+  })
+
+  it('returns null name when absent or empty', () => {
+    expect(parseRecapContent('{"title":"T","recap":"R"}').name).toBeNull()
+    expect(parseRecapContent('{"title":"T","recap":"R","name":"  "}').name).toBeNull()
+    expect(parseRecapContent('plain text recap').name).toBeNull()
+  })
 })

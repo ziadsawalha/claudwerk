@@ -1,7 +1,12 @@
 import type { TranscriptEntry, TranscriptSystemEntry } from '../../../shared/protocol'
 import { parseRecapContent } from '../shared/json-parse'
 import { extractAssistantText, extractUserText, prefixed, truncate } from '../shared/transcript-extract'
-import { AWAY_SUMMARY_MAX_CONTEXT_CHARS, AWAY_SUMMARY_MAX_RECENT_ENTRIES } from './prompt'
+import {
+  AWAY_SUMMARY_MAX_CONTEXT_CHARS,
+  AWAY_SUMMARY_MAX_ENTRY_CHARS,
+  AWAY_SUMMARY_MAX_INITIAL_REQUEST_CHARS,
+  AWAY_SUMMARY_MAX_RECENT_ENTRIES,
+} from './prompt'
 
 export interface CondenseInput {
   entries: TranscriptEntry[]
@@ -13,6 +18,7 @@ export function condenseTranscript(input: CondenseInput): string | null {
   const builder = new ContextBuilder(AWAY_SUMMARY_MAX_CONTEXT_CHARS)
   appendFinalResult(builder, input.resultText)
   const scan = scanForBoundariesAndRecaps(input.entries)
+  appendInitialRequest(builder, scan.postReset)
   const conversationLines = appendRecentConversation(builder, scan.postReset)
   appendBackground(builder, scan.priorRecaps)
   return finishOrEmpty(builder, conversationLines, scan, input.resultText)
@@ -33,6 +39,27 @@ function finishOrEmpty(
 function appendFinalResult(builder: ContextBuilder, resultText: string | undefined): void {
   if (!resultText) return
   builder.add(`FINAL RESULT (the assistant's last output to the user):\n${truncate(resultText, 2000)}`)
+}
+
+/**
+ * Anchor the session's intent when it has scrolled out of the recent-entries
+ * window: long turns (one user ask, dozens of assistant entries) would
+ * otherwise leave the model with only trailing follow-ups ("commit it" ->
+ * "done") and the recap describes the bookkeeping instead of the task.
+ * Skipped when the opening ask is still inside the recent window.
+ */
+function appendInitialRequest(builder: ContextBuilder, postReset: TranscriptEntry[]): void {
+  const recentStart = Math.max(0, postReset.length - AWAY_SUMMARY_MAX_RECENT_ENTRIES)
+  for (let i = 0; i < recentStart; i++) {
+    const entry = postReset[i]
+    if (entry.type !== 'user') continue
+    const text = extractUserText(entry as never)
+    if (!text?.trim()) continue
+    builder.add(
+      `\nINITIAL REQUEST (what this session was opened for):\n${truncate(text.trim(), AWAY_SUMMARY_MAX_INITIAL_REQUEST_CHARS)}`,
+    )
+    return
+  }
 }
 
 function appendBackground(builder: ContextBuilder, priorRecaps: string[]): void {
@@ -113,7 +140,13 @@ function appendRecentConversation(builder: ContextBuilder, postReset: Transcript
 }
 
 function renderEntry(entry: TranscriptEntry): string | null {
-  if (entry.type === 'user') return prefixed('USER', extractUserText(entry as never))
-  if (entry.type === 'assistant') return prefixed('ASSISTANT', extractAssistantText(entry as never))
+  // Per-entry cap: one essay-sized message must not starve the rest of the
+  // window out of the context budget (the builder fills oldest-first).
+  if (entry.type === 'user') return prefixed('USER', capped(extractUserText(entry as never)))
+  if (entry.type === 'assistant') return prefixed('ASSISTANT', capped(extractAssistantText(entry as never)))
   return null
+}
+
+function capped(text: string | null): string | null {
+  return text === null ? null : truncate(text, AWAY_SUMMARY_MAX_ENTRY_CHARS)
 }

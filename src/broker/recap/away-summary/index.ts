@@ -1,9 +1,6 @@
-import { randomUUID } from 'node:crypto'
-import type { TranscriptSystemEntry } from '../../../shared/protocol'
 import type { ConversationStore } from '../../conversation-store'
-import { parseRecapContent } from '../shared/json-parse'
 import { chat } from '../shared/openrouter-client'
-import { condenseTranscript } from './condense'
+import { buildCondensedContext, persistResult } from './persist'
 import {
   AWAY_SUMMARY_DELAY_MS,
   AWAY_SUMMARY_MAX_TOKENS,
@@ -144,41 +141,6 @@ async function callOpenRouter(
     }
     return null
   }
-}
-
-// fallow-ignore-next-line complexity
-function persistResult(store: ConversationStore, conversationId: string, rawText: string, allowEnded: boolean): void {
-  const parsed = parseRecapContent(rawText)
-  const freshConv = store.getConversation(conversationId)
-  if (!freshConv) return
-  if (!allowEnded && freshConv.status !== 'idle') return
-
-  const entry: TranscriptSystemEntry = {
-    type: 'system',
-    subtype: 'away_summary',
-    content: JSON.stringify({ title: parsed.title, recap: parsed.recap }),
-    timestamp: new Date().toISOString(),
-    uuid: randomUUID(),
-  }
-  store.addTranscriptEntries(conversationId, [entry], false)
-  store.broadcastToChannel('conversation:transcript', conversationId, {
-    type: 'transcript',
-    conversationId,
-    entries: [entry],
-  })
-  store.broadcastConversationUpdate(conversationId)
-  if (allowEnded) store.persistConversationById(conversationId)
-  console.log(
-    `[recap] generated for ${conversationId.slice(0, 8)}: title="${parsed.title}" recap="${parsed.recap.slice(0, 60)}"`,
-  )
-}
-
-// fallow-ignore-next-line complexity
-function buildCondensedContext(store: ConversationStore, conversationId: string, resultText?: string): string | null {
-  let entries = store.getTranscriptEntries(conversationId)
-  if (entries.length === 0) entries = store.loadTranscriptFromStore(conversationId, 200) || []
-  if (entries.length === 0 && !resultText) return null
-  return condenseTranscript({ entries, resultText })
 }
 
 function makeReplyResult(conversationId: string, reply?: ReplyFn) {
