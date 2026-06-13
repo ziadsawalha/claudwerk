@@ -1259,8 +1259,10 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
       // Don't replace a larger local cache with a smaller server response
       // unless the server sent an initial/full load (entries have different first entry)
       if (existing && existing.length > entries.length) {
-        const firstEntry = (e: TranscriptEntry) =>
-          JSON.stringify('message' in e ? (e.message as Record<string, unknown>)?.content : e.type)?.slice(0, 100)
+        const firstEntry = (e: TranscriptEntry | undefined) =>
+          e && typeof e === 'object'
+            ? JSON.stringify('message' in e ? (e.message as Record<string, unknown>)?.content : e.type)?.slice(0, 100)
+            : undefined
         const existingFirst = firstEntry(existing[0])
         const newFirst = firstEntry(entries[0])
         if (existingFirst === newFirst) {

@@ -228,3 +228,23 @@ describe('handleConversationUpdate -- single-key patch (W-H3)', () => {
     expect(arr.every(c => c.status === 'active')).toBe(true)
   })
 })
+
+// Leaving THE CANVAS releases every expanded card's transcript via
+// setTranscript(id, []). The smaller-cache guard then peeked at entries[0]
+// (undefined for an empty release) and `'message' in undefined` threw
+// Safari's "e is not an Object" -- crashing on canvas exit. The guard must
+// tolerate an empty replacement and clear the cache.
+describe('setTranscript -- empty replacement (canvas release)', () => {
+  const entry = (type: string) => ({ type, seq: 1 }) as never
+
+  beforeEach(() => {
+    useConversationsStore.setState({ transcripts: {}, lastAppliedTranscriptSeq: {} })
+  })
+
+  it('clears a populated cache when handed an empty list, without throwing', () => {
+    const store = useConversationsStore.getState()
+    store.setTranscript('conv_a', [entry('user'), entry('assistant')])
+    expect(() => store.setTranscript('conv_a', [])).not.toThrow()
+    expect(useConversationsStore.getState().transcripts.conv_a).toEqual([])
+  })
+})
