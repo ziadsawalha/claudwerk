@@ -13,7 +13,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useMemo, useState } from 'react'
-import type { ConversationCardData } from './canvas-types'
+import { AgentNode } from './agent-node'
+import { AGENT_PINK, type ConversationCardData } from './canvas-types'
 import { ConversationNode } from './conversation-node'
 import { styleEdges } from './edge-style'
 import type { CanvasNode } from './layout'
@@ -22,7 +23,12 @@ import { PulseEdge } from './pulse-edge'
 import { SentinelNode } from './sentinel-node'
 import { useMessagePulses } from './use-message-pulses'
 
-const nodeTypes = { conversation: ConversationNode, projectSpace: ProjectSpaceNode, sentinel: SentinelNode }
+const nodeTypes = {
+  conversation: ConversationNode,
+  projectSpace: ProjectSpaceNode,
+  sentinel: SentinelNode,
+  agent: AgentNode,
+}
 const edgeTypes = { pulse: PulseEdge }
 
 const MINIMAP_STATUS_COLORS: Record<string, string> = {
@@ -36,6 +42,7 @@ const MINIMAP_STATUS_COLORS: Record<string, string> = {
 const MINIMAP_TYPE_COLORS: Record<string, string> = {
   projectSpace: 'oklch(0.4 0.02 260 / 0.3)',
   sentinel: 'oklch(0.6 0.1 250 / 0.6)',
+  agent: AGENT_PINK,
 }
 
 function minimapColor(n: Node): string {

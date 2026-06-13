@@ -1,94 +1,28 @@
-// THE CANVAS layout: conversations become cards laid out per-project by dagre
-// (top-down spawn lineage), project clusters are shelf-packed into rows, and a
-// large "project space" rect is painted behind each cluster. Expanded cards
-// grow in place (dagre gets their real size). Pure -- no React.
-import Dagre from '@dagrejs/dagre'
+// THE CANVAS layout: turns dagre-packed clusters (cluster-pack.ts) into React
+// Flow nodes -- project-space rects, conversation cards, spawn edges -- and
+// hands back absolute card rects for the agent overlay + sentinel rail. Pure,
+// no React.
 import type { Edge, Node } from '@xyflow/react'
 import type { Conversation } from '@/lib/types'
 import { projectDisplayName } from '@/lib/utils'
 import {
+  type AgentNodeData,
   type ConversationCardData,
   conversationLabel,
   type ProjectSpaceData,
   projectHue,
   type SentinelNodeData,
 } from './canvas-types'
+import { type Cluster, layoutCluster, nodeSize, packClusters, SPACE_PAD, TITLE_PAD } from './cluster-pack'
 import { buildLineageEdges } from './edge-style'
 
-export const NODE_W = 252
-export const NODE_H = 96
-export const EXPANDED_W = 540
-export const EXPANDED_H = 520
-const SPACE_PAD = 40
-const TITLE_PAD = 76 // extra headroom so the painted project title clears row 1
-const SPACE_GAP = 80
-const ROW_MAX_W = 2600
+export { EXPANDED_H, EXPANDED_W, NODE_H, NODE_W } from './cluster-pack'
 
 export type CanvasNode =
   | Node<ConversationCardData, 'conversation'>
   | Node<ProjectSpaceData, 'projectSpace'>
   | Node<SentinelNodeData, 'sentinel'>
-
-interface Cluster {
-  uri: string
-  members: Conversation[]
-  positions: Map<string, { x: number; y: number }>
-  w: number
-  h: number
-}
-
-function nodeSize(id: string, expandedIds: ReadonlySet<string>): { w: number; h: number } {
-  return expandedIds.has(id) ? { w: EXPANDED_W, h: EXPANDED_H } : { w: NODE_W, h: NODE_H }
-}
-
-/** Dagre-layout one project's conversations (lineage edges only within it). */
-function layoutCluster(uri: string, members: Conversation[], expandedIds: ReadonlySet<string>): Cluster {
-  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: 'TB', nodesep: 28, ranksep: 56, marginx: 0, marginy: 0 })
-  const memberIds = new Set(members.map(c => c.id))
-  for (const c of members) {
-    const { w, h } = nodeSize(c.id, expandedIds)
-    g.setNode(c.id, { width: w, height: h })
-  }
-  for (const c of members) {
-    if (c.parentConversationId && memberIds.has(c.parentConversationId)) g.setEdge(c.parentConversationId, c.id)
-  }
-  Dagre.layout(g)
-
-  const positions = new Map<string, { x: number; y: number }>()
-  let maxX = 0
-  let maxY = 0
-  for (const c of members) {
-    const p = g.node(c.id)
-    const { w, h } = nodeSize(c.id, expandedIds)
-    const x = p.x - w / 2
-    const y = p.y - h / 2
-    positions.set(c.id, { x, y })
-    maxX = Math.max(maxX, x + w)
-    maxY = Math.max(maxY, y + h)
-  }
-  return { uri, members, positions, w: maxX + SPACE_PAD * 2, h: maxY + SPACE_PAD + TITLE_PAD }
-}
-
-/** Shelf-pack clusters into rows of at most ROW_MAX_W, biggest first. */
-function packClusters(clusters: Cluster[]): Map<string, { x: number; y: number }> {
-  const sorted = [...clusters].sort((a, b) => b.members.length - a.members.length || a.uri.localeCompare(b.uri))
-  const origins = new Map<string, { x: number; y: number }>()
-  let x = 0
-  let y = 0
-  let rowH = 0
-  for (const c of sorted) {
-    if (x > 0 && x + c.w > ROW_MAX_W) {
-      x = 0
-      y += rowH + SPACE_GAP
-      rowH = 0
-    }
-    origins.set(c.uri, { x, y })
-    x += c.w + SPACE_GAP
-    rowH = Math.max(rowH, c.h)
-  }
-  return origins
-}
+  | Node<AgentNodeData, 'agent'>
 
 function toCardData(c: Conversation, childCount: number, now: number, expanded: boolean): ConversationCardData {
   return {
@@ -152,15 +86,27 @@ interface CardContext {
   childCounts: Map<string, number>
 }
 
-function clusterNodes(cluster: Cluster, origin: { x: number; y: number }, ctx: CardContext): CanvasNode[] {
+/** Absolute card rectangle, keyed by conversation id -- consumed by the agent
+ *  overlay (satellite placement) and the sentinel top-rail (ordering). */
+export type CardRect = { x: number; y: number; w: number; h: number }
+
+function clusterNodes(
+  cluster: Cluster,
+  origin: { x: number; y: number },
+  ctx: CardContext,
+  rects: Map<string, CardRect>,
+): CanvasNode[] {
   const nodes: CanvasNode[] = [projectSpaceNode(cluster, origin)]
   for (const c of cluster.members) {
     const p = cluster.positions.get(c.id) ?? { x: 0, y: 0 }
     const expanded = ctx.expandedIds.has(c.id)
+    const { w, h } = nodeSize(c.id, ctx.expandedIds)
+    const position = { x: origin.x + SPACE_PAD + p.x, y: origin.y + TITLE_PAD + p.y }
+    rects.set(c.id, { x: position.x, y: position.y, w, h })
     nodes.push({
       id: c.id,
       type: 'conversation',
-      position: { x: origin.x + SPACE_PAD + p.x, y: origin.y + TITLE_PAD + p.y },
+      position,
       selected: c.id === ctx.selectedId,
       zIndex: expanded ? 2 : 1,
       data: toCardData(c, ctx.childCounts.get(c.id) ?? 0, ctx.now, expanded),
@@ -169,17 +115,21 @@ function clusterNodes(cluster: Cluster, origin: { x: number; y: number }, ctx: C
   return nodes
 }
 
-/** Lay out the whole fleet: project spaces + conversation cards + spawn edges. */
+/** Lay out the whole fleet: project spaces + conversation cards + spawn edges.
+ *  Also returns absolute card rects for the agent overlay + sentinel rail. */
 export function layoutCanvas(
   conversations: Conversation[],
   selectedId: string | null,
   now: number,
   expandedIds: ReadonlySet<string>,
-): { nodes: CanvasNode[]; edges: Edge[] } {
+): { nodes: CanvasNode[]; edges: Edge[]; cardRects: Map<string, CardRect> } {
   const byProject = groupByProject(conversations)
   const clusters = [...byProject.entries()].map(([uri, members]) => layoutCluster(uri, members, expandedIds))
   const origins = packClusters(clusters)
   const ctx: CardContext = { selectedId, now, expandedIds, childCounts: countChildren(conversations) }
-  const nodes = clusters.flatMap(cluster => clusterNodes(cluster, origins.get(cluster.uri) ?? { x: 0, y: 0 }, ctx))
-  return { nodes, edges: buildLineageEdges(conversations, byProject) }
+  const cardRects = new Map<string, CardRect>()
+  const nodes = clusters.flatMap(cluster =>
+    clusterNodes(cluster, origins.get(cluster.uri) ?? { x: 0, y: 0 }, ctx, cardRects),
+  )
+  return { nodes, edges: buildLineageEdges(conversations, byProject), cardRects }
 }

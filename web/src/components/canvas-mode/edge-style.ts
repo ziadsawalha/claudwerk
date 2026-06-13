@@ -26,9 +26,10 @@ export function buildLineageEdges(conversations: Conversation[], byProject: Map<
   return edges
 }
 
-type EdgeKind = 'lineage' | 'lineage-cross' | 'host'
+type EdgeKind = 'lineage' | 'lineage-cross' | 'host' | 'agent'
 
 import type { CSSProperties } from 'react'
+import { AGENT_PINK } from './canvas-types'
 
 type EdgePaint = CSSProperties & {
   stroke: string
@@ -41,12 +42,14 @@ const BASE: Record<EdgeKind, EdgePaint> = {
   lineage: { stroke: 'var(--color-border)', strokeWidth: 1.5, opacity: 0.9 },
   'lineage-cross': { stroke: 'var(--color-border)', strokeWidth: 1.5, opacity: 0.9, strokeDasharray: '6 5' },
   host: { stroke: 'var(--color-border)', strokeWidth: 1, opacity: 0.14, strokeDasharray: '2 5' },
+  agent: { stroke: AGENT_PINK, strokeWidth: 1.25, opacity: 0.4 },
 }
 
 const ACCENT: Record<EdgeKind, EdgePaint> = {
   lineage: { stroke: 'var(--color-active)', strokeWidth: 2.5, opacity: 1 },
   'lineage-cross': { stroke: 'var(--color-active)', strokeWidth: 2.5, opacity: 1, strokeDasharray: '6 5' },
   host: { stroke: 'var(--color-info)', strokeWidth: 2, opacity: 0.95, strokeDasharray: '2 5' },
+  agent: { stroke: AGENT_PINK, strokeWidth: 2, opacity: 0.95 },
 }
 
 const DIMMED_OPACITY = 0.05

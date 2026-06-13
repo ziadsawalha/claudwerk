@@ -90,6 +90,7 @@ export function ConversationNode({ id, data, selected }: NodeProps) {
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className="!bg-border !border-border" />
+      <Handle type="source" position={Position.Right} id="agents" className="!bg-border !border-border opacity-0" />
     </div>
   )
 }

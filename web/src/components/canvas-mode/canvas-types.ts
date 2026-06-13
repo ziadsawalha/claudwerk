@@ -39,6 +39,22 @@ export interface SentinelNodeData {
   [k: string]: unknown
 }
 
+/** A running/just-stopped subagent, rendered as a small pink satellite node
+ *  orbiting its parent conversation card. */
+export interface AgentNodeData {
+  agentType: string
+  model?: string
+  /** stopped agents linger (fading) for AGENT_TTL_MS, then drop off the canvas. */
+  fading: boolean
+  [k: string]: unknown
+}
+
+/** Pink accent for agent satellites (no theme token -- agents are canvas-only). */
+export const AGENT_PINK = 'oklch(0.72 0.18 350)'
+
+/** How long a stopped subagent box lingers (fading) before it leaves the canvas. */
+export const AGENT_TTL_MS = 45_000
+
 export interface ProjectSpaceData {
   label: string
   uri: string
