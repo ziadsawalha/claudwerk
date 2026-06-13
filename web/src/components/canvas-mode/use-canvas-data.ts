@@ -42,7 +42,11 @@ export function useCanvasData(showEnded: boolean, expandedIds: ReadonlySet<strin
   return useMemo(() => {
     const agents = buildAgentNodes(base.visible, base.cardRects, now)
     return {
-      nodes: [...base.nodes, ...buildSentinelNodes(sentinels, base.visible, profileUsage), ...agents.nodes],
+      nodes: [
+        ...base.nodes,
+        ...buildSentinelNodes(sentinels, base.visible, profileUsage, base.cardRects),
+        ...agents.nodes,
+      ],
       edges: [...base.edges, ...buildSentinelEdges(sentinels, base.visible), ...agents.edges],
       presentIds: new Set(base.visible.map(c => c.id)),
       total: base.visible.length,

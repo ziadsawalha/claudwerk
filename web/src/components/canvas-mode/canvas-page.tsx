@@ -3,8 +3,8 @@
  *
  * Lazy-loaded from app.tsx when the hash is `#/canvas`. Conversations are
  * cards grouped into tinted PROJECT SPACES (large painted title per project);
- * sentinels stand in a column to the left with per-profile usage. Clicking a
- * card expands it in place into a live mini-transcript (any number at once);
+ * sentinels hang in a top rail above their hosted work with per-profile usage.
+ * Clicking a card expands it in place into a live mini-transcript (any number at once);
  * inter-conversation sends animate as pulses between cards. Live over the
  * same WS feed as the dashboard.
  */

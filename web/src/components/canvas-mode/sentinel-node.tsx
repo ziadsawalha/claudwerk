@@ -80,7 +80,7 @@ export function SentinelNode({ data }: NodeProps) {
       {d.profiles.map(p => (
         <ProfileRow key={p.name} p={p} />
       ))}
-      <Handle type="source" position={Position.Right} className="!bg-border !border-border" />
+      <Handle type="source" position={Position.Bottom} className="!bg-border !border-border" />
     </div>
   )
 }

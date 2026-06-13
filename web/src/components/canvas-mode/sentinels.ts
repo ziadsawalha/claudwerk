@@ -1,18 +1,23 @@
 // Sentinel nodes for THE CANVAS: one node per sentinel (status + per-profile
-// usage), stacked in a column LEFT of the project spaces, plus faint host
-// edges sentinel -> every conversation it hosts. Pure -- no React.
+// usage), laid out as a TOP RAIL above the project spaces -- each sentinel sits
+// roughly over the conversations it hosts (greedy de-overlap keeps the row
+// readable), with faint host edges dropping down to every conversation it
+// hosts. Pure -- no React.
 
 import type { ProfileUsageSnapshot } from '@shared/protocol'
 import type { Edge, Node } from '@xyflow/react'
 import type { SentinelStatusInfo } from '@/hooks/use-conversations'
 import type { Conversation } from '@/lib/types'
 import type { SentinelNodeData, SentinelProfileRow } from './canvas-types'
+import type { CardRect } from './layout'
 
 const SENTINEL_W = 280
 const SENTINEL_BASE_H = 72
 const SENTINEL_PROFILE_H = 40
-const SENTINEL_GAP = 48
-const SENTINEL_COL_X = -(SENTINEL_W + 160)
+const SENTINEL_GAP = 40
+// The rail's bottom edge sits this far ABOVE the project spaces (which start at
+// y=0), leaving room for the host edges to fan down.
+const RAIL_BASELINE_Y = -140
 
 export type ProfileUsageMap = Record<string, ProfileUsageSnapshot & { sentinelId: string; polledAt: number }>
 
@@ -38,26 +43,66 @@ function profileRows(s: SentinelStatusInfo, usage: ProfileUsageMap): SentinelPro
   })
 }
 
-/** Build the sentinel column nodes. Conversations are counted per host so the
- *  node can show how many it carries. */
+/** Mean horizontal centre of the cards a sentinel hosts, or null when it hosts
+ *  nothing on the canvas -- used to place each sentinel above its own work. */
+function meanHostCenterX(
+  sentinelId: string,
+  conversations: Conversation[],
+  cardRects: Map<string, CardRect>,
+): number | null {
+  let sum = 0
+  let n = 0
+  for (const c of conversations) {
+    if (c.hostSentinelId !== sentinelId) continue
+    const r = cardRects.get(c.id)
+    if (!r) continue
+    sum += r.x + r.w / 2
+    n++
+  }
+  return n > 0 ? sum / n : null
+}
+
+interface RailEntry {
+  s: SentinelStatusInfo
+  profiles: SentinelProfileRow[]
+  count: number
+  /** desired centre x (over hosted work); orphan sentinels land past the content. */
+  cx: number
+}
+
+/** Build the sentinel TOP-RAIL nodes: each sentinel centred over its hosted
+ *  conversations, sorted left-to-right, greedily de-overlapped, and bottom-
+ *  aligned to the rail baseline so the row hangs just above the projects. */
 export function buildSentinelNodes(
   sentinels: SentinelStatusInfo[],
   conversations: Conversation[],
   usage: ProfileUsageMap,
+  cardRects: Map<string, CardRect>,
 ): Node<SentinelNodeData, 'sentinel'>[] {
   const countByHost = new Map<string, number>()
   for (const c of conversations) {
     if (c.hostSentinelId) countByHost.set(c.hostSentinelId, (countByHost.get(c.hostSentinelId) ?? 0) + 1)
   }
+  // Orphan sentinels (hosting nothing visible) park just past the content edge.
+  const contentMaxX = Math.max(0, ...[...cardRects.values()].map(r => r.x + r.w))
 
-  let y = 0
-  return sentinels.map(s => {
-    const profiles = profileRows(s, usage)
+  const entries: RailEntry[] = sentinels.map(s => ({
+    s,
+    profiles: profileRows(s, usage),
+    count: countByHost.get(s.sentinelId) ?? 0,
+    cx: meanHostCenterX(s.sentinelId, conversations, cardRects) ?? contentMaxX,
+  }))
+  entries.sort((a, b) => a.cx - b.cx || a.s.alias.localeCompare(b.s.alias))
+
+  let cursorX = 0 // left edge floor -- prevents overlap while preserving order
+  return entries.map(({ s, profiles, count, cx }) => {
     const h = sentinelNodeHeight(profiles.length)
-    const node: Node<SentinelNodeData, 'sentinel'> = {
+    const x = Math.max(cursorX, cx - SENTINEL_W / 2)
+    cursorX = x + SENTINEL_W + SENTINEL_GAP
+    return {
       id: sentinelNodeId(s.sentinelId),
       type: 'sentinel',
-      position: { x: SENTINEL_COL_X, y },
+      position: { x, y: RAIL_BASELINE_Y - h },
       selectable: false,
       zIndex: 1,
       data: {
@@ -65,12 +110,10 @@ export function buildSentinelNodes(
         alias: s.alias,
         hostname: s.hostname,
         connected: s.connected,
-        conversationCount: countByHost.get(s.sentinelId) ?? 0,
+        conversationCount: count,
         profiles,
       },
     }
-    y += h + SENTINEL_GAP
-    return node
   })
 }
 

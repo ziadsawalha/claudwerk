@@ -128,13 +128,31 @@ describe('sentinel nodes + edges', () => {
         sevenDay: { usedPercent: 71, resetAt: '' },
       },
     }
-    const [node] = buildSentinelNodes([sentinel], [conv('a', 'claude:///p1')], usage)
+    const [node] = buildSentinelNodes([sentinel], [conv('a', 'claude:///p1')], usage, new Map())
     expect(node.id).toBe('sentinel:snt_1')
     expect(node.data.conversationCount).toBe(1)
     const work = node.data.profiles.find(p => p.name === 'work')
     expect(work?.fiveHourPct).toBe(42)
     expect(work?.sevenDayPct).toBe(71)
     expect(node.data.profiles.find(p => p.name === 'default')?.authed).toBe(false)
+  })
+
+  it('hangs the rail above the projects (y<0) and orders sentinels by hosted x', () => {
+    const left = { ...sentinel, sentinelId: 'snt_left', alias: 'left' } as unknown as SentinelStatusInfo
+    const right = { ...sentinel, sentinelId: 'snt_right', alias: 'right' } as unknown as SentinelStatusInfo
+    const cL = conv('cl', 'claude:///p1')
+    const cR = conv('cr', 'claude:///p2')
+    ;(cL as unknown as { hostSentinelId: string }).hostSentinelId = 'snt_left'
+    ;(cR as unknown as { hostSentinelId: string }).hostSentinelId = 'snt_right'
+    const rects = new Map([
+      ['cl', { x: 0, y: 0, w: 252, h: 96 }],
+      ['cr', { x: 3000, y: 0, w: 252, h: 96 }],
+    ])
+    const nodes = buildSentinelNodes([right, left], [cL, cR], {}, rects)
+    expect(nodes.every(n => n.position.y < 0)).toBe(true)
+    // left-hosting sentinel sorts before the right-hosting one
+    expect(nodes[0].id).toBe('sentinel:snt_left')
+    expect(nodes[0].position.x).toBeLessThan(nodes[1].position.x)
   })
 
   it('links each hosted conversation to its sentinel, skipping unknown hosts', () => {
