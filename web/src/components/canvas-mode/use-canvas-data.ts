@@ -11,6 +11,7 @@ import { buildAgentNodes } from './agents'
 import { type CanvasNode, layoutCanvas } from './layout'
 import { buildSentinelEdges, buildSentinelNodes } from './sentinels'
 import { useAgentDecay } from './use-agent-decay'
+import type { LayoutOverrides } from './use-layout-overrides'
 
 export interface CanvasData {
   nodes: CanvasNode[]
@@ -21,7 +22,11 @@ export interface CanvasData {
   activeCount: number
 }
 
-export function useCanvasData(showEnded: boolean, expandedIds: ReadonlySet<string>): CanvasData {
+export function useCanvasData(
+  showEnded: boolean,
+  expandedIds: ReadonlySet<string>,
+  overrides: LayoutOverrides,
+): CanvasData {
   const byId = useConversationsStore(s => s.conversationsById)
   const selectedId = useConversationsStore(s => s.selectedConversationId)
   const sentinels = useConversationsStore(s => s.sentinels)
@@ -32,9 +37,9 @@ export function useCanvasData(showEnded: boolean, expandedIds: ReadonlySet<strin
     const all = selectConversations(byId)
     // Expanded cards stay visible even if they end mid-session.
     const visible = showEnded ? all : all.filter(c => c.status !== 'ended' || expandedIds.has(c.id))
-    const { nodes, edges, cardRects } = layoutCanvas(visible, selectedId, Date.now(), expandedIds)
+    const { nodes, edges, cardRects } = layoutCanvas(visible, selectedId, Date.now(), expandedIds, overrides)
     return { nodes, edges, cardRects, visible }
-  }, [byId, selectedId, showEnded, expandedIds])
+  }, [byId, selectedId, showEnded, expandedIds, overrides])
 
   // `now` advances when a stopped agent's linger expires -> re-run the overlay.
   const now = useAgentDecay(base.visible)

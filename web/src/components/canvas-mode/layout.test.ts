@@ -21,6 +21,7 @@ function conv(id: string, project: string, parentConversationId?: string, status
 
 const NOW = 2000
 const NONE: ReadonlySet<string> = new Set()
+const NO_OVERRIDES = new Map<string, { x: number; y: number }>()
 
 interface Rect {
   position: { x: number; y: number }
@@ -41,6 +42,7 @@ describe('layoutCanvas', () => {
       null,
       NOW,
       NONE,
+      NO_OVERRIDES,
     )
     const spaces = nodes.filter(n => n.type === 'projectSpace')
     const cards = nodes.filter(n => n.type === 'conversation')
@@ -49,7 +51,13 @@ describe('layoutCanvas', () => {
   })
 
   it('contains every card inside its project space rect', () => {
-    const { nodes } = layoutCanvas([conv('a', 'claude:///p1'), conv('b', 'claude:///p1', 'a')], null, NOW, NONE)
+    const { nodes } = layoutCanvas(
+      [conv('a', 'claude:///p1'), conv('b', 'claude:///p1', 'a')],
+      null,
+      NOW,
+      NONE,
+      NO_OVERRIDES,
+    )
     const space = nodes.find(n => n.id === 'space:claude:///p1')
     if (!space) throw new Error('space missing')
     for (const card of nodes.filter(n => n.type === 'conversation')) {
@@ -62,7 +70,13 @@ describe('layoutCanvas', () => {
 
   it('grows an expanded card and keeps it inside its space', () => {
     const expanded = new Set(['a'])
-    const { nodes } = layoutCanvas([conv('a', 'claude:///p1'), conv('b', 'claude:///p1', 'a')], null, NOW, expanded)
+    const { nodes } = layoutCanvas(
+      [conv('a', 'claude:///p1'), conv('b', 'claude:///p1', 'a')],
+      null,
+      NOW,
+      expanded,
+      NO_OVERRIDES,
+    )
     const card = nodes.find(n => n.id === 'a')
     const space = nodes.find(n => n.id === 'space:claude:///p1')
     if (!card || !space) throw new Error('node missing')
@@ -71,12 +85,21 @@ describe('layoutCanvas', () => {
     expect(card.position.y + EXPANDED_H).toBeLessThanOrEqual(space.position.y + (space.height ?? 0))
   })
 
+  it('pins a card at its manual override and leaves collapsed cards draggable', () => {
+    const overrides = new Map([['a', { x: 5000, y: 6000 }]])
+    const { nodes } = layoutCanvas([conv('a', 'claude:///p1'), conv('b', 'claude:///p1')], null, NOW, NONE, overrides)
+    const a = nodes.find(n => n.id === 'a')
+    expect(a?.position).toEqual({ x: 5000, y: 6000 })
+    expect(a?.draggable).toBe(true)
+  })
+
   it('tags spawn edges, cross-project ones distinctly', () => {
     const { edges } = layoutCanvas(
       [conv('root', 'claude:///p1'), conv('kid', 'claude:///p1', 'root'), conv('far', 'claude:///p2', 'root')],
       null,
       NOW,
       NONE,
+      NO_OVERRIDES,
     )
     expect(edges.map(e => e.id).sort()).toEqual(['root->far', 'root->kid'])
     expect(edges.find(e => e.id === 'root->kid')?.data?.kind).toBe('lineage')
@@ -84,7 +107,7 @@ describe('layoutCanvas', () => {
   })
 
   it('skips edges whose parent is not on the canvas', () => {
-    const { edges } = layoutCanvas([conv('kid', 'claude:///p1', 'gone-parent')], null, NOW, NONE)
+    const { edges } = layoutCanvas([conv('kid', 'claude:///p1', 'gone-parent')], null, NOW, NONE, NO_OVERRIDES)
     expect(edges).toEqual([])
   })
 
@@ -94,7 +117,7 @@ describe('layoutCanvas', () => {
       ...Array.from({ length: 4 }, (_, i) => conv(`b${i}`, 'claude:///p2')),
       conv('c0', 'claude:///p3'),
     ]
-    const { nodes } = layoutCanvas(list, null, NOW, NONE)
+    const { nodes } = layoutCanvas(list, null, NOW, NONE, NO_OVERRIDES)
     const spaces = nodes.filter(n => n.type === 'projectSpace')
     const pairs = spaces.flatMap(s => spaces.filter(t => t.id !== s.id).map(t => [s, t] as const))
     for (const [s, t] of pairs) {
@@ -103,7 +126,7 @@ describe('layoutCanvas', () => {
   })
 
   it('marks the selected conversation', () => {
-    const { nodes } = layoutCanvas([conv('a', 'claude:///p1'), conv('b', 'claude:///p1')], 'b', NOW, NONE)
+    const { nodes } = layoutCanvas([conv('a', 'claude:///p1'), conv('b', 'claude:///p1')], 'b', NOW, NONE, NO_OVERRIDES)
     expect(nodes.find(n => n.id === 'b')?.selected).toBe(true)
     expect(nodes.find(n => n.id === 'a')?.selected).toBe(false)
   })

@@ -1,6 +1,7 @@
 // The pan/zoom graph itself: React Flow with conversation / project-space /
-// sentinel node types, hover-accentuated edges, and transient message pulses.
-// Read-only topology -- nodes aren't draggable; clicking a card expands it.
+// sentinel / agent node types, hover-accentuated edges, and transient message
+// pulses. Clicking a collapsed card expands it; dragging one pins it (hybrid
+// manual layout). Sentinels, project spaces and agent satellites stay locked.
 import {
   Background,
   BackgroundVariant,
@@ -9,6 +10,7 @@ import {
   MiniMap,
   type Node,
   type NodeMouseHandler,
+  type OnNodeDrag,
   ReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -58,9 +60,18 @@ interface CanvasGraphProps {
   presentIds: ReadonlySet<string>
   showEnded: boolean
   onExpandConversation: (id: string) => void
+  /** Pin a card's manual position when a drag finishes. */
+  onPinConversation: (id: string, pos: { x: number; y: number }) => void
 }
 
-export function CanvasGraph({ nodes, edges, presentIds, showEnded, onExpandConversation }: CanvasGraphProps) {
+export function CanvasGraph({
+  nodes,
+  edges,
+  presentIds,
+  showEnded,
+  onExpandConversation,
+  onPinConversation,
+}: CanvasGraphProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const pulses = useMessagePulses(presentIds)
 
@@ -72,6 +83,11 @@ export function CanvasGraph({ nodes, edges, presentIds, showEnded, onExpandConve
     if (node.type === 'conversation' && !(node.data as ConversationCardData).expanded) {
       onExpandConversation(node.id)
     }
+  }
+
+  const handleNodeDragStop: OnNodeDrag<CanvasNode> = (_e, node) => {
+    // Only conversation cards are draggable; pin where the user dropped it.
+    if (node.type === 'conversation') onPinConversation(node.id, node.position)
   }
 
   if (nodes.length === 0) {
@@ -89,10 +105,13 @@ export function CanvasGraph({ nodes, edges, presentIds, showEnded, onExpandConve
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       onNodeClick={handleNodeClick}
+      onNodeDragStop={handleNodeDragStop}
       onNodeMouseEnter={(_, node) => setHoveredId(node.type === 'projectSpace' ? null : node.id)}
       onNodeMouseLeave={() => setHoveredId(null)}
       colorMode="dark"
-      nodesDraggable={false}
+      nodesDraggable
+      // a few px so a click still expands; only a real drag moves + pins a card
+      nodeDragThreshold={4}
       nodesConnectable={false}
       fitView
       minZoom={0.1}

@@ -15,6 +15,7 @@ import {
 } from './canvas-types'
 import { type Cluster, layoutCluster, nodeSize, packClusters, SPACE_PAD, TITLE_PAD } from './cluster-pack'
 import { buildLineageEdges } from './edge-style'
+import type { LayoutOverrides } from './use-layout-overrides'
 
 export { EXPANDED_H, EXPANDED_W, NODE_H, NODE_W } from './cluster-pack'
 
@@ -47,6 +48,7 @@ function projectSpaceNode(cluster: Cluster, origin: { x: number; y: number }): C
     width: cluster.w,
     height: cluster.h,
     selectable: false,
+    draggable: false,
     zIndex: -1,
     // Pointer-transparent so the huge rect never swallows canvas panning;
     // the header chip re-enables pointer events for its own click.
@@ -84,6 +86,8 @@ interface CardContext {
   now: number
   expandedIds: ReadonlySet<string>
   childCounts: Map<string, number>
+  /** User-pinned absolute positions (manual drag); un-pinned cards auto-flow. */
+  overrides: LayoutOverrides
 }
 
 /** Absolute card rectangle, keyed by conversation id -- consumed by the agent
@@ -101,13 +105,18 @@ function clusterNodes(
     const p = cluster.positions.get(c.id) ?? { x: 0, y: 0 }
     const expanded = ctx.expandedIds.has(c.id)
     const { w, h } = nodeSize(c.id, ctx.expandedIds)
-    const position = { x: origin.x + SPACE_PAD + p.x, y: origin.y + TITLE_PAD + p.y }
+    const auto = { x: origin.x + SPACE_PAD + p.x, y: origin.y + TITLE_PAD + p.y }
+    const position = ctx.overrides.get(c.id) ?? auto
     rects.set(c.id, { x: position.x, y: position.y, w, h })
     nodes.push({
       id: c.id,
       type: 'conversation',
       position,
       selected: c.id === ctx.selectedId,
+      // Collapsed cards drag to rearrange; expanded cards lock so you can work
+      // inside them (scroll the mini-transcript, use the send box) without
+      // accidentally hauling the whole card around.
+      draggable: !expanded,
       zIndex: expanded ? 2 : 1,
       data: toCardData(c, ctx.childCounts.get(c.id) ?? 0, ctx.now, expanded),
     })
@@ -122,11 +131,12 @@ export function layoutCanvas(
   selectedId: string | null,
   now: number,
   expandedIds: ReadonlySet<string>,
+  overrides: LayoutOverrides,
 ): { nodes: CanvasNode[]; edges: Edge[]; cardRects: Map<string, CardRect> } {
   const byProject = groupByProject(conversations)
   const clusters = [...byProject.entries()].map(([uri, members]) => layoutCluster(uri, members, expandedIds))
   const origins = packClusters(clusters)
-  const ctx: CardContext = { selectedId, now, expandedIds, childCounts: countChildren(conversations) }
+  const ctx: CardContext = { selectedId, now, expandedIds, childCounts: countChildren(conversations), overrides }
   const cardRects = new Map<string, CardRect>()
   const nodes = clusters.flatMap(cluster =>
     clusterNodes(cluster, origins.get(cluster.uri) ?? { x: 0, y: 0 }, ctx, cardRects),

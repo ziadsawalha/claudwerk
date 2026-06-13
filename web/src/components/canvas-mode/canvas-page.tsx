@@ -8,7 +8,7 @@
  * inter-conversation sends animate as pulses between cards. Live over the
  * same WS feed as the dashboard.
  */
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Undo2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
@@ -17,6 +17,7 @@ import { isEditableTarget } from '@/sheaf/sheaf-derive'
 import { CanvasGraph } from './canvas-graph'
 import { useCanvasData } from './use-canvas-data'
 import { CanvasActionsContext, useExpanded } from './use-expanded'
+import { useLayoutOverrides } from './use-layout-overrides'
 
 function backToDashboard() {
   window.location.hash = ''
@@ -26,7 +27,8 @@ export function CanvasPage() {
   useWebSocket()
   const [showEnded, setShowEnded] = useState(false)
   const { expandedIds, toggleExpand } = useExpanded()
-  const { nodes, edges, presentIds, total, activeCount } = useCanvasData(showEnded, expandedIds)
+  const { overrides, pin, reset } = useLayoutOverrides()
+  const { nodes, edges, presentIds, total, activeCount } = useCanvasData(showEnded, expandedIds, overrides)
   const actions = useMemo(() => ({ toggleExpand }), [toggleExpand])
 
   useEffect(() => {
@@ -45,6 +47,8 @@ export function CanvasPage() {
           activeCount={activeCount}
           showEnded={showEnded}
           onToggleEnded={() => setShowEnded(v => !v)}
+          pinnedCount={overrides.size}
+          onResetLayout={reset}
         />
         <div className="min-h-0 flex-1">
           <CanvasGraph
@@ -53,6 +57,7 @@ export function CanvasPage() {
             presentIds={presentIds}
             showEnded={showEnded}
             onExpandConversation={toggleExpand}
+            onPinConversation={pin}
           />
         </div>
       </div>
@@ -65,6 +70,8 @@ interface HeaderProps {
   activeCount: number
   showEnded: boolean
   onToggleEnded: () => void
+  pinnedCount: number
+  onResetLayout: () => void
 }
 
 function fleetSummary(total: number, activeCount: number): string {
@@ -85,7 +92,22 @@ function EndedToggle({ showEnded, onToggleEnded }: Pick<HeaderProps, 'showEnded'
   )
 }
 
-function Header({ total, activeCount, showEnded, onToggleEnded }: HeaderProps) {
+function ResetLayoutButton({ pinnedCount, onResetLayout }: Pick<HeaderProps, 'pinnedCount' | 'onResetLayout'>) {
+  if (pinnedCount === 0) return null
+  return (
+    <button
+      type="button"
+      onClick={onResetLayout}
+      title="Snap every manually-placed card back to the auto layout"
+      className="flex items-center gap-1 rounded border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground transition-colors hover:bg-foreground/5"
+    >
+      <Undo2 className="size-3" />
+      reset layout ({pinnedCount})
+    </button>
+  )
+}
+
+function Header({ total, activeCount, showEnded, onToggleEnded, pinnedCount, onResetLayout }: HeaderProps) {
   return (
     <div className="shrink-0 border-b border-border bg-background/95">
       <div className="flex items-center gap-4 px-4 py-2.5">
@@ -96,6 +118,7 @@ function Header({ total, activeCount, showEnded, onToggleEnded }: HeaderProps) {
         <h1 className="text-lg font-semibold tracking-tight">THE CANVAS</h1>
         <span className="hidden text-xs text-muted-foreground sm:inline">{fleetSummary(total, activeCount)}</span>
         <div className="ml-auto flex items-center gap-3">
+          <ResetLayoutButton pinnedCount={pinnedCount} onResetLayout={onResetLayout} />
           <EndedToggle showEnded={showEnded} onToggleEnded={onToggleEnded} />
           <span className="hidden items-center gap-1 text-[10px] text-muted-foreground/70 md:flex">
             <Kbd>Esc</Kbd> back

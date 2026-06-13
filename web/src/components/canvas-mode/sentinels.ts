@@ -104,6 +104,7 @@ export function buildSentinelNodes(
       type: 'sentinel',
       position: { x, y: RAIL_BASELINE_Y - h },
       selectable: false,
+      draggable: false,
       zIndex: 1,
       data: {
         sentinelId: s.sentinelId,
