@@ -10,6 +10,7 @@
     "dev:broker": "bun run src/broker/index.ts",
     "dev:web": "cd web && bun run dev",
     "config": "bun run scripts/rclaude-config.ts",
+    "refresh-latest": "bun run scripts/refresh-latest.ts",
     "build": "bun run gen-version && bun run build:server && bun run build:client",
     "build:server": "bun run build:web && bun run build:broker && bun run build:cli",
     "build:client": "bun run build:claude-agent-host && bun run build:opencode-agent-host && bun run build:acp-agent-host && bun run build:daemon-agent-host && bun run build:sentinel",
