@@ -55,6 +55,7 @@ interface OpenPr {
   readonly number: number
   readonly headRefName: string
   readonly baseRefName: string
+  readonly author: { readonly login: string }
 }
 
 const DRY_RUN = process.argv.includes('--dry-run')
@@ -140,20 +141,24 @@ function main(): void {
   log(`  ${upstreamRef} is at ${shortSha(upstreamRef)}`)
 
   // --- 2. Discover open PRs ------------------------------------------------
+  // NB: we filter by author client-side. `gh pr list --author @me` returns []
+  // against a repo you don't own — GitHub's server-side author filter won't
+  // resolve @me cross-repo. So we fetch all open PRs and match on login here.
+  const me = author === '@me' ? run('gh', ['api', 'user', '--jq', '.login']) : author
   const prsRaw = run('gh', [
     'pr',
     'list',
     '--repo',
     upstreamRepo,
-    '--author',
-    author,
     '--state',
     'open',
+    '--limit',
+    '200',
     '--json',
-    'number,headRefName,baseRefName',
+    'number,headRefName,baseRefName,author',
   ])
   const prs: OpenPr[] = (JSON.parse(prsRaw) as OpenPr[])
-    .filter(p => p.baseRefName === upstreamBranch)
+    .filter(p => p.baseRefName === upstreamBranch && p.author.login === me)
     .sort((a, b) => a.number - b.number)
 
   if (prs.length === 0) {
