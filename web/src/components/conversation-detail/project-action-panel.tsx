@@ -241,7 +241,7 @@ export function ProjectActionPanel({ projectUri }: { projectUri: string }) {
 
   return (
     <div className="flex items-start justify-center h-full overflow-y-auto text-muted-foreground">
-      <div className="w-full max-w-md space-y-4 px-4 py-8">
+      <div className="w-full max-w-2xl space-y-4 px-4 py-8">
         {/* Project header */}
         <div className="text-center space-y-1">
           {ps?.icon && (
