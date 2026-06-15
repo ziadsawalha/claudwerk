@@ -97,9 +97,9 @@ export function useRenameModal() {
     [handleSubmit],
   )
 
-  // The Ctrl+Shift+R chord fetches a name only when there's nothing to accept
-  // (no suggestion, empty field) -- surface that affordance in the footer.
-  const showFetchHint = !showSuggestion && !requestingName && name.trim() === ''
+  // The Ctrl+Shift+R chord fetches a name whenever there's no recap suggestion
+  // to accept -- surface that affordance in the footer.
+  const showFetchHint = suggestion.length === 0 && !requestingName
 
   return {
     open,
