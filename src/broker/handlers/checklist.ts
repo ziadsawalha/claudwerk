@@ -64,15 +64,22 @@ function sanitizeItems(raw: unknown): NewChecklistItem[] {
   return out
 }
 
-// Dashboard -> broker: create N items (multi-line paste / single add).
-const checklistCreate: MessageHandler = (ctx, data) => {
+/** Shared body for create + replace: validate, permission-gate, write, broadcast. */
+function applyItems(
+  ctx: HandlerContext,
+  data: MessageData,
+  write: (project: string, items: NewChecklistItem[]) => number,
+): void {
   const project = data.project as string | undefined
   if (!project || !Array.isArray(data.items)) return
   ctx.requirePermission('chat', project)
-  const inserted = createItems(project, sanitizeItems(data.items))
+  const inserted = write(project, sanitizeItems(data.items))
   opOk(ctx, data.requestId, { inserted })
   broadcastOpen(ctx, project)
 }
+
+// Dashboard -> broker: create N items (multi-line paste / single add).
+const checklistCreate: MessageHandler = (ctx, data) => applyItems(ctx, data, createItems)
 
 // Dashboard -> broker: move an item to a new status (open/in_progress/done).
 const checklistSetStatus: MessageHandler = (ctx, data) => {
@@ -86,14 +93,7 @@ const checklistSetStatus: MessageHandler = (ctx, data) => {
 }
 
 // Dashboard -> broker: replace the whole project list (bulk markdown editor).
-const checklistReplace: MessageHandler = (ctx, data) => {
-  const project = data.project as string | undefined
-  if (!project || !Array.isArray(data.items)) return
-  ctx.requirePermission('chat', project)
-  const inserted = replaceAll(project, sanitizeItems(data.items))
-  opOk(ctx, data.requestId, { inserted })
-  broadcastOpen(ctx, project)
-}
+const checklistReplace: MessageHandler = (ctx, data) => applyItems(ctx, data, replaceAll)
 
 // Dashboard -> broker: edit an item's (raw) text.
 const checklistUpdate: MessageHandler = (ctx, data) => {

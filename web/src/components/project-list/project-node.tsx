@@ -7,6 +7,7 @@ import { tallyListRender } from '@/lib/perf-metrics'
 import type { Conversation } from '@/lib/types'
 import { extractProjectLabel, projectPath } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
+import { ProjectChecklist } from '../checklist/project-checklist'
 import { ProjectIcon } from '../project-icons'
 import { ProjectSettingsButton } from '../project-settings-button'
 import { ProjectSettingsEditor } from '../project-settings-editor-lazy'
@@ -230,6 +231,7 @@ const ProjectConversationGroup = memo(
               />
             </div>
           </ProjectContextMenu>
+          <ProjectChecklist project={project} />
           {/* -mb-px overlaps the last card's bottom border onto the container's
               bottom border so they read as one line (no doubled/gapped edge). */}
           <div className="space-y-0.5 -mb-px">

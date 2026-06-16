@@ -1,10 +1,11 @@
 import { ChevronLeft, ChevronRight, Command, Crosshair, FileText, Menu } from 'lucide-react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { type ComponentType, lazy, Suspense, useEffect, useState } from 'react'
 import { ActionFab } from '@/components/action-fab'
 import { AgentShellHost } from '@/components/agent-shell-host'
 import { AudioPlayerHost } from '@/components/audio-player-host'
 import { AuthExpiredModal } from '@/components/auth-expired-modal'
 import { AuthGate } from '@/components/auth-gate'
+import { checklistArchiveBus, checklistBulkEditBus } from '@/components/checklist/checklist-bus'
 import { ChordOverlay } from '@/components/chord-overlay'
 import { CommandPalette } from '@/components/command-palette'
 import { ConversationDetail } from '@/components/conversation-detail'
@@ -115,6 +116,25 @@ const RecapViewer = lazyModule(
 const RecapHistoryModal = lazyModule(
   named(() => import('@/components/recap/recap-history-modal'), 'RecapHistoryModal'),
   recapHistoryBus.useArmed,
+)
+// Static `m.X` property ref (not named('X')) so fallow resolves the dynamic-import usage.
+const ChecklistArchiveModal = lazyModule(
+  () =>
+    import('@/components/checklist/checklist-archive-modal').then(m => ({
+      default: m.ChecklistArchiveModal,
+    })) as Promise<{
+      default: ComponentType
+    }>,
+  checklistArchiveBus.useArmed,
+)
+const ChecklistBulkEditModal = lazyModule(
+  () =>
+    import('@/components/checklist/checklist-bulk-edit-modal').then(m => ({
+      default: m.ChecklistBulkEditModal,
+    })) as Promise<{
+      default: ComponentType
+    }>,
+  checklistBulkEditBus.useArmed,
 )
 const LaunchProfileManager = lazyModule(
   named(() => import('@/components/launch-profiles/manager'), 'LaunchProfileManager'),
@@ -430,6 +450,8 @@ function Dashboard() {
       </PanelBoundary>
       <PanelBoundary name="Recap history" variant="modal">
         <RecapHistoryModal />
+        <ChecklistArchiveModal />
+        <ChecklistBulkEditModal />
       </PanelBoundary>
       <ManageProjectLinksDialog />
       <ManageChatConnectionsDialog />

@@ -26,6 +26,7 @@ import {
   setShareValidator,
 } from './auth-routes'
 import { buildReviveMessage } from './build-revive'
+import { closeChecklistStore, initChecklistStore } from './checklist-store'
 import { recordInboundForSocket, registerConnection, unregisterConnection } from './connection-registry'
 import {
   addPersistedConvLink,
@@ -59,7 +60,6 @@ import {
 } from './project-links'
 import { initProjectOrder } from './project-order'
 import { getAllProjectSettings, getProjectSettings, initProjectSettings, setProjectSettings } from './project-settings'
-import { closeChecklistStore, initChecklistStore } from './checklist-store'
 import { closeProjectStore, initProjectStore } from './project-store'
 import { dropSocketFromWatches, initProjectWatchRegistry } from './project-watch-registry'
 import { initPush, isPushConfigured, sendPushToAll } from './push'

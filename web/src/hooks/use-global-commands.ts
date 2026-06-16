@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react'
+import { openChecklistArchive, openChecklistBulkEdit } from '@/components/checklist/checklist-bus'
 import { openLaunchProfileManager } from '@/components/launch-profiles/manager-state'
 import { openRecapConfigDialog } from '@/components/recap-jobs/recap-config-trigger'
 import { openRecapHistory } from '@/components/recap-jobs/recap-history-trigger'
@@ -533,6 +534,31 @@ export function useGlobalCommands(toggleSidebar: () => void) {
     label: 'View recaps',
     group: 'Recap',
   })
+
+  // ─── Checklist commands ───────────────────────────────────────────────
+  // Resolve the focused conversation's project (mirrors recap's resolver). No-op
+  // when no conversation is selected.
+  function selectedProjectUriOrNull(): string | null {
+    const sid = useConversationsStore.getState().selectedConversationId
+    const selected = sid ? useConversationsStore.getState().conversationsById[sid] : undefined
+    return selected?.project ?? null
+  }
+  useCommand(
+    'checklist-completed',
+    () => {
+      const p = selectedProjectUriOrNull()
+      if (p) openChecklistArchive(p)
+    },
+    { label: 'Checklist: completed items', group: 'Project' },
+  )
+  useCommand(
+    'checklist-edit-all',
+    () => {
+      const p = selectedProjectUriOrNull()
+      if (p) openChecklistBulkEdit(p)
+    },
+    { label: 'Checklist: edit all (markdown)', group: 'Project' },
+  )
 
   useCommand(
     'manage-project-links',

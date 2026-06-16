@@ -429,6 +429,15 @@ export function useWebSocket() {
             return
           }
 
+          // Per-project checklist messages -> direct handler callback. Covers the
+          // live `checklist_changed` broadcast and the request/reply results
+          // (checklist_list_result, checklist_op_result, checklist_archive_result).
+          if (typeof msg.type === 'string' && msg.type.startsWith('checklist_')) {
+            const handler = useConversationsStore.getState().checklistHandler
+            handler?.(msg as unknown as Record<string, unknown>)
+            return
+          }
+
           // Terminal data -> direct handler callback (low latency critical)
           if (msg.type === 'terminal_data' || msg.type === 'terminal_error') {
             const handler = useConversationsStore.getState().terminalHandler
