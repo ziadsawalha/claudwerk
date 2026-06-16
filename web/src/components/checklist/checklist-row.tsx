@@ -6,7 +6,7 @@
 
 import type { ChecklistItem, ChecklistStatus } from '@shared/protocol'
 import { Check, Pencil, Square, SquareDashed, X } from 'lucide-react'
-import { memo, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { editChecklistItem, removeChecklistItem, setChecklistStatus } from '@/lib/checklist-client'
 import { Markdown } from '../markdown'
 
@@ -37,17 +37,24 @@ const VARIANT = {
 /** Inline text editor for one row. Calls back with the trimmed text, or null on cancel. */
 function ChecklistRowEditor({ initial, onCommit }: { initial: string; onCommit: (next: string | null) => void }) {
   const [draft, setDraft] = useState(initial)
-  const commit = () => onCommit(draft.trim() || null)
+  // Commit exactly once: Enter/Escape unmount the input, which also fires onBlur;
+  // the guard stops Escape (cancel) from re-saving on the trailing blur.
+  const doneRef = useRef(false)
+  const finish = (next: string | null) => {
+    if (doneRef.current) return
+    doneRef.current = true
+    onCommit(next)
+  }
   return (
     <input
       // biome-ignore lint/a11y/noAutofocus: focus the field the user just opened
       autoFocus
       value={draft}
       onChange={e => setDraft(e.currentTarget.value)}
-      onBlur={commit}
+      onBlur={() => finish(draft.trim() || null)}
       onKeyDown={e => {
-        if (e.key === 'Enter') commit()
-        else if (e.key === 'Escape') onCommit(null)
+        if (e.key === 'Enter') finish(draft.trim() || null)
+        else if (e.key === 'Escape') finish(null)
       }}
       className="flex-1 min-w-0 bg-transparent border-b border-border/60 outline-none text-foreground"
     />
@@ -80,7 +87,12 @@ export const ChecklistRow = memo(function ChecklistRow({ project, item }: { proj
       {editing ? (
         <ChecklistRowEditor initial={item.text} onCommit={onEdited} />
       ) : (
-        <span className={`flex-1 min-w-0 truncate [&_p]:inline ${v.labelCls}`} title={item.text}>
+        // biome-ignore lint/a11y/noStaticElementInteractions: double-click to edit; the hover Pencil button is the keyboard-reachable path
+        <span
+          onDoubleClick={() => setEditing(true)}
+          className={`flex-1 min-w-0 truncate cursor-text [&_p]:inline ${v.labelCls}`}
+          title={item.text}
+        >
           <Markdown inline>{item.text}</Markdown>
         </span>
       )}

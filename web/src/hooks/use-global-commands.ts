@@ -1,5 +1,9 @@
 import { useCallback, useEffect } from 'react'
-import { openChecklistArchive, openChecklistBulkEdit } from '@/components/checklist/checklist-bus'
+import {
+  openChecklistAddNotes,
+  openChecklistArchive,
+  openChecklistBulkEdit,
+} from '@/components/checklist/checklist-bus'
 import { openLaunchProfileManager } from '@/components/launch-profiles/manager-state'
 import { openRecapConfigDialog } from '@/components/recap-jobs/recap-config-trigger'
 import { openRecapHistory } from '@/components/recap-jobs/recap-history-trigger'
@@ -543,6 +547,20 @@ export function useGlobalCommands(toggleSidebar: () => void) {
     const selected = sid ? useConversationsStore.getState().conversationsById[sid] : undefined
     return selected?.project ?? null
   }
+  useCommand(
+    'checklist-add-notes',
+    () => {
+      const p = selectedProjectUriOrNull()
+      if (p) openChecklistAddNotes(p)
+      else
+        window.dispatchEvent(
+          new CustomEvent('rclaude-toast', {
+            detail: { title: 'Checklist', body: 'Select a conversation in a project first.', variant: 'info' },
+          }),
+        )
+    },
+    { label: 'Checklist: add notes…', shortcut: 'mod+shift+=', group: 'Project' },
+  )
   useCommand(
     'checklist-completed',
     () => {

@@ -5,7 +5,7 @@ import { AgentShellHost } from '@/components/agent-shell-host'
 import { AudioPlayerHost } from '@/components/audio-player-host'
 import { AuthExpiredModal } from '@/components/auth-expired-modal'
 import { AuthGate } from '@/components/auth-gate'
-import { checklistArchiveBus, checklistBulkEditBus } from '@/components/checklist/checklist-bus'
+import { checklistAddNotesBus, checklistArchiveBus, checklistBulkEditBus } from '@/components/checklist/checklist-bus'
 import { ChordOverlay } from '@/components/chord-overlay'
 import { CommandPalette } from '@/components/command-palette'
 import { ConversationDetail } from '@/components/conversation-detail'
@@ -135,6 +135,15 @@ const ChecklistBulkEditModal = lazyModule(
       default: ComponentType
     }>,
   checklistBulkEditBus.useArmed,
+)
+const ChecklistAddNotesModal = lazyModule(
+  () =>
+    import('@/components/checklist/checklist-add-notes-modal').then(m => ({
+      default: m.ChecklistAddNotesModal,
+    })) as Promise<{
+      default: ComponentType
+    }>,
+  checklistAddNotesBus.useArmed,
 )
 const LaunchProfileManager = lazyModule(
   named(() => import('@/components/launch-profiles/manager'), 'LaunchProfileManager'),
@@ -452,6 +461,7 @@ function Dashboard() {
         <RecapHistoryModal />
         <ChecklistArchiveModal />
         <ChecklistBulkEditModal />
+        <ChecklistAddNotesModal />
       </PanelBoundary>
       <ManageProjectLinksDialog />
       <ManageChatConnectionsDialog />

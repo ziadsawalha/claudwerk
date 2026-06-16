@@ -6,6 +6,7 @@
  * them; missing dates are best-effort. CodeMirror travels with this lazy chunk.
  */
 
+import { markdown } from '@codemirror/lang-markdown'
 import { EditorView } from '@codemirror/view'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useEffect, useState } from 'react'
@@ -15,7 +16,8 @@ import { fetchChecklistArchive, fetchChecklistOpen, replaceChecklist } from '@/l
 import { itemsToMarkdown, markdownToItems } from '@/lib/checklist-markdown'
 import { type ChecklistModalDetail, checklistBulkEditBus } from './checklist-bus'
 
-const CM_EXTENSIONS = [EditorView.lineWrapping]
+// Markdown highlighting + soft wrap. Travels with this lazy chunk (LAZY LOAD).
+const CM_EXTENSIONS = [markdown(), EditorView.lineWrapping]
 
 export function ChecklistBulkEditModal() {
   const [open, setOpen] = useState(false)
@@ -51,7 +53,7 @@ export function ChecklistBulkEditModal() {
     <DialogPrimitive.Root open={open} onOpenChange={o => !o && setOpen(false)}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(720px,95vw)] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-popover shadow-lg flex flex-col">
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(1000px,96vw)] h-[88vh] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-popover shadow-lg flex flex-col">
           <div className="px-4 pt-4 pb-2 border-b border-border flex items-center justify-between shrink-0">
             <div>
               <DialogPrimitive.Title className="text-sm font-semibold">Edit checklist</DialogPrimitive.Title>
@@ -63,17 +65,20 @@ export function ChecklistBulkEditModal() {
             <DialogPrimitive.Close className="text-muted-foreground hover:text-foreground p-1">✕</DialogPrimitive.Close>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2 text-xs">
+          <div className="flex-1 min-h-0 overflow-y-auto p-2 text-xs">
             {loading ? (
               <div className="px-3 py-2 text-muted-foreground">Loading…</div>
             ) : (
               <SafeCodeMirror
+                // biome-ignore lint/a11y/noAutofocus: focus the editor the user just opened so they can type immediately
+                autoFocus
                 value={doc}
                 onChange={setDoc}
                 extensions={CM_EXTENSIONS}
                 theme="dark"
+                height="100%"
                 basicSetup={{ lineNumbers: false, foldGutter: false, highlightActiveLine: false }}
-                className="text-[13px]"
+                className="text-[13px] h-full"
               />
             )}
           </div>
