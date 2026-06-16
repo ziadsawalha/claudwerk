@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import type { ExtraUsage, ProfileUsageSnapshot, UsageWindow } from '@/lib/types'
-import { haptic } from '@/lib/utils'
+import { formatAge, haptic } from '@/lib/utils'
 
 function usageColor(pct: number): string {
   if (pct < 50) return 'bg-emerald-500'
@@ -115,6 +115,14 @@ function ProfileRow({ snap }: { snap: ProfileUsageSnapshot }) {
       <div className="flex items-baseline gap-2">
         <span className="text-[10px] text-foreground/80 w-16 truncate">{snap.profile}</span>
         <span className={`text-[10px] tabular-nums ${usageTextColor(pct)}`}>worst {Math.round(pct)}%</span>
+        {snap.stale && (
+          <span
+            className="text-[9px] text-amber-400/80 italic"
+            title="Live usage poll is rate-limited (429); showing the last known reading"
+          >
+            {formatAge(snap.polledAt)}
+          </span>
+        )}
       </div>
       <DetailBar window={fiveHour} label="5h" />
       <DetailBar window={sevenDay} label="7d" />

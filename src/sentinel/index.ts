@@ -113,6 +113,7 @@ import {
 import { ShellDataWs } from './shell-data-ws'
 import { ACTIVITY_COALESCE_MS, ShellRegistry } from './shell-pty'
 import { headlessNdjsonPath, parseHookStage, RingBuffer, tailHeadlessNdjson } from './spawn-error'
+import { buildCarriedSnapshot, defaultUsageCachePath, loadUsageCache, saveUsageCache } from './usage-cache'
 import { deriveUsageHeadroom, snapshotHasWindows } from './usage-headroom'
 import { buildSentinelUsageReport, pollProfileUsage, snapshotToLegacyUsageUpdate } from './usage-poller'
 
@@ -2438,6 +2439,33 @@ const lastGoodProfileUsage = new Map<string, ProfileUsageSnapshot>()
 /** Profile name -> epoch ms until which polling is suppressed (429 backoff). */
 const profileBackoffUntil = new Map<string, number>()
 
+/** Path to the on-disk last-good cache. Set when polling starts; null disables
+ *  persistence (before boot / in tests that don't wire it). */
+let usageCachePath: string | null = null
+
+/** Persist the current last-good snapshots to disk (best-effort). Lets a cold
+ *  start of an always-throttled account (the shared default login) re-broadcast
+ *  its previous reading instead of a blank row -- see `usage-cache.ts`. */
+function persistLastGoodUsage(): void {
+  if (!usageCachePath) return
+  const ok = saveUsageCache(lastGoodProfileUsage.values(), { path: usageCachePath })
+  if (!ok) diag('usage', 'failed to persist last-good usage cache', { path: usageCachePath })
+}
+
+/** The snapshot to put in the wire report when the live poll is unavailable
+ *  (throttled or failed). Prefers a stale-flagged carry-forward of the last
+ *  good reading so the panel shows "usage Nm old" instead of blanking; falls
+ *  back to the honest error snapshot when there's no recent good reading. The
+ *  carry-forward itself is observable via the snapshot's `stale` flag in the
+ *  report plus the `throttled`/error diag from the poll path. */
+function displaySnapshotFor(name: string, cycleStart: number, fresh?: ProfileUsageSnapshot): ProfileUsageSnapshot {
+  return (
+    buildCarriedSnapshot(lastGoodProfileUsage.get(name), cycleStart) ??
+    fresh ??
+    latestProfileUsage.get(name) ?? { profile: name, authed: false, polledAt: cycleStart }
+  )
+}
+
 /** Read-only view of the latest snapshots. Exported for Smart Balance + tests. */
 export function getLatestProfileUsage(): ReadonlyMap<string, ProfileUsageSnapshot> {
   return latestProfileUsage
@@ -2487,14 +2515,13 @@ function updateBackoff(name: string, cycleStart: number, snap: ProfileUsageSnaps
  *  keeps the report complete so the panel keeps showing the throttled row. */
 function takeBackoffSnapshot(name: string, cycleStart: number): ProfileUsageSnapshot | null {
   const until = profileBackoffUntil.get(name) ?? 0
-  const last = latestProfileUsage.get(name)
-  if (cycleStart >= until || !last) return null
+  if (cycleStart >= until) return null
   diag('usage', `[${name}] throttled, skipping poll`, {
     retryInMs: until - cycleStart,
     until,
-    status: last.error?.status,
+    status: latestProfileUsage.get(name)?.error?.status,
   })
-  return last
+  return displaySnapshotFor(name, cycleStart)
 }
 
 /** Run one profile's poll + record the result. Never throws -- a poll
@@ -2509,7 +2536,10 @@ async function pollOneProfileSafely(
     // Preserve the last error-free reading so the picker can carry it forward
     // when the next poll is throttled (429) -- a probe failure must not blank a
     // healthy profile out of the Balanced ranking. See `usage-headroom.ts`.
-    if (snapshotHasWindows(snap)) lastGoodProfileUsage.set(profile.name, snap)
+    if (snapshotHasWindows(snap)) {
+      lastGoodProfileUsage.set(profile.name, snap)
+      persistLastGoodUsage()
+    }
     logProfilePollResult(snap)
     updateBackoff(profile.name, cycleStart, snap)
     return snap
@@ -2532,15 +2562,34 @@ function startProfileUsagePolling(ws: WebSocket, verbose: boolean, config: Senti
 
   const profiles = Object.values(config.profiles).map(p => ({ name: p.name, configDir: p.configDir }))
   const intervalMin = USAGE_POLL_INTERVAL_MS / 60_000
+
+  // Seed last-good from disk so a cold start of a throttled account (the shared
+  // default login that gets 429'd on the first poll) re-broadcasts its previous
+  // reading instead of a blank row -- see `usage-cache.ts`.
+  usageCachePath = defaultUsageCachePath()
+  let seeded = 0
+  for (const snap of loadUsageCache({ path: usageCachePath })) {
+    lastGoodProfileUsage.set(snap.profile, snap)
+    seeded++
+  }
+
   log(`Starting per-profile usage polling (${intervalMin}min interval, ${profiles.length} profile(s))`)
-  diag('usage', `Polling started`, { profiles: profiles.map(p => p.name) })
+  diag('usage', `Polling started`, { profiles: profiles.map(p => p.name), seededFromCache: seeded })
 
   async function doPoll() {
     const cycleStart = Date.now()
     const snapshots: ProfileUsageSnapshot[] = []
     for (const profile of profiles) {
       const throttled = takeBackoffSnapshot(profile.name, cycleStart)
-      snapshots.push(throttled ?? (await pollOneProfileSafely(profile, cycleStart)))
+      if (throttled) {
+        snapshots.push(throttled)
+        continue
+      }
+      // Poll. A failed poll (429 on the first cycle before backoff is armed, or
+      // a network blip) still carries forward the last-good reading instead of
+      // broadcasting a blank/errored row -- see `displaySnapshotFor`.
+      const fresh = await pollOneProfileSafely(profile, cycleStart)
+      snapshots.push(snapshotHasWindows(fresh) ? fresh : displaySnapshotFor(profile.name, cycleStart, fresh))
     }
 
     if (ws.readyState !== WebSocket.OPEN) return

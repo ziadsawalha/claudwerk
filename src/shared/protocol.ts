@@ -3423,6 +3423,13 @@ export interface ProfileUsageSnapshot {
      *  polling so it does not keep refreshing the throttle bucket. */
     retryAfterMs?: number
   }
+  /** True when the usage windows above are a CARRIED-FORWARD last-good reading,
+   *  re-emitted because the live poll is currently throttled (HTTP 429) or
+   *  otherwise failing. The windows are real but as of `polledAt`, which will be
+   *  older than the report's cycle time -- the control panel renders the age as
+   *  a "usage Nm old" warning instead of pretending the data is fresh (or
+   *  blanking the profile out). Absent/false on a fresh successful poll. */
+  stale?: boolean
 }
 
 /**

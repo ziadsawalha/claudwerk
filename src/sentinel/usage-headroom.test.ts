@@ -1,38 +1,17 @@
 import { describe, expect, it } from 'bun:test'
 import type { ProfileUsageSnapshot } from '../shared/protocol'
 import { deriveUsageHeadroom, snapshotHasWindows } from './usage-headroom'
+import {
+  authFailedSnapshot as authFailed,
+  goodSnapshot as good,
+  noTokenSnapshot as noToken,
+  NOW,
+  rateLimitedSnapshot as rateLimited,
+} from './usage-test-fixtures'
 
-const NOW = 1_000_000_000_000
 const STALE = { staleMs: 10 * 60 * 1000, carryForwardStaleMs: 30 * 60 * 1000 }
 // Adds the long auth-error carry-forward window (6h) used by the 401 self-heal.
 const STALE_AUTH = { ...STALE, authErrorCarryForwardMs: 6 * 60 * 60 * 1000 }
-
-const authFailed: ProfileUsageSnapshot = {
-  profile: 'default',
-  authed: true,
-  polledAt: NOW,
-  error: { kind: 'http', status: 401, detail: 'Invalid authentication credentials' },
-}
-
-function good(over: Partial<ProfileUsageSnapshot> = {}): ProfileUsageSnapshot {
-  return {
-    profile: 'default',
-    authed: true,
-    polledAt: NOW,
-    fiveHour: { usedPercent: 1, resetAt: new Date(NOW + 60 * 60 * 1000).toISOString() },
-    sevenDay: { usedPercent: 12, resetAt: new Date(NOW + 6 * 24 * 60 * 60 * 1000).toISOString() },
-    ...over,
-  }
-}
-
-const rateLimited: ProfileUsageSnapshot = {
-  profile: 'default',
-  authed: true,
-  polledAt: NOW,
-  error: { kind: 'http', status: 429, detail: 'Rate limited', retryAfterMs: 1_620_000 },
-}
-
-const noToken: ProfileUsageSnapshot = { profile: 'default', authed: false, polledAt: NOW, error: { kind: 'no_token' } }
 
 describe('snapshotHasWindows', () => {
   it('accepts an authed error-free snapshot with both windows', () => {

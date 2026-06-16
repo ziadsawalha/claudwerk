@@ -18,7 +18,7 @@
 
 import type { ProfileUsageSnapshot, SentinelProfileInfo } from '@shared/protocol'
 import { Check, Hash, User } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatAge } from '@/lib/utils'
 
 function usageTextColor(pct: number): string {
   if (pct < 50) return 'text-emerald-400'
@@ -143,7 +143,8 @@ function buildProfilePillTitle(profile: SentinelProfileInfo, usage?: ProfileUsag
   let usagePart = ''
   if (usage?.error) usagePart = `usage: ${usage.error.kind}`
   else if (usage?.fiveHour && usage?.sevenDay) {
-    usagePart = `5h ${Math.round(usage.fiveHour.usedPercent)}% / 7d ${Math.round(usage.sevenDay.usedPercent)}%`
+    const age = usage.stale ? ` (${formatAge(usage.polledAt)}, poll rate-limited)` : ''
+    usagePart = `5h ${Math.round(usage.fiveHour.usedPercent)}% / 7d ${Math.round(usage.sevenDay.usedPercent)}%${age}`
   }
   return [profile.label, poolPart, authPart, usagePart].filter(Boolean).join(' - ')
 }
@@ -181,7 +182,9 @@ function ProfilePill({ profile, active, disabled, onClick, usage }: ProfilePillP
       )}
       <span style={active ? undefined : fgColor}>{profile.label ?? profile.name}</span>
       {hasUsage && (
-        <span className={cn('text-[9px] tabular-nums', usageTextColor(worstPct))}>{Math.round(worstPct)}%</span>
+        <span className={cn('text-[9px] tabular-nums', usageTextColor(worstPct))}>
+          {Math.round(worstPct)}%{usage?.stale && <span className="text-amber-400/70">*</span>}
+        </span>
       )}
       {!hasUsage && usage?.error && (
         <span className="text-[8px] text-comment italic">
