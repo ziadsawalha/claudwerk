@@ -11,18 +11,24 @@
  * permission gate (chat:read view, chat mutate) is enforced per call.
  */
 
-import type { ChecklistChanged, ChecklistItem } from '../../shared/protocol'
+import type { ChecklistChanged, ChecklistItem, ChecklistStatus } from '../../shared/protocol'
 import {
   createItems,
   deleteItem,
   listArchive,
   listOpen,
+  type NewChecklistItem,
   purgeResolved,
-  toggleItem,
+  replaceAll,
+  setStatus,
   updateText,
 } from '../checklist-store'
+
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
 import { DASHBOARD_ROLES, registerHandlers } from '../message-router'
+
+const STATUSES: ReadonlySet<ChecklistStatus> = new Set(['open', 'in_progress', 'done'])
+const isStatus = (v: unknown): v is ChecklistStatus => typeof v === 'string' && STATUSES.has(v as ChecklistStatus)
 
 /** Push the fresh open list to every panel with chat:read on this project. */
 function broadcastOpen(ctx: HandlerContext, project: string): void {
@@ -42,25 +48,50 @@ const checklistList: MessageHandler = (ctx, data) => {
   ctx.reply({ type: 'checklist_list_result', requestId: data.requestId, open: listOpen(project) })
 }
 
+/** Coerce wire items to the store shape, keeping only valid statuses + dates. */
+function sanitizeItems(raw: unknown): NewChecklistItem[] {
+  if (!Array.isArray(raw)) return []
+  const out: NewChecklistItem[] = []
+  for (const r of raw) {
+    if (!r || typeof r.text !== 'string') continue
+    out.push({
+      text: r.text,
+      status: isStatus(r.status) ? r.status : 'open',
+      createdAt: typeof r.createdAt === 'number' ? r.createdAt : undefined,
+      resolvedAt: typeof r.resolvedAt === 'number' ? r.resolvedAt : undefined,
+    })
+  }
+  return out
+}
+
 // Dashboard -> broker: create N items (multi-line paste / single add).
 const checklistCreate: MessageHandler = (ctx, data) => {
   const project = data.project as string | undefined
-  const items = data.items as Array<{ text: string; resolved?: boolean }> | undefined
-  if (!project || !Array.isArray(items)) return
+  if (!project || !Array.isArray(data.items)) return
   ctx.requirePermission('chat', project)
-  const inserted = createItems(project, items)
+  const inserted = createItems(project, sanitizeItems(data.items))
   opOk(ctx, data.requestId, { inserted })
   broadcastOpen(ctx, project)
 }
 
-// Dashboard -> broker: resolve / re-open an item.
-const checklistToggle: MessageHandler = (ctx, data) => {
+// Dashboard -> broker: move an item to a new status (open/in_progress/done).
+const checklistSetStatus: MessageHandler = (ctx, data) => {
   const project = data.project as string | undefined
   const id = data.id as string | undefined
-  if (!project || !id) return
+  if (!project || !id || !isStatus(data.status)) return
   ctx.requirePermission('chat', project)
-  toggleItem(project, id, data.resolved === true)
+  setStatus(project, id, data.status)
   opOk(ctx, data.requestId)
+  broadcastOpen(ctx, project)
+}
+
+// Dashboard -> broker: replace the whole project list (bulk markdown editor).
+const checklistReplace: MessageHandler = (ctx, data) => {
+  const project = data.project as string | undefined
+  if (!project || !Array.isArray(data.items)) return
+  ctx.requirePermission('chat', project)
+  const inserted = replaceAll(project, sanitizeItems(data.items))
+  opOk(ctx, data.requestId, { inserted })
   broadcastOpen(ctx, project)
 }
 
@@ -113,9 +144,10 @@ export function registerChecklistHandlers(): void {
     {
       checklist_list: checklistList,
       checklist_create: checklistCreate,
-      checklist_toggle: checklistToggle,
+      checklist_set_status: checklistSetStatus,
       checklist_update: checklistUpdate,
       checklist_delete: checklistDelete,
+      checklist_replace: checklistReplace,
       checklist_archive: checklistArchiveReq,
       checklist_purge: checklistPurge,
     } satisfies Record<string, MessageHandler>,

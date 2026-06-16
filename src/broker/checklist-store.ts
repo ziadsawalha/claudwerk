@@ -18,7 +18,7 @@
 
 import type { Database, Statement } from 'bun:sqlite'
 import { resolve } from 'node:path'
-import type { ChecklistItem } from '../shared/protocol'
+import type { ChecklistItem, ChecklistStatus } from '../shared/protocol'
 import { openWalDatabase } from './sqlite-open'
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -28,6 +28,7 @@ import { openWalDatabase } from './sqlite-open'
 interface ChecklistRow {
   id: string
   text: string
+  status: ChecklistStatus
   created_at: number
   updated_at: number
   resolved_at: number | null
@@ -37,6 +38,7 @@ function rowToItem(r: ChecklistRow): ChecklistItem {
   return {
     id: r.id,
     text: r.text,
+    status: r.status,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     resolvedAt: r.resolved_at,
@@ -49,9 +51,10 @@ let db: Database | null = null
 let stmtOpen: Statement | null = null
 let stmtArchive: Statement | null = null
 let stmtInsert: Statement | null = null
-let stmtToggle: Statement | null = null
+let stmtSetStatus: Statement | null = null
 let stmtUpdateText: Statement | null = null
 let stmtDelete: Statement | null = null
+let stmtDeleteAll: Statement | null = null
 let stmtPurge: Statement | null = null
 
 function newId(): string {
@@ -69,33 +72,38 @@ export function initChecklistStore(cacheDir: string): void {
       id          TEXT PRIMARY KEY,
       project_uri TEXT NOT NULL,
       text        TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'open',
       created_at  INTEGER NOT NULL,
       updated_at  INTEGER NOT NULL,
       resolved_at INTEGER
     )
   `)
-  // Covers both the open query (resolved_at IS NULL ORDER BY created_at) and the
-  // archive query (resolved_at IS NOT NULL ORDER BY resolved_at) for one project.
-  db.run('CREATE INDEX IF NOT EXISTS idx_checklist_project ON checklist_items(project_uri, resolved_at, created_at)')
+  // Covers both the active query (status != 'done' ORDER BY created_at) and the
+  // archive query (status = 'done' ORDER BY resolved_at) for one project.
+  db.run('CREATE INDEX IF NOT EXISTS idx_checklist_project ON checklist_items(project_uri, status, created_at)')
 
+  const COLS = 'id, text, status, created_at, updated_at, resolved_at'
+  // Active = open + in_progress (everything not done). Oldest first; rowid breaks
+  // same-millisecond ties so insertion order is stable.
   stmtOpen = db.prepare(
-    'SELECT id, text, created_at, updated_at, resolved_at FROM checklist_items WHERE project_uri = $project_uri AND resolved_at IS NULL ORDER BY created_at ASC',
+    `SELECT ${COLS} FROM checklist_items WHERE project_uri = $project_uri AND status != 'done' ORDER BY created_at ASC, rowid ASC`,
   )
   stmtArchive = db.prepare(
-    'SELECT id, text, created_at, updated_at, resolved_at FROM checklist_items WHERE project_uri = $project_uri AND resolved_at IS NOT NULL ORDER BY resolved_at DESC',
+    `SELECT ${COLS} FROM checklist_items WHERE project_uri = $project_uri AND status = 'done' ORDER BY resolved_at DESC, rowid DESC`,
   )
   stmtInsert = db.prepare(
-    'INSERT INTO checklist_items (id, project_uri, text, created_at, updated_at, resolved_at) VALUES ($id, $project_uri, $text, $created_at, $updated_at, $resolved_at)',
+    'INSERT INTO checklist_items (id, project_uri, text, status, created_at, updated_at, resolved_at) VALUES ($id, $project_uri, $text, $status, $created_at, $updated_at, $resolved_at)',
   )
-  stmtToggle = db.prepare(
-    'UPDATE checklist_items SET resolved_at = $resolved_at, updated_at = $updated_at WHERE id = $id AND project_uri = $project_uri',
+  stmtSetStatus = db.prepare(
+    'UPDATE checklist_items SET status = $status, resolved_at = $resolved_at, updated_at = $updated_at WHERE id = $id AND project_uri = $project_uri',
   )
   stmtUpdateText = db.prepare(
     'UPDATE checklist_items SET text = $text, updated_at = $updated_at WHERE id = $id AND project_uri = $project_uri',
   )
   stmtDelete = db.prepare('DELETE FROM checklist_items WHERE id = $id AND project_uri = $project_uri')
+  stmtDeleteAll = db.prepare('DELETE FROM checklist_items WHERE project_uri = $project_uri')
   stmtPurge = db.prepare(
-    'DELETE FROM checklist_items WHERE project_uri = $project_uri AND resolved_at IS NOT NULL AND resolved_at < $before',
+    "DELETE FROM checklist_items WHERE project_uri = $project_uri AND status = 'done' AND resolved_at < $before",
   )
 
   const count = (db.query('SELECT COUNT(*) as n FROM checklist_items').get() as { n: number }).n
@@ -114,15 +122,16 @@ export function closeChecklistStore(): void {
   stmtOpen = null
   stmtArchive = null
   stmtInsert = null
-  stmtToggle = null
+  stmtSetStatus = null
   stmtUpdateText = null
   stmtDelete = null
+  stmtDeleteAll = null
   stmtPurge = null
 }
 
 // ─── Queries ────────────────────────────────────────────────────────
 
-/** Open (unresolved) items for a project, oldest first. */
+/** Active items (open + in_progress) for a project, oldest first. */
 export function listOpen(projectUri: string): ChecklistItem[] {
   if (!stmtOpen) return []
   return (stmtOpen.all({ project_uri: projectUri }) as ChecklistRow[]).map(rowToItem)
@@ -136,39 +145,76 @@ export function listArchive(projectUri: string): ChecklistItem[] {
 
 // ─── Mutations ──────────────────────────────────────────────────────
 
+/** An item to create: text plus an optional starting status (default 'open')
+ *  and optional explicit dates (used by the bulk-replace path). */
+export interface NewChecklistItem {
+  text: string
+  status?: ChecklistStatus
+  createdAt?: number
+  resolvedAt?: number
+}
+
+function insertRow(projectUri: string, item: NewChecklistItem, now: number): boolean {
+  const text = item.text.trim()
+  if (!text) return false
+  const status: ChecklistStatus = item.status ?? 'open'
+  const resolvedAt = status === 'done' ? (item.resolvedAt ?? now) : null
+  stmtInsert?.run({
+    id: newId(),
+    project_uri: projectUri,
+    text,
+    status,
+    created_at: item.createdAt ?? now,
+    updated_at: now,
+    resolved_at: resolvedAt,
+  })
+  return true
+}
+
 /**
- * Create N items in one shot (multi-line paste). Each `{ text, resolved }`
- * becomes a row; a `resolved` item is stamped resolved_at=now so it lands
- * straight in the archive. Returns the number actually inserted (blank texts
- * are skipped).
+ * Create N items in one shot (multi-line paste / single add). A `done` item is
+ * stamped resolved_at=now so it lands straight in the archive. Returns the
+ * number actually inserted (blank texts are skipped).
  */
-export function createItems(projectUri: string, items: Array<{ text: string; resolved?: boolean }>): number {
+export function createItems(projectUri: string, items: NewChecklistItem[]): number {
   if (!db || !stmtInsert) return 0
   const now = Date.now()
   let inserted = 0
-  const tx = db.transaction((rows: Array<{ text: string; resolved?: boolean }>) => {
-    for (const row of rows) {
-      const text = row.text.trim()
-      if (!text) continue
-      stmtInsert?.run({
-        id: newId(),
-        project_uri: projectUri,
-        text,
-        created_at: now,
-        updated_at: now,
-        resolved_at: row.resolved ? now : null,
-      })
-      inserted++
-    }
+  const tx = db.transaction((rows: NewChecklistItem[]) => {
+    for (const row of rows) if (insertRow(projectUri, row, now)) inserted++
   })
   tx(items)
   return inserted
 }
 
-/** Resolve or re-open an item. `resolved=true` stamps resolved_at=now. */
-export function toggleItem(projectUri: string, id: string, resolved: boolean): void {
+/**
+ * Replace the WHOLE project list (bulk markdown editor save). Wipes the
+ * project's rows and re-inserts `items` with fresh ids, honoring any supplied
+ * createdAt/resolvedAt (the client parses them out of the doc; missing = now).
+ * Returns the number inserted.
+ */
+export function replaceAll(projectUri: string, items: NewChecklistItem[]): number {
+  if (!db || !stmtInsert || !stmtDeleteAll) return 0
   const now = Date.now()
-  stmtToggle?.run({ resolved_at: resolved ? now : null, updated_at: now, id, project_uri: projectUri })
+  let inserted = 0
+  const tx = db.transaction((rows: NewChecklistItem[]) => {
+    stmtDeleteAll?.run({ project_uri: projectUri })
+    for (const row of rows) if (insertRow(projectUri, row, now)) inserted++
+  })
+  tx(items)
+  return inserted
+}
+
+/** Move an item to a new status. resolved_at is stamped now on -> done, cleared otherwise. */
+export function setStatus(projectUri: string, id: string, status: ChecklistStatus): void {
+  const now = Date.now()
+  stmtSetStatus?.run({
+    status,
+    resolved_at: status === 'done' ? now : null,
+    updated_at: now,
+    id,
+    project_uri: projectUri,
+  })
 }
 
 /** Edit an item's text (raw). */
@@ -181,7 +227,7 @@ export function deleteItem(projectUri: string, id: string): void {
   stmtDelete?.run({ id, project_uri: projectUri })
 }
 
-/** Delete resolved items older than `before` (epoch ms). Returns count removed. */
+/** Delete done items resolved before `before` (epoch ms). Returns count removed. */
 export function purgeResolved(projectUri: string, before: number): number {
   const res = stmtPurge?.run({ project_uri: projectUri, before })
   return res ? Number(res.changes) : 0

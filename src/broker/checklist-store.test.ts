@@ -10,7 +10,8 @@ import {
   listArchive,
   listOpen,
   purgeResolved,
-  toggleItem,
+  replaceAll,
+  setStatus,
   updateText,
 } from './checklist-store'
 
@@ -36,23 +37,49 @@ test('create + listOpen: open items, oldest first, blanks skipped', () => {
   expect(open[0].resolvedAt).toBeNull()
 })
 
-test('create with resolved=true lands in archive, not open', () => {
-  createItems(P, [{ text: 'done already', resolved: true }, { text: 'todo' }])
+test('create with status=done lands in archive, not open', () => {
+  createItems(P, [{ text: 'done already', status: 'done' }, { text: 'todo' }])
   expect(listOpen(P).map(i => i.text)).toEqual(['todo'])
   const arch = listArchive(P)
   expect(arch.map(i => i.text)).toEqual(['done already'])
   expect(arch[0].resolvedAt).toBeGreaterThan(0)
 })
 
-test('toggle resolves then re-opens', () => {
+test('in_progress items stay active (shown inline), not archived', () => {
+  createItems(P, [{ text: 'wip', status: 'in_progress' }, { text: 'plain' }])
+  const open = listOpen(P)
+  expect(open.map(i => i.text)).toEqual(['wip', 'plain'])
+  expect(open.find(i => i.text === 'wip')?.status).toBe('in_progress')
+  expect(listArchive(P)).toHaveLength(0)
+})
+
+test('setStatus moves open -> in_progress -> done -> open', () => {
   createItems(P, [{ text: 'task' }])
   const id = listOpen(P)[0].id
-  toggleItem(P, id, true)
+  setStatus(P, id, 'in_progress')
+  expect(listOpen(P)[0].status).toBe('in_progress')
+  expect(listOpen(P)[0].resolvedAt).toBeNull()
+  setStatus(P, id, 'done')
   expect(listOpen(P)).toHaveLength(0)
-  expect(listArchive(P)).toHaveLength(1)
-  toggleItem(P, id, false)
+  expect(listArchive(P)[0].resolvedAt).toBeGreaterThan(0)
+  setStatus(P, id, 'open')
   expect(listOpen(P)).toHaveLength(1)
   expect(listArchive(P)).toHaveLength(0)
+})
+
+test('replaceAll wipes + reinserts, honoring supplied dates', () => {
+  createItems(P, [{ text: 'old one' }, { text: 'old two' }])
+  const n = replaceAll(P, [
+    { text: 'fresh open' },
+    { text: 'fresh wip', status: 'in_progress' },
+    { text: 'fresh done', status: 'done', createdAt: 1000, resolvedAt: 2000 },
+  ])
+  expect(n).toBe(3)
+  expect(listOpen(P).map(i => i.text)).toEqual(['fresh open', 'fresh wip'])
+  const arch = listArchive(P)
+  expect(arch).toHaveLength(1)
+  expect(arch[0].createdAt).toBe(1000)
+  expect(arch[0].resolvedAt).toBe(2000)
 })
 
 test('updateText edits raw text', () => {
@@ -79,7 +106,7 @@ test('project scoping is isolated', () => {
 test('mutations are scoped: wrong project cannot touch an item', () => {
   createItems(P, [{ text: 'protected' }])
   const id = listOpen(P)[0].id
-  toggleItem(Q, id, true)
+  setStatus(Q, id, 'done')
   deleteItem(Q, id)
   updateText(Q, id, 'hacked')
   const open = listOpen(P)
@@ -88,7 +115,7 @@ test('mutations are scoped: wrong project cannot touch an item', () => {
 })
 
 test('purgeResolved deletes only old resolved items', () => {
-  createItems(P, [{ text: 'open one' }, { text: 'recent done', resolved: true }])
+  createItems(P, [{ text: 'open one' }, { text: 'recent done', status: 'done' }])
   // An item resolved "long ago": create open, then backdate via toggle is now-stamped,
   // so instead assert recent resolved survives a 30d purge and nothing open is touched.
   const purged = purgeResolved(P, Date.now() - 30 * 24 * 60 * 60 * 1000)

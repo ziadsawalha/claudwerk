@@ -1649,9 +1649,10 @@ export type BrokerMessage =
   | WebControlRelayResponse
   | ChecklistListRequest
   | ChecklistCreateRequest
-  | ChecklistToggleRequest
+  | ChecklistSetStatusRequest
   | ChecklistUpdateRequest
   | ChecklistDeleteRequest
+  | ChecklistReplaceRequest
   | ChecklistArchiveRequest
   | ChecklistPurgeRequest
 
@@ -3249,12 +3250,17 @@ export interface ProjectUnsubscribe {
 // (`resolvedAt === null`) show inline; resolved items live in the archive view.
 // `text` is stored raw; the panel renders a limited inline-markdown subset.
 
+/** Lifecycle of a checklist item. `open` and `in_progress` show inline (active);
+ *  `done` moves to the archive. in_progress is purely a user-facing emphasis. */
+export type ChecklistStatus = 'open' | 'in_progress' | 'done'
+
 export interface ChecklistItem {
   id: string
   text: string
+  status: ChecklistStatus
   createdAt: number
   updatedAt: number
-  /** null = open; epoch ms when checked off. */
+  /** null unless status === 'done'; epoch ms when checked off. */
   resolvedAt: number | null
 }
 
@@ -3266,21 +3272,33 @@ export interface ChecklistListRequest {
 }
 
 /** Dashboard -> Broker: create N items (single add or multi-line paste). A
- *  `resolved` item is stamped resolved_at=now and lands straight in the archive. */
+ *  `done` item is stamped resolved_at=now and lands straight in the archive. */
 export interface ChecklistCreateRequest {
   type: 'checklist_create'
   project: string
   requestId: string
-  items: Array<{ text: string; resolved?: boolean }>
+  items: Array<{ text: string; status?: ChecklistStatus }>
 }
 
-/** Dashboard -> Broker: resolve (check) or re-open an item. */
-export interface ChecklistToggleRequest {
-  type: 'checklist_toggle'
+/** Dashboard -> Broker: move an item to a new lifecycle status. */
+export interface ChecklistSetStatusRequest {
+  type: 'checklist_set_status'
   project: string
   requestId: string
   id: string
-  resolved: boolean
+  status: ChecklistStatus
+}
+
+/** Dashboard -> Broker: replace the WHOLE project list from the bulk markdown
+ *  editor. The client encodes dates as trailing parens in the doc and parses
+ *  them back, so it sends them here; the broker wipes the project's rows and
+ *  re-inserts these. Missing dates are best-effort stamped now (metadata is a
+ *  nice-to-have, per the user). */
+export interface ChecklistReplaceRequest {
+  type: 'checklist_replace'
+  project: string
+  requestId: string
+  items: Array<{ text: string; status: ChecklistStatus; createdAt?: number; resolvedAt?: number }>
 }
 
 /** Dashboard -> Broker: edit an item's raw text. */
