@@ -159,7 +159,7 @@ const ProjectConversationGroup = memo(
     const normalGroups = useMemo(() => groupByLineage(normal, orphanRoots), [normal, orphanRoots])
 
     return (
-      <div>
+      <div className="group/project">
         <div
           className="border border-border"
           style={displayColor ? { borderLeftColor: displayColor, borderLeftWidth: '3px' } : undefined}
@@ -337,7 +337,13 @@ export function PinnedProjectNode({ project }: { project: string }) {
 
   return (
     <PinnedProjectContextMenu project={project} onOpenSettings={() => setShowSettings(true)}>
-      <div>
+      {/* group/project drives the checklist's reveal-on-hover empty state. The
+          checklist sits OUTSIDE the button (it has its own interactive input +
+          buttons, which cannot nest inside a <button>). */}
+      <div
+        className={cn('group/project border border-border hover:border-primary', isSelected && 'border-primary')}
+        style={displayColor ? { borderLeftColor: displayColor, borderLeftWidth: '3px' } : undefined}
+      >
         <button
           type="button"
           onClick={() => {
@@ -345,10 +351,9 @@ export function PinnedProjectNode({ project }: { project: string }) {
             selectProject(project)
           }}
           className={cn(
-            'border border-border hover:border-primary p-2 pl-3 transition-colors cursor-pointer text-left w-full appearance-none bg-transparent text-inherit',
-            isSelected && 'border-primary bg-accent/10',
+            'p-2 pl-3 transition-colors cursor-pointer text-left w-full appearance-none bg-transparent text-inherit hover:bg-accent/10',
+            isSelected && 'bg-accent/10',
           )}
-          style={displayColor ? { borderLeftColor: displayColor, borderLeftWidth: '3px' } : undefined}
           title={projectPath(project)}
         >
           <div className="flex items-center gap-1.5">
@@ -366,6 +371,7 @@ export function PinnedProjectNode({ project }: { project: string }) {
             <Pin className="size-2.5 text-muted-foreground/30 shrink-0" />
           </div>
         </button>
+        <ProjectChecklist project={project} />
         {showSettings && <ProjectSettingsEditor project={project} onClose={() => setShowSettings(false)} />}
       </div>
     </PinnedProjectContextMenu>
