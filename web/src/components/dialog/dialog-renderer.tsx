@@ -11,6 +11,8 @@ import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn, haptic } from '@/lib/utils'
+import { isPlanBlock, PlanBlock } from './blocks'
+import { applySelect, FieldLabel } from './field-helpers'
 import type { AlertIntent, ButtonIntent, ButtonVariant, DialogColor, DialogComponent } from './types'
 
 // ─── Color mapping ─────────────────────────────────────────────────
@@ -101,24 +103,9 @@ function OptionsInput({
 }) {
   const current = form.values[id]
 
-  function handleSelect(value: string) {
-    haptic('tap')
-    if (multi) {
-      const arr = (Array.isArray(current) ? current : []) as string[]
-      const next = arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value]
-      form.setValue(id, next)
-    } else {
-      form.setValue(id, value)
-    }
-  }
-
   return (
     <div className="space-y-1.5">
-      {label && (
-        <div className="text-sm font-medium text-foreground/80">
-          <Markdown inline>{label}</Markdown>
-        </div>
-      )}
+      <FieldLabel label={label} />
       <div className="space-y-1">
         {options.map(opt => {
           // Guard against current==null: `undefined === opt.value` would mark
@@ -133,7 +120,7 @@ function OptionsInput({
             // react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions
             <div
               key={opt.value}
-              onClick={() => handleSelect(opt.value)}
+              onClick={() => applySelect(form, id, opt.value, multi)}
               className={cn(
                 'flex items-start gap-3 px-3.5 py-3 rounded cursor-pointer border transition-colors text-sm',
                 selected
@@ -239,24 +226,9 @@ function ImagePickerInput({
 }) {
   const current = form.values[id]
 
-  function handleSelect(value: string) {
-    haptic('tap')
-    if (multi) {
-      const arr = (Array.isArray(current) ? current : []) as string[]
-      const next = arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value]
-      form.setValue(id, next)
-    } else {
-      form.setValue(id, value)
-    }
-  }
-
   return (
     <div className="space-y-1.5">
-      {label && (
-        <div className="text-sm font-medium text-foreground/80">
-          <Markdown inline>{label}</Markdown>
-        </div>
-      )}
+      <FieldLabel label={label} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {images.map(img => {
           const selected =
@@ -268,7 +240,7 @@ function ImagePickerInput({
             // react-doctor-disable-next-line react-doctor/click-events-have-key-events, react-doctor/no-static-element-interactions
             <div
               key={img.value}
-              onClick={() => handleSelect(img.value)}
+              onClick={() => applySelect(form, id, img.value, multi)}
               className={cn(
                 'relative cursor-pointer rounded border-2 overflow-hidden transition-all',
                 selected ? 'border-primary ring-1 ring-primary/30' : 'border-border/30 hover:border-border/60',
@@ -509,6 +481,9 @@ export const ComponentRenderer = memo(function ComponentRenderer({
   form: DialogFormState
   onAction: (actionId: string) => void
 }) {
+  // Rich plan blocks render via their own sub-dispatcher (keeps this switch lean).
+  if (isPlanBlock(component)) return <PlanBlock component={component} />
+
   switch (component.type) {
     // Content
     case 'Markdown':

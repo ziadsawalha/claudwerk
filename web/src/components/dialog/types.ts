@@ -4,10 +4,16 @@
  */
 export type {
   AlertIntent,
+  AnnotatedCodeComponent,
+  ApiEndpointComponent,
   ButtonIntent,
   ButtonVariant,
+  DataModelComponent,
   DialogColor,
   DialogComponent,
   DialogLayout,
   DialogResult,
+  DiffComponent,
+  FileTreeComponent,
+  FileTreeStatus,
 } from '@shared/dialog-schema'

@@ -318,6 +318,11 @@ describe('DialogComponent type coverage', () => {
       { type: 'Image', url: 'https://example.com/img.png' },
       { type: 'Alert', content: 'Warning!', intent: 'warning' },
       { type: 'Divider' },
+      { type: 'Diff', content: '- old\n+ new', filename: 'a.ts' },
+      { type: 'FileTree', entries: [{ path: 'src/a.ts', status: 'added' }] },
+      { type: 'DataModel', name: 'User', fields: [{ name: 'id', type: 'string' }] },
+      { type: 'ApiEndpoint', method: 'POST', path: '/api/x' },
+      { type: 'AnnotatedCode', code: 'const x = 1', annotations: [{ line: 1, note: 'why' }] },
       { type: 'Options', id: 'opt', options: [{ value: 'a', label: 'A' }] },
       { type: 'TextInput', id: 'txt' },
       { type: 'ImagePicker', id: 'img', images: [{ value: 'a', url: 'https://x.com/a.png' }] },
@@ -334,5 +339,43 @@ describe('DialogComponent type coverage', () => {
       body: components,
     }
     expect(validateDialogLayout(layout)).toEqual([])
+  })
+})
+
+describe('rich plan blocks', () => {
+  function errorsFor(comp: unknown): string[] {
+    return validateDialogLayout({ title: 'T', body: [comp] })
+  }
+
+  it('rejects Diff without content', () => {
+    expect(errorsFor({ type: 'Diff' })).toContain('Diff.content is required')
+  })
+
+  it('rejects FileTree with empty or entry-less entries', () => {
+    expect(errorsFor({ type: 'FileTree', entries: [] })).toContain('FileTree.entries must be a non-empty array')
+    expect(errorsFor({ type: 'FileTree', entries: [{ status: 'added' }] })).toContain(
+      'FileTree.entries[0].path is required and must be a string',
+    )
+  })
+
+  it('rejects DataModel missing name or field type', () => {
+    expect(errorsFor({ type: 'DataModel', fields: [{ name: 'id', type: 'string' }] })).toContain(
+      'DataModel.name is required',
+    )
+    expect(errorsFor({ type: 'DataModel', name: 'User', fields: [{ name: 'id' }] })).toContain(
+      'DataModel.fields[0].type is required and must be a string',
+    )
+  })
+
+  it('rejects ApiEndpoint missing method or path', () => {
+    expect(errorsFor({ type: 'ApiEndpoint', path: '/x' })).toContain('ApiEndpoint.method is required')
+    expect(errorsFor({ type: 'ApiEndpoint', method: 'GET' })).toContain('ApiEndpoint.path is required')
+  })
+
+  it('rejects AnnotatedCode without code or with bad annotations', () => {
+    expect(errorsFor({ type: 'AnnotatedCode' })).toContain('AnnotatedCode.code is required')
+    expect(errorsFor({ type: 'AnnotatedCode', code: 'x', annotations: 'nope' })).toContain(
+      'AnnotatedCode.annotations must be an array',
+    )
   })
 })

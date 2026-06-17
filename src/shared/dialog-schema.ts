@@ -47,6 +47,73 @@ export interface DividerComponent {
   type: 'Divider'
 }
 
+// Rich plan blocks (display only, no result data) — shared by dialogs and
+// visual plans. Each wraps an existing renderer (Markdown/Shiki fences) or a
+// small structured view; heavy renderers travel in the lazy dialog chunk.
+
+export interface DiffComponent {
+  type: 'Diff'
+  /** Unified diff text (rendered via a `diff` syntax fence). */
+  content: string
+  /** Optional file path / heading shown above the diff. */
+  filename?: string
+}
+
+export type FileTreeStatus = 'added' | 'modified' | 'removed' | 'unchanged'
+
+export interface FileTreeEntry {
+  /** Slash-separated path; nesting is derived from the segments. */
+  path: string
+  status?: FileTreeStatus
+  /** Optional short note shown to the right of the entry. */
+  note?: string
+}
+
+export interface FileTreeComponent {
+  type: 'FileTree'
+  label?: string
+  entries: FileTreeEntry[]
+}
+
+export interface DataModelField {
+  name: string
+  type: string
+  note?: string
+  status?: FileTreeStatus
+}
+
+export interface DataModelComponent {
+  type: 'DataModel'
+  /** Model / table name. */
+  name: string
+  fields: DataModelField[]
+}
+
+export interface ApiEndpointComponent {
+  type: 'ApiEndpoint'
+  method: string
+  path: string
+  description?: string
+  /** Request body / params, shown as a JSON fence. */
+  request?: string
+  /** Response shape, shown as a JSON fence. */
+  response?: string
+}
+
+export interface CodeAnnotation {
+  /** 1-based line number the note points at. */
+  line: number
+  note: string
+}
+
+export interface AnnotatedCodeComponent {
+  type: 'AnnotatedCode'
+  code: string
+  language?: string
+  filename?: string
+  annotations?: CodeAnnotation[]
+}
+
 // Input components (produce result data, keyed by `id`)
 
 export interface OptionItem {
@@ -147,6 +214,11 @@ export type DialogComponent =
   | ImageComponent
   | AlertComponent
   | DividerComponent
+  | DiffComponent
+  | FileTreeComponent
+  | DataModelComponent
+  | ApiEndpointComponent
+  | AnnotatedCodeComponent
   | OptionsComponent
   | TextInputComponent
   | ImagePickerComponent
@@ -225,6 +297,11 @@ const VALID_COMPONENT_TYPES = new Set([
   'Image',
   'Alert',
   'Divider',
+  'Diff',
+  'FileTree',
+  'DataModel',
+  'ApiEndpoint',
+  'AnnotatedCode',
   'Options',
   'TextInput',
   'ImagePicker',
@@ -335,6 +412,45 @@ function validateComponent(comp: unknown, errors: string[], ids: Set<string>, de
     case 'Alert':
       if (typeof c.content !== 'string') errors.push('Alert.content is required')
       break
+    case 'Diff':
+      if (typeof c.content !== 'string') errors.push('Diff.content is required')
+      break
+    case 'FileTree':
+      if (!Array.isArray(c.entries) || (c.entries as unknown[]).length === 0) {
+        errors.push('FileTree.entries must be a non-empty array')
+      } else {
+        ;(c.entries as unknown[]).forEach((e, i) => {
+          if (!e || typeof e !== 'object' || typeof (e as Record<string, unknown>).path !== 'string') {
+            errors.push(`FileTree.entries[${i}].path is required and must be a string`)
+          }
+        })
+      }
+      break
+    case 'DataModel':
+      if (typeof c.name !== 'string' || c.name === '') errors.push('DataModel.name is required')
+      if (!Array.isArray(c.fields) || (c.fields as unknown[]).length === 0) {
+        errors.push('DataModel.fields must be a non-empty array')
+      } else {
+        ;(c.fields as unknown[]).forEach((f, i) => {
+          const fld = f as Record<string, unknown>
+          if (!f || typeof f !== 'object' || typeof fld.name !== 'string') {
+            errors.push(`DataModel.fields[${i}].name is required and must be a string`)
+          } else if (typeof fld.type !== 'string') {
+            errors.push(`DataModel.fields[${i}].type is required and must be a string`)
+          }
+        })
+      }
+      break
+    case 'ApiEndpoint':
+      if (typeof c.method !== 'string' || c.method === '') errors.push('ApiEndpoint.method is required')
+      if (typeof c.path !== 'string' || c.path === '') errors.push('ApiEndpoint.path is required')
+      break
+    case 'AnnotatedCode':
+      if (typeof c.code !== 'string') errors.push('AnnotatedCode.code is required')
+      if (c.annotations !== undefined && !Array.isArray(c.annotations)) {
+        errors.push('AnnotatedCode.annotations must be an array')
+      }
+      break
     case 'Options':
       if (typeof c.id !== 'string') errors.push('Options.id is required')
       if (!Array.isArray(c.options) || (c.options as unknown[]).length === 0) {
@@ -443,7 +559,7 @@ export function dialogToolInputSchema(): Record<string, unknown> {
       body: {
         type: 'array',
         description:
-          'Single-page layout. Array of components. Mutually exclusive with "pages". Component types: Markdown (content OR file -- use file to reference a local path instead of inlining text, saves context tokens; color?), Diagram (content), Image (url, alt?), Alert (intent?: info|warning|error|success, content), Divider, Options (id, options[{value,label,description?}], label?, multi?, required?, default?), TextInput (id, label?, placeholder?, required?, multiline?, default?), ImagePicker (id, images[{value,url,label?}], label?, multi?, allowUpload?), Toggle (id, label, default?), Slider (id, label?, min?, max?, step?, default?), Button (id, label, variant?: default|primary|outline|ghost, intent?: neutral|destructive|success), Stack (direction?: vertical|horizontal, children[]), Grid (columns?, children[]), Group (label, collapsed?, children[]). Colors: primary|secondary|muted|accent|destructive|success|warning|info. All text/label fields support markdown.',
+          'Single-page layout. Array of components. Mutually exclusive with "pages". Component types: Markdown (content OR file -- use file to reference a local path instead of inlining text, saves context tokens; color?), Diagram (content), Image (url, alt?), Alert (intent?: info|warning|error|success, content), Divider, Diff (content: unified diff text, filename?), FileTree (entries[{path, status?: added|modified|removed|unchanged, note?}], label?), DataModel (name, fields[{name, type, note?, status?}]), ApiEndpoint (method, path, description?, request?: JSON string, response?: JSON string), AnnotatedCode (code, language?, filename?, annotations[{line, note}]), Options (id, options[{value,label,description?}], label?, multi?, required?, default?), TextInput (id, label?, placeholder?, required?, multiline?, default?), ImagePicker (id, images[{value,url,label?}], label?, multi?, allowUpload?), Toggle (id, label, default?), Slider (id, label?, min?, max?, step?, default?), Button (id, label, variant?: default|primary|outline|ghost, intent?: neutral|destructive|success), Stack (direction?: vertical|horizontal, children[]), Grid (columns?, children[]), Group (label, collapsed?, children[]). Colors: primary|secondary|muted|accent|destructive|success|warning|info. All text/label fields support markdown.',
         items: { type: 'object' },
       },
       pages: {
