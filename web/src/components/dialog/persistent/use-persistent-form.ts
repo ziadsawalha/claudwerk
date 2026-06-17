@@ -88,8 +88,12 @@ export function usePersistentDialogForm(entry: LiveDialogEntry): PersistentForm 
   }, [highlightIds])
 
   const form = useMemo<DialogFormState>(
-    () => ({ values, setValue: (id, v) => setValues(prev => ({ ...prev, [id]: v })) }),
-    [values],
+    () => ({
+      values,
+      setValue: (id, v) => setValues(prev => ({ ...prev, [id]: v })),
+      conversationId: entry.conversationId,
+    }),
+    [values, entry.conversationId],
   )
 
   return {

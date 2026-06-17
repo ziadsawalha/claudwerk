@@ -15,6 +15,7 @@ import { Minimize2, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
+import { useConversationsStore } from '@/hooks/use-conversations'
 import { cn, haptic } from '@/lib/utils'
 import { collectRequired, getInitialValues, hasValue } from './dialog-form-init'
 import { ComponentRenderer, type DialogFormState } from './dialog-renderer'
@@ -44,6 +45,7 @@ export const DialogModal = memo(function DialogModal({
   onKeepalive,
   expired = false,
 }: DialogModalProps) {
+  const conversationId = useConversationsStore(s => s.selectedConversationId)
   const [values, setValues] = useState(() => getInitialValues(layout))
   const [activePage, setActivePage] = useState(0)
   const [lastAction, setLastAction] = useState<string | null>(null)
@@ -111,8 +113,9 @@ export const DialogModal = memo(function DialogModal({
         onInteraction()
       },
       activeAction: lastAction,
+      conversationId: conversationId ?? undefined,
     }),
-    [values, onInteraction, lastAction],
+    [values, onInteraction, lastAction, conversationId],
   )
 
   const handleSubmit = useCallback(

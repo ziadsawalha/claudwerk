@@ -14,6 +14,7 @@ import { cn, haptic } from '@/lib/utils'
 import { isPlanBlock, PlanBlock } from './blocks'
 import { applySelect, FieldLabel } from './field-helpers'
 import type { AlertIntent, ButtonIntent, ButtonVariant, DialogColor, DialogComponent } from './types'
+import { useDialogPaste } from './use-dialog-paste'
 
 // ─── Color mapping ─────────────────────────────────────────────────
 
@@ -34,6 +35,9 @@ export interface DialogFormState {
   values: Record<string, unknown>
   setValue: (id: string, value: unknown) => void
   activeAction?: string | null
+  /** Owning conversation -- threaded to /api/files so pasted/dropped uploads
+   *  resolve against the right CWD-scoped permission (optional; admin works without). */
+  conversationId?: string
 }
 
 // ─── Component renderers ───────────────────────────────────────────
@@ -192,6 +196,7 @@ function TextInputField({
 }) {
   const value = (form.values[id] as string) || ''
   const InputTag = multiline ? 'textarea' : 'input'
+  const { onPaste, onDrop } = useDialogPaste(id, form)
 
   return (
     <div className="space-y-1.5">
@@ -204,6 +209,8 @@ function TextInputField({
         id={`dialog-${id}`}
         value={value}
         onChange={e => form.setValue(id, e.target.value)}
+        onPaste={onPaste}
+        onDrop={onDrop}
         placeholder={placeholder}
         className={cn(
           'w-full rounded border border-border/50 bg-background px-3 py-2 text-sm',
