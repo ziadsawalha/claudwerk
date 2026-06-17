@@ -1,6 +1,7 @@
 import { Pencil } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
+import { isShareView } from '@/lib/share-mode'
 import type { Conversation } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
 
@@ -25,6 +26,17 @@ export function HeaderDescription({ conversation }: { conversation: Conversation
   function submit() {
     updateDescription(conversation.id, value.trim())
     haptic('success')
+  }
+
+  // Share-link guests get a read-only view: the owner-set description if any
+  // (it stands in for the hidden disk path), never the editable "add..." prompt.
+  if (isShareView()) {
+    if (!conversation.description) return null
+    return (
+      <span className="text-[10px] truncate text-muted-foreground/70 italic" title={conversation.description}>
+        {conversation.description}
+      </span>
+    )
   }
 
   if (isEditing) {

@@ -3,6 +3,7 @@ import { GitBranch } from 'lucide-react'
 import { CacheTimer } from '@/components/cache-timer'
 import { ProjectIcon } from '@/components/project-icons'
 import { formatCost, getConversationCost, getCostColor } from '@/lib/cost-utils'
+import { isShareView } from '@/lib/share-mode'
 import type { Conversation } from '@/lib/types'
 import { projectPath } from '@/lib/types'
 import { cn, contextWindowSize, formatEffort, formatModel, formatPermissionMode } from '@/lib/utils'
@@ -16,6 +17,13 @@ interface HeaderCollapsedBarProps {
 }
 
 export function HeaderCollapsedBar({ conversation, projectSettings: ps, model, inPlanMode }: HeaderCollapsedBarProps) {
+  // Share guests must not see the host's disk path: fall back to the
+  // owner-set description (or a generic) instead of the project path tail.
+  const title =
+    ps?.label ||
+    (isShareView()
+      ? conversation.description || 'Conversation'
+      : projectPath(conversation.project).split('/').slice(-2).join('/'))
   return (
     <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
       <span className="inline-flex items-center gap-1.5 min-w-0">
@@ -25,7 +33,7 @@ export function HeaderCollapsedBar({ conversation, projectSettings: ps, model, i
           </span>
         )}
         <span className="text-sm font-bold truncate" style={ps?.color ? { color: ps.color } : undefined}>
-          {ps?.label || projectPath(conversation.project).split('/').slice(-2).join('/')}
+          {title}
         </span>
         <WorktreeChip conversation={conversation} />
       </span>
@@ -54,6 +62,8 @@ export function HeaderCollapsedBar({ conversation, projectSettings: ps, model, i
  *  worktree (currentPath diverges from the project base). Glanceable at-rest
  *  signal that this conversation left its launch directory. */
 function WorktreeChip({ conversation }: { conversation: Conversation }) {
+  // The worktree/cwd label is a host disk path -- hidden from share guests.
+  if (isShareView()) return null
   const cur = conversation.currentPath
   if (!cur || cur === projectPath(conversation.project)) return null
   const wt = worktreeName(cur)

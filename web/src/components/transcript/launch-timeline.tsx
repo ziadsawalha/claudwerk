@@ -13,6 +13,7 @@ import type { AgentHostLaunchStep, TranscriptLaunchEntry } from '@shared/protoco
 import { cn } from '@/lib/utils'
 import { JsonInspector } from '../json-inspector'
 import type { DisplayGroup } from './grouping'
+import { elapsedSince, TimelineStepRow } from './timeline-step-row'
 
 const STEP_LABEL: Record<AgentHostLaunchStep, string> = {
   launch_started: 'launching claude',
@@ -57,25 +58,24 @@ function stepColor(step: AgentHostLaunchStep): string {
 function LaunchLine({ entry, startTs }: { entry: TranscriptLaunchEntry; startTs: number }) {
   const step = entry.step
   const hasRaw = entry.raw !== undefined && entry.raw !== null && Object.keys(entry.raw).length > 0
-  const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : 0
-  const elapsedSec = ts && startTs ? ((ts - startTs) / 1000).toFixed(1) : ''
+  const elapsedSec = elapsedSince(entry.timestamp, startTs)
 
   return (
-    <div className="flex items-center gap-2 text-[10px] font-mono leading-snug">
-      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', stepColor(step).replace('text-', 'bg-'))} />
-      <span className="text-muted-foreground/60 tabular-nums w-10 shrink-0">{elapsedSec && `+${elapsedSec}s`}</span>
-      <span className={cn('font-bold uppercase tracking-wider shrink-0', stepColor(step))}>{STEP_LABEL[step]}</span>
-      {entry.detail && <span className="text-foreground/70 truncate">{entry.detail}</span>}
-      {hasRaw && (
-        <span className="ml-auto shrink-0">
+    <TimelineStepRow
+      color={stepColor(step)}
+      label={STEP_LABEL[step]}
+      elapsedSec={elapsedSec}
+      detail={entry.detail ? <span className="text-foreground/70 truncate">{entry.detail}</span> : undefined}
+      trailing={
+        hasRaw ? (
           <JsonInspector
             title={`launch: ${STEP_LABEL[step]}`}
             data={entry.raw as Record<string, unknown>}
             raw={entry}
           />
-        </span>
-      )}
-    </div>
+        ) : undefined
+      }
+    />
   )
 }
 

@@ -4,7 +4,7 @@
  */
 
 import type { MessageHandler } from '../handler-context'
-import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
+import { AGENT_HOST_ONLY, CONTROL_PANEL_ONLY, registerHandlers } from '../message-router'
 
 const jsonStreamAttach: MessageHandler = (ctx, data) => {
   const wid = data.conversationId as string
@@ -52,8 +52,10 @@ const jsonStreamData: MessageHandler = (ctx, data) => {
 }
 
 export function registerJsonStreamHandlers(): void {
-  // Dashboard attaches to / detaches from the JSON stream relay.
-  registerHandlers({ json_stream_attach: jsonStreamAttach, json_stream_detach: jsonStreamDetach }, DASHBOARD_ROLES)
+  // Control panel attaches to / detaches from the JSON stream relay. The raw CC
+  // NDJSON leaks disk paths, env, and internals -- share-link guests are barred
+  // (CONTROL_PANEL_ONLY -> router rejects the 'share' role).
+  registerHandlers({ json_stream_attach: jsonStreamAttach, json_stream_detach: jsonStreamDetach }, CONTROL_PANEL_ONLY)
   // Agent host emits the raw NDJSON data.
   registerHandlers({ json_stream_data: jsonStreamData }, AGENT_HOST_ONLY)
 }

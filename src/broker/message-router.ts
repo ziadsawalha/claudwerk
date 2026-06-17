@@ -22,6 +22,10 @@ export const SENTINEL_ONLY: WsRole[] = ['sentinel']
 export const GATEWAY_ONLY: WsRole[] = ['gateway']
 /** Control panel + share viewers (dashboards). */
 export const DASHBOARD_ROLES: WsRole[] = ['control-panel', 'share']
+/** Authenticated control panel ONLY -- excludes share-link guests. Use for
+ *  channels that leak host internals (raw JSON stream, project files/board,
+ *  disk paths). A share viewer hitting these is rejected by the router. */
+export const CONTROL_PANEL_ONLY: WsRole[] = ['control-panel']
 /** Everyone (the implicit default before C3). */
 export const ANY_ROLE: WsRole[] = ['agent-host', 'control-panel', 'sentinel', 'gateway', 'share']
 

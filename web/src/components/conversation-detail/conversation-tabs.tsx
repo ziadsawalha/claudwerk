@@ -2,6 +2,7 @@ import { Braces, Terminal } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useConversationsStore } from '@/hooks/use-conversations'
+import { isShareView } from '@/lib/share-mode'
 import type { Conversation } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
 
@@ -53,6 +54,33 @@ function tabClickHandler(target: Tab, onSetActiveTab: (tab: Tab) => void) {
   }
 }
 
+/** Which optional tabs are visible. Pure -- pulls all the gating predicates out
+ *  of the component so the render stays flat. `shareView` (a share-link guest)
+ *  hard-hides the host-internal JSON + Project tabs; the broker independently
+ *  bars both channels for share grants. Exported for unit tests. */
+export function tabVisibility(p: {
+  conversation: Conversation
+  hasTerminal: boolean
+  hasJsonStream: boolean
+  canAdmin: boolean
+  canReadTerminal: boolean
+  showDiag: boolean
+  shareView: boolean
+}) {
+  const c = p.conversation
+  const hasAgents = c.totalSubagentCount > 0 || c.activeSubagentCount > 0 || c.bgTasks.length > 0
+  return {
+    tty: p.hasTerminal && p.canReadTerminal,
+    json: p.hasJsonStream && p.canReadTerminal && !p.shareView,
+    events: p.canAdmin,
+    agents: p.canAdmin && hasAgents,
+    tasks: c.taskCount > 0 || (c.archivedTaskCount ?? 0) > 0,
+    project: c.status !== 'ended' && !p.shareView,
+    diag: p.canAdmin && p.showDiag,
+    verbose: p.canAdmin,
+  }
+}
+
 export function ConversationTabs({
   conversation,
   activeTab,
@@ -64,13 +92,22 @@ export function ConversationTabs({
   showDiag,
   expandAll,
 }: ConversationTabsProps) {
+  const vis = tabVisibility({
+    conversation,
+    hasTerminal,
+    hasJsonStream,
+    canAdmin,
+    canReadTerminal,
+    showDiag,
+    shareView: isShareView(),
+  })
   return (
     <div className="shrink-0 flex items-center border-b border-border overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       <TabButton active={activeTab === 'transcript'} onClick={tabClickHandler('transcript', onSetActiveTab)}>
         Transcript
       </TabButton>
 
-      {hasTerminal && canReadTerminal && (
+      {vis.tty && (
         <TabButton
           active={activeTab === 'tty'}
           className="flex items-center gap-1"
@@ -90,7 +127,7 @@ export function ConversationTabs({
         </TabButton>
       )}
 
-      {hasJsonStream && canReadTerminal && (
+      {vis.json && (
         <TabButton
           active={activeTab === 'json_stream'}
           className="flex items-center gap-1"
@@ -104,27 +141,24 @@ export function ConversationTabs({
         </TabButton>
       )}
 
-      {canAdmin && (
+      {vis.events && (
         <TabButton active={activeTab === 'events'} onClick={tabClickHandler('events', onSetActiveTab)}>
           Events
         </TabButton>
       )}
 
-      {canAdmin &&
-        (conversation.totalSubagentCount > 0 ||
-          conversation.activeSubagentCount > 0 ||
-          conversation.bgTasks.length > 0) && (
-          <TabButton active={activeTab === 'agents'} onClick={tabClickHandler('agents', onSetActiveTab)}>
-            Agents
-            {(conversation.activeSubagentCount > 0 || conversation.runningBgTaskCount > 0) && (
-              <span className="ml-1.5 px-1.5 py-0.5 bg-active/20 text-active text-[10px] font-bold">
-                {conversation.activeSubagentCount + conversation.runningBgTaskCount}
-              </span>
-            )}
-          </TabButton>
-        )}
+      {vis.agents && (
+        <TabButton active={activeTab === 'agents'} onClick={tabClickHandler('agents', onSetActiveTab)}>
+          Agents
+          {(conversation.activeSubagentCount > 0 || conversation.runningBgTaskCount > 0) && (
+            <span className="ml-1.5 px-1.5 py-0.5 bg-active/20 text-active text-[10px] font-bold">
+              {conversation.activeSubagentCount + conversation.runningBgTaskCount}
+            </span>
+          )}
+        </TabButton>
+      )}
 
-      {(conversation.taskCount > 0 || (conversation.archivedTaskCount ?? 0) > 0) && (
+      {vis.tasks && (
         <TabButton active={activeTab === 'tasks'} onClick={tabClickHandler('tasks', onSetActiveTab)}>
           Tasks
           {conversation.pendingTaskCount > 0 && (
@@ -135,7 +169,7 @@ export function ConversationTabs({
         </TabButton>
       )}
 
-      {conversation.status !== 'ended' && (
+      {vis.project && (
         <TabButton active={activeTab === 'project'} onClick={tabClickHandler('project', onSetActiveTab)}>
           Project
         </TabButton>
@@ -145,7 +179,7 @@ export function ConversationTabs({
         Shared
       </TabButton>
 
-      {canAdmin && showDiag && (
+      {vis.diag && (
         <TabButton active={activeTab === 'diag'} onClick={tabClickHandler('diag', onSetActiveTab)}>
           Diag
         </TabButton>
@@ -155,7 +189,7 @@ export function ConversationTabs({
       <div className="ml-auto pr-3 flex items-center gap-2">
         <div className="w-px h-4 bg-border" />
       </div>
-      {canAdmin && (
+      {vis.verbose && (
         <div className="pr-3 hidden sm:flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Checkbox

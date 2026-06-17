@@ -3,6 +3,7 @@ import type { ProjectSettings } from '@shared/protocol'
 import { ChevronRight, Copy, GitBranch } from 'lucide-react'
 import { useState } from 'react'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
+import { isShareView } from '@/lib/share-mode'
 import type { Conversation } from '@/lib/types'
 import { projectPath } from '@/lib/types'
 import { cn, formatTime, haptic } from '@/lib/utils'
@@ -43,6 +44,8 @@ export function RateLimitBanner({ rateLimit }: { rateLimit: Conversation['rateLi
 }
 
 export function ProjectPathRow({ project }: { project: string }) {
+  // Never expose the host's absolute disk path to share-link guests.
+  if (isShareView()) return null
   return (
     <div className="flex items-center gap-1 group/project">
       <span className="text-[10px] text-muted-foreground truncate">{projectPath(project)}</span>
@@ -69,6 +72,8 @@ export function ProjectPathRow({ project }: { project: string }) {
  * Renders nothing when currentPath is unset or equals the project base.
  */
 export function CurrentPathRow({ conversation }: { conversation: Conversation }) {
+  // The live cwd / worktree path is a host disk path -- hidden from share guests.
+  if (isShareView()) return null
   const cur = conversation.currentPath
   if (!cur || cur === projectPath(conversation.project)) return null
   const wt = worktreeName(cur)

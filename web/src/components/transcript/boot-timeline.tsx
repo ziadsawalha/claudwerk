@@ -7,9 +7,11 @@
 import type { BootStep, TranscriptBootEntry } from '@shared/protocol'
 import { Info } from 'lucide-react'
 import { useState } from 'react'
-import { cn, haptic } from '@/lib/utils'
+import { isShareView } from '@/lib/share-mode'
+import { haptic } from '@/lib/utils'
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import type { DisplayGroup } from './grouping'
+import { elapsedSince, TimelineStepRow } from './timeline-step-row'
 
 const STEP_LABEL: Record<BootStep, string> = {
   agent_host_started: 'agent host started',
@@ -35,29 +37,37 @@ function stepColor(step: BootStep): string {
 function BootLine({ entry, startTs }: { entry: TranscriptBootEntry; startTs: number }) {
   const [open, setOpen] = useState(false)
   const step = entry.step
-  const hasRaw = entry.raw !== undefined && entry.raw !== null
-  const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : 0
-  const elapsedSec = ts && startTs ? ((ts - startTs) / 1000).toFixed(1) : ''
+  // Boot details + raw payloads carry host disk paths, env, and settings/mcp
+  // paths (e.g. "cwd=/Users/.../foo"). Strip them for share-link guests.
+  const guest = isShareView()
+  const hasRaw = !guest && entry.raw !== undefined && entry.raw !== null
+  const elapsedSec = elapsedSince(entry.timestamp, startTs)
 
   return (
-    <div className="flex items-center gap-2 text-[10px] font-mono leading-snug">
-      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', stepColor(step).replace('text-', 'bg-'))} />
-      <span className="text-muted-foreground/60 tabular-nums w-10 shrink-0">{elapsedSec && `+${elapsedSec}s`}</span>
-      <span className={cn('font-bold uppercase tracking-wider shrink-0', stepColor(step))}>{STEP_LABEL[step]}</span>
-      {entry.detail && <span className="text-foreground/70 truncate">{entry.detail}</span>}
-      {hasRaw && (
-        <button
-          type="button"
-          className="ml-auto text-muted-foreground/40 hover:text-accent transition-colors shrink-0"
-          title="Show raw payload"
-          onClick={() => {
-            haptic('tap')
-            setOpen(true)
-          }}
-        >
-          <Info className="size-3" />
-        </button>
-      )}
+    <>
+      <TimelineStepRow
+        color={stepColor(step)}
+        label={STEP_LABEL[step]}
+        elapsedSec={elapsedSec}
+        detail={
+          entry.detail && !guest ? <span className="text-foreground/70 truncate">{entry.detail}</span> : undefined
+        }
+        trailing={
+          hasRaw ? (
+            <button
+              type="button"
+              className="text-muted-foreground/40 hover:text-accent transition-colors"
+              title="Show raw payload"
+              onClick={() => {
+                haptic('tap')
+                setOpen(true)
+              }}
+            >
+              <Info className="size-3" />
+            </button>
+          ) : undefined
+        }
+      />
       {open && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent className="font-mono max-w-xl">
@@ -74,7 +84,7 @@ function BootLine({ entry, startTs }: { entry: TranscriptBootEntry; startTs: num
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </>
   )
 }
 

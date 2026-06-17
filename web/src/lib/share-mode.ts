@@ -41,6 +41,13 @@ export function detectShareMode(): string | null {
   return shareToken
 }
 
+/** True when this page is a share-link viewer (limited guest). UI uses this to
+ *  hide host-internal surfaces (raw JSON / project tabs, disk paths). Defense in
+ *  depth only -- the broker independently bars these channels for share grants. */
+export function isShareView(): boolean {
+  return shareToken !== null
+}
+
 /** Returns the share-target kind. Defaults to 'conversation' for backward
  *  compat with old hash-form share URLs that didn't carry a kind hint. */
 export function detectShareKind(): ShareKind {

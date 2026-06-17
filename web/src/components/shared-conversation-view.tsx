@@ -18,7 +18,6 @@ import {
   useConversationsStore,
 } from '@/hooks/use-conversations'
 import { useWebSocket } from '@/hooks/use-websocket'
-import { extractProjectLabel } from '@/lib/types'
 
 export function SharedConversationView({ token: _token }: { token: string }) {
   const conversations = useConversations()
@@ -153,7 +152,8 @@ export function SharedConversationView({ token: _token }: { token: string }) {
           Shared
         </span>
         <span className="text-sm text-foreground font-mono truncate flex-1">
-          {(conversations[0]?.project ? extractProjectLabel(conversations[0].project) : '') || 'Conversation'}
+          {/* Owner-set description only -- never the project path leaf (a disk path). */}
+          {conversations[0]?.description || 'Shared conversation'}
         </span>
         {timeLeft && (
           <span className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono">

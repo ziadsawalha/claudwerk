@@ -23,7 +23,7 @@ import type {
   ProjectUnsubscribe,
 } from '../../shared/protocol'
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
-import { DASHBOARD_ROLES, registerHandlers, SENTINEL_ONLY } from '../message-router'
+import { CONTROL_PANEL_ONLY, registerHandlers, SENTINEL_ONLY } from '../message-router'
 import { subscribeProjectWatch, unsubscribeProjectWatch } from '../project-watch-registry'
 
 const BOARD_WRITE_OPS = new Set<ProjectBoardOp['op']>(['create', 'update', 'move', 'delete'])
@@ -154,6 +154,9 @@ const projectChanged: MessageHandler = (ctx, data: MessageData) => {
 }
 
 export function registerProjectHandlers(): void {
+  // Project board + file I/O expose the project's on-disk tree -- restricted to
+  // the authenticated control panel. Share-link guests are rejected by the
+  // router (CONTROL_PANEL_ONLY excludes the 'share' role).
   registerHandlers(
     {
       project_board_request: projectBoardRequest,
@@ -161,7 +164,7 @@ export function registerProjectHandlers(): void {
       project_subscribe: projectSubscribe,
       project_unsubscribe: projectUnsubscribe,
     },
-    DASHBOARD_ROLES,
+    CONTROL_PANEL_ONLY,
   )
   registerHandlers(
     {
