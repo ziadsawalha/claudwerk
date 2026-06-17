@@ -1588,6 +1588,24 @@ export interface DialogOrphanedMessage {
   snapshot: DialogSnapshot
 }
 
+/** Panel -> broker -> host: a user interaction on a live dialog (D1c).
+ *  The PANEL sends it without `seq`; the BROKER stamps a monotonic per-dialog
+ *  `seq` before forwarding to the host. `state` is the FULL client-side input
+ *  snapshot. `handlerId` is the caller's correlation mnemonic (or '__close__'
+ *  / '__submit__' reserved markers). D1c routes + guards + forwards; the host
+ *  turn DELIVERY (and the renderer that emits this) lands in D2. */
+export interface DialogEventMessage {
+  type: 'dialog_event'
+  conversationId: string
+  dialogId: string
+  seq: number
+  handlerId: string
+  on: 'click' | 'change' | 'submit' | 'close'
+  value?: unknown
+  state: Record<string, unknown>
+  [key: string]: unknown // WS JSON boundary (requestId echo etc.)
+}
+
 // Plan approval relay (headless: ExitPlanMode -> agent host -> broker -> dashboard -> back)
 export interface PlanApprovalRequest {
   type: 'plan_approval'
@@ -1677,6 +1695,7 @@ export type BrokerMessage =
   | ConversationReassignResult
   | ConversationReassigned
   | DialogResultMessage
+  | DialogEventMessage
   | PlanApprovalResponse
   | NotifyConfigUpdated
   | RclaudeConfigGet
@@ -2660,6 +2679,23 @@ export interface Conversation {
   planMode?: boolean // true when conversation is in plan mode (EnterPlanMode approved, not yet exited)
   hasNotification?: boolean // unread notification (cleared when conversation is viewed)
   pendingDialog?: { dialogId: string; layout: DialogLayout; timestamp: number; expired?: boolean }
+  /**
+   * THE DIALOGUE — a single live/persistent dialog (D1c). Distinct from the
+   * one-shot `pendingDialog`: this one survives across turns, is patched in
+   * place, and is reopenable. The `snapshot` is HOST-authoritative and the
+   * broker treats it OPAQUELY (it reads only `.status`/`.dialogId`/`.seq` for
+   * lifecycle routing; never layout/state/ops). Single-slot per conversation
+   * (keyed multi-dialog map is a later phase). `interactor` is the first-wins
+   * single-interactor lock principal; `lastEventSeq` is the broker-stamped
+   * monotonic event-ordering token.
+   */
+  liveDialog?: {
+    dialogId: string
+    snapshot: DialogSnapshot
+    interactor?: string
+    lastEventSeq?: number
+    updatedAt: number
+  }
   pendingPlanApproval?: {
     requestId: string
     toolUseId?: string

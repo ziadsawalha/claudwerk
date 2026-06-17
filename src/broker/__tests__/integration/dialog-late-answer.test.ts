@@ -8,7 +8,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { createTestHarness, type TestHarness, testId } from './test-harness'
+import { bootActiveAgent } from './dialog-test-helpers'
+import { createTestHarness, type MockWs, type TestHarness, testId } from './test-harness'
 
 let h: TestHarness
 
@@ -22,20 +23,9 @@ afterEach(() => {
 
 const PROJECT = 'claude:///home/user/proj'
 
-function bootActive(convId: string) {
-  const agent = h.bootAgentHost({ conversationId: convId, project: PROJECT })
-  h.agentSend(agent, {
-    type: 'meta',
-    conversationId: convId,
-    ccSessionId: testId('cc'),
-    project: PROJECT,
-    cwd: '/home/user/proj',
-    startedAt: Date.now(),
-  })
-  return agent
-}
+const bootActive = (convId: string): MockWs => bootActiveAgent(h, convId, PROJECT)
 
-function showDialog(agent: ReturnType<typeof bootActive>, convId: string, dialogId: string, title: string) {
+function showDialog(agent: MockWs, convId: string, dialogId: string, title: string) {
   h.agentSend(agent, {
     type: 'dialog_show',
     conversationId: convId,

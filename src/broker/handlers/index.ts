@@ -12,6 +12,7 @@ import { registerConversationReassignHandlers } from './conversation-reassign'
 import { registerDaemonHandlers } from './daemon'
 import { registerDebugControlHandlers } from './debug-control'
 import { registerDialogHandlers } from './dialog'
+import { registerDialogLiveHandlers } from './dialog-live'
 import { registerGatewayHandlers } from './gateway'
 import { registerInterConversationHandlers } from './inter-conversation'
 import { registerJsonStreamHandlers } from './json-stream'
@@ -38,6 +39,7 @@ export function registerAllHandlers(): void {
   registerChecklistHandlers()
   registerDashboardActionHandlers()
   registerDialogHandlers()
+  registerDialogLiveHandlers()
   registerGatewayHandlers()
   registerInterConversationHandlers()
   registerJsonStreamHandlers()

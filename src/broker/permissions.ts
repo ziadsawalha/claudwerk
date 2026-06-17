@@ -28,6 +28,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'settings',
     'voice',
     'notifications',
+    'dialog:interact',
   ],
 }
 
@@ -44,6 +45,10 @@ export type Permission =
   | 'settings'
   | 'voice'
   | 'notifications'
+  // THE DIALOGUE (D1c): drive a live/persistent dialog (emit dialog_event,
+  // wakes the agent). Deliberately NOT in DEFAULT_SHARE_PERMISSIONS (shares.ts)
+  // and NOT implied by `chat` -- a default share link is read-only on dialogs.
+  | 'dialog:interact'
 
 // ─── Grants ───────────────────────────────────────────────────────
 

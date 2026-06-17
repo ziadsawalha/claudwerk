@@ -11,6 +11,7 @@ import type { DialogLayout } from '../../shared/dialog-schema'
 import { cancelDialogNotify, resetDialogNotifyTimer, scheduleDialogNotify } from '../attention-notify'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
+import { showPersistentDialog } from './dialog-live'
 
 type DialogHandlerContext = Parameters<MessageHandler>[0]
 
@@ -35,6 +36,15 @@ const dialogShow: MessageHandler = (ctx, data) => {
   const dialogId = data.dialogId as string
   const layout = data.layout as Record<string, unknown>
   if (!dialogId || !layout) return
+
+  // THE DIALOGUE (D1c): a persistent dialog lives in the single live slot, not
+  // the one-shot pendingDialog. The broker synthesizes the initial snapshot
+  // (seq 0 / open, mirroring the host's OpenDialogRegistry); the host owns it
+  // from there via dialog_patch. Still gets an attention indicator + notify.
+  if (layout.persistent === true) {
+    showPersistentDialog(ctx, conversationId, dialogId, layout)
+    return
+  }
 
   // Store pending dialog on the conversation for reconnect recovery + attention indicator
   const conversation = ctx.conversations.getConversation(conversationId)

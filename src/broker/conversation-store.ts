@@ -55,11 +55,11 @@ import {
   getSentinelProfileUsage as getSentinelProfileUsageImpl,
   isSentinelAlive as isSentinelAliveImpl,
   pushSentinelDiag as pushSentinelDiagImpl,
+  recordInferenceUsage as recordInferenceUsageImpl,
   recordSentinelHeartbeat as recordSentinelHeartbeatImpl,
   removeSentinel as removeSentinelImpl,
   type SentinelConnection,
   type SentinelIdentifyInfo,
-  recordInferenceUsage as recordInferenceUsageImpl,
   setClaudeEfficiency as setClaudeEfficiencyImpl,
   setClaudeHealth as setClaudeHealthImpl,
   setSentinel as setSentinelImpl,
@@ -282,7 +282,12 @@ export interface ConversationStore {
   recordInferenceUsage: (
     sentinelId: string,
     profile: string,
-    args: { rateLimitType: string | undefined; utilization: number; resetsAtMs: number | undefined; observedAt: number },
+    args: {
+      rateLimitType: string | undefined
+      utilization: number
+      resetsAtMs: number | undefined
+      observedAt: number
+    },
   ) => boolean
   getSentinelProfileUsage: (sentinelId: string) => { profiles: ProfileUsageSnapshot[]; polledAt: number } | undefined
   // External status data (broker polls clanker.watch + usage.report)
@@ -1145,6 +1150,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           cacheTtl: fullMeta.cacheTtl as Conversation['cacheTtl'],
           lastTurnEndedAt: fullMeta.lastTurnEndedAt as number | undefined,
           pendingDialog: fullMeta.pendingDialog as Conversation['pendingDialog'],
+          liveDialog: fullMeta.liveDialog as Conversation['liveDialog'],
           pendingPlanApproval: fullMeta.pendingPlanApproval as Conversation['pendingPlanApproval'],
           pendingPermission: fullMeta.pendingPermission as Conversation['pendingPermission'],
           pendingAskQuestion: fullMeta.pendingAskQuestion as Conversation['pendingAskQuestion'],
@@ -1233,6 +1239,10 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         // broker restart, so the dashboard must rehydrate these and surface them
         // again. Memory-only would silently lose the dialog/permission/etc.
         pendingDialog: conv.pendingDialog,
+        // THE DIALOGUE (D1c): the live/persistent dialog blob is host-authoritative
+        // but persisted here so a reconnecting panel replays the current snapshot
+        // (read-only if the host is down) after a broker restart.
+        liveDialog: conv.liveDialog,
         pendingPlanApproval: conv.pendingPlanApproval,
         pendingPermission: conv.pendingPermission,
         pendingAskQuestion: conv.pendingAskQuestion,
@@ -1568,6 +1578,10 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     // wipe it so a stale dialog/permission/plan-approval doesn't survive into the
     // new session (or rehydrate on next broker restart).
     conv.pendingDialog = undefined
+    // THE DIALOGUE (D1c): `liveDialog` is DELIBERATELY NOT wiped here. Reset-
+    // channel safety (R3#7) — /clear must not silently cancel a persistent
+    // dialog; the host emits `dialog_orphaned` which flips it to a read-only
+    // orphaned record. Do NOT add liveDialog to this wipe list.
     conv.pendingPlanApproval = undefined
     conv.pendingPermission = undefined
     conv.pendingAskQuestion = undefined
@@ -2172,9 +2186,22 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       if (conversation.agentHostType === 'daemon') continue
       const liveBefore = conversationSockets.get(convId)?.size ?? 0
       const live = pruneDeadSockets(convId)
-      const willEnd = live === 0
       const lastActivityAgoMs = now - (conversation.lastActivity || now)
       const ccSessionIdHint = conversation.agentHostMeta?.ccSessionId as string | undefined
+
+      // THE DIALOGUE (D1c, R3#7/R2#10): an OPEN live/persistent dialog suppresses
+      // reaping. The host may briefly drop its socket (network blip, /clear) while
+      // the user still has the dialog open; reaping would discard a surface they
+      // expect to return to. Reconnect replays the snapshot read-only. Logged as a
+      // survival per LOG EVERYTHING (the consideration matters as much as the kill).
+      if (live === 0 && conversation.liveDialog?.snapshot.status === 'open') {
+        console.log(
+          `[reaper] survived ${convId.slice(0, 8)} status=${conversation.status} liveBefore=${liveBefore} liveAfter=${live} lastActivityAgoMs=${lastActivityAgoMs} reason=open-live-dialog dialog=${conversation.liveDialog.dialogId.slice(0, 8)}`,
+        )
+        continue
+      }
+
+      const willEnd = live === 0
 
       // Per LOG EVERYTHING covenant: log every consideration, not just the
       // kills. A conversation that survives the reaper 100 ticks in a row
@@ -2625,7 +2652,12 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
   function recordInferenceUsage(
     sentinelId: string,
     profile: string,
-    args: { rateLimitType: string | undefined; utilization: number; resetsAtMs: number | undefined; observedAt: number },
+    args: {
+      rateLimitType: string | undefined
+      utilization: number
+      resetsAtMs: number | undefined
+      observedAt: number
+    },
   ): boolean {
     return recordInferenceUsageImpl(sentinelState, sentinelId, profile, args, broadcast)
   }

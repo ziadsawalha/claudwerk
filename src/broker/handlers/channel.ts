@@ -104,6 +104,21 @@ const subscribe: MessageHandler = (ctx, data) => {
         layout: s.pendingDialog.layout,
       })
     }
+    // THE DIALOGUE (D1c): replay the current live-dialog snapshot so a
+    // (re)connecting panel reconciles to the authoritative state — read-only
+    // if the host is down. A dialog_patch with empty ops is the "adopt this
+    // snapshot" message (the panel reconciles by stable block id).
+    if (s.liveDialog) {
+      ctx.reply({
+        type: 'dialog_patch',
+        conversationId: s.id,
+        dialogId: s.liveDialog.dialogId,
+        baseSeq: s.liveDialog.snapshot.seq,
+        ops: [],
+        snapshot: s.liveDialog.snapshot,
+        replay: true,
+      })
+    }
     if (s.pendingPlanApproval) {
       ctx.reply({
         type: 'plan_approval',
