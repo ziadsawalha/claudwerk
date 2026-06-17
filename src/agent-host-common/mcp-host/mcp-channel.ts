@@ -30,6 +30,7 @@ import {
   type PendingDialog,
   registerAllTools,
 } from './mcp-tools'
+import { OpenDialogRegistry } from './open-dialogs'
 
 // Re-export types for consumers that import from mcp-channel
 export type { AgentHostIdentity, ConversationInfo, McpChannelCallbacks } from './mcp-tools'
@@ -75,10 +76,33 @@ export function setBrokerInfo(url: string | undefined, secret: string | undefine
 // ─── Pending Dialog state ──────────────────────────────────────────
 const pendingDialogs = new Map<string, PendingDialog>()
 
+// ─── Live/persistent dialog state (THE DIALOGUE) ───────────────────
+// Host-authoritative snapshots for persistent dialogs. Survives the MCP
+// transport reset (unlike pendingDialogs) so a /clear can orphan them instead of
+// silently dropping them.
+const openDialogs = new OpenDialogRegistry()
+
 let dialogCwd = process.cwd()
 
 export function setDialogCwd(cwd: string): void {
   dialogCwd = cwd
+}
+
+// Create a fresh Streamable-HTTP transport with the standard onclose/onerror
+// wiring. Shared by initMcpChannel (first connect) and resetMcpChannel (/clear).
+function makeTransport(): WebStandardStreamableHTTPServerTransport {
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  })
+  transport.onclose = () => {
+    debug('[channel] Transport closed (client disconnected)')
+    if (state) state.connected = false
+    callbacks.onDisconnect?.()
+  }
+  transport.onerror = err => {
+    debug(`[channel] Transport error: ${err.message}`)
+  }
+  return transport
 }
 
 // Strip internal underscore-prefixed control keys, leaving only user values.
@@ -185,6 +209,7 @@ export function initMcpChannel(cb: McpChannelCallbacks, id?: AgentHostIdentity):
     getClaudeCodeVersion: () => claudeCodeVersion,
     getDialogCwd: () => dialogCwd,
     pendingDialogs,
+    openDialogs,
     elog,
     brokerUrl,
     brokerSecret,
@@ -239,20 +264,7 @@ export function initMcpChannel(cb: McpChannelCallbacks, id?: AgentHostIdentity):
     }
   }
 
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-  })
-
-  transport.onclose = () => {
-    debug('[channel] Transport closed (client disconnected)')
-    if (state) state.connected = false
-    callbacks.onDisconnect?.()
-  }
-
-  transport.onerror = err => {
-    debug(`[channel] Transport error: ${err.message}`)
-  }
-
+  const transport = makeTransport()
   state = { mcpServer, transport, connected: false }
 
   keepaliveTimer = setInterval(() => {
@@ -381,22 +393,20 @@ export async function resetMcpChannel(): Promise<void> {
   }
   pendingDialogs.clear()
 
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-  })
-  transport.onclose = () => {
-    debug('[channel] Transport closed (client disconnected)')
-    if (state) state.connected = false
-    callbacks.onDisconnect?.()
-  }
-  transport.onerror = err => {
-    debug(`[channel] Transport error: ${err.message}`)
+  // THE DIALOGUE: a transport reset means /clear (ccSessionId change) -- the
+  // fresh CC brain has no contract memory, so live dialogs ORPHAN (read-only
+  // record) rather than get cancelled or silently dropped. Persistent dialogs
+  // live in openDialogs, not pendingDialogs, so the cancel loop above never
+  // touched them.
+  for (const snap of openDialogs.openSnapshots()) {
+    const orphaned = openDialogs.orphan(snap.dialogId)
+    if (orphaned) callbacks.onDialogOrphaned?.(snap.dialogId, 'clear', orphaned)
   }
 
-  state.transport = transport
+  state.transport = makeTransport()
   state.connected = false
   try {
-    await state.mcpServer.connect(transport)
+    await state.mcpServer.connect(state.transport)
     state.connected = true
     debug('[channel] MCP channel reset -- fresh transport connected')
   } catch (err) {

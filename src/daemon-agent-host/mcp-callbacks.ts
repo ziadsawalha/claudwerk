@@ -91,6 +91,37 @@ function buildSinks(deps: DaemonMcpCallbackDeps): HostSinks {
       } as unknown as AgentHostMessage)
     },
 
+    dialogPatch(dialogId, baseSeq, ops, snapshot, rationale) {
+      deps.transport.send({
+        type: 'dialog_patch',
+        conversationId: deps.conversationId,
+        dialogId,
+        baseSeq,
+        ops,
+        snapshot,
+        ...(rationale ? { rationale } : {}),
+      } as unknown as AgentHostMessage)
+    },
+
+    dialogReopen(dialogId, snapshot) {
+      deps.transport.send({
+        type: 'dialog_reopen',
+        conversationId: deps.conversationId,
+        dialogId,
+        snapshot,
+      } as unknown as AgentHostMessage)
+    },
+
+    dialogOrphan(dialogId, reason, snapshot) {
+      deps.transport.send({
+        type: 'dialog_orphaned',
+        conversationId: deps.conversationId,
+        dialogId,
+        reason,
+        snapshot,
+      } as unknown as AgentHostMessage)
+    },
+
     togglePlanMode() {
       const handle = deps.getAttachHandle()
       if (handle && !handle.closed) {

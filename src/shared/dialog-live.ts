@@ -8,7 +8,14 @@
  *
  * D1a scope: TYPES + validation only. Wire messages (dialog_patch / dialog_event
  * / dialog_orphaned) and behavior land in D1b/D1c.
+ *
+ * D1b scope: the live contract types — DialogOp (the patch grammar the
+ * `update_dialog` tool consumes), and the host-owned authoritative snapshot
+ * (DialogSnapshot + DialogStatus). The pure op validator/applier lives in
+ * `dialog-ops.ts`; the host registry in `mcp-host/open-dialogs.ts`.
  */
+import type { DialogComponent, DialogLayout } from './dialog-schema'
+
 // Opt-in width for larger designs (side-by-side, mermaid, multi-column).
 export type DialogWidth = 'normal' | 'wide' | 'full'
 const DIALOG_WIDTHS = new Set<string>(['normal', 'wide', 'full'])
@@ -24,8 +31,42 @@ export interface EventHandler {
 }
 const EVENT_ACTIONS = new Set<string>(['agent', 'navigate', 'close'])
 
-// (Patch op types — DialogOp — land in D1b with the update_dialog tool that
-// consumes them.)
+// ─── Patch grammar (DialogOp) ──────────────────────────────────────
+//
+// The agent mutates a live dialog by sending an ordered list of ops via the
+// `update_dialog` tool. Structural ops (replace/append/remove) edit the block
+// tree; state ops (setState/unsetState) edit the value store; `busy` is a
+// transient wait-screen hint (not persisted into the snapshot); `close` makes
+// the dialog terminal-but-reopenable. Reconcile by stable `id` so unchanged
+// subtrees never remount.
+export type DialogOp =
+  | { op: 'replace'; id: string; block: DialogComponent }
+  | { op: 'append'; after?: string; into?: string; block: DialogComponent }
+  | { op: 'remove'; id: string }
+  // `expect` is the per-field compare-and-swap guard: the value the agent last
+  // saw. When present and the current value differs, the op is reported as a
+  // conflict and NOT applied (never clobber a value the user changed meanwhile).
+  | { op: 'setState'; key: string; value: unknown; expect?: unknown }
+  | { op: 'unsetState'; key: string }
+  | { op: 'busy'; target?: string; pending: boolean }
+  | { op: 'close' }
+
+// ─── Host-authoritative snapshot ───────────────────────────────────
+//
+// The HOST owns the authoritative dialog state (layout + values + monotonic
+// seq); the broker persists this blob opaquely and never interprets it. Status
+// is the lifecycle: open (live, patchable), closed (terminal, reopenable —
+// final state kept as a record), orphaned (agent gone, e.g. /clear — read-only,
+// not reopenable).
+export type DialogStatus = 'open' | 'closed' | 'orphaned'
+
+export interface DialogSnapshot {
+  dialogId: string
+  layout: DialogLayout
+  state: Record<string, unknown>
+  seq: number
+  status: DialogStatus
+}
 
 // ─── Validation (small, single-purpose helpers) ────────────────────
 

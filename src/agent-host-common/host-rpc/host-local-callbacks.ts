@@ -98,6 +98,21 @@ export function buildHostLocalCallbacks(ctx: HostRpcContext): McpChannelCallback
       sinks.dialogDismiss(dialogId, reason)
     },
 
+    onDialogPatch(dialogId, baseSeq, ops, snapshot, rationale) {
+      diag('dialog', `Patch: ${dialogId.slice(0, 8)} base=${baseSeq} -> seq=${snapshot.seq} ops=${ops.length}`)
+      sinks.dialogPatch(dialogId, baseSeq, ops, snapshot, rationale)
+    },
+
+    onDialogReopen(dialogId, snapshot) {
+      diag('dialog', `Reopen: ${dialogId.slice(0, 8)} -> seq=${snapshot.seq}`)
+      sinks.dialogReopen(dialogId, snapshot)
+    },
+
+    onDialogOrphaned(dialogId, reason, snapshot) {
+      diag('dialog', `Orphaned: ${dialogId.slice(0, 8)} (${reason})`)
+      sinks.dialogOrphan(dialogId, reason, snapshot)
+    },
+
     onDeliverMessage(content, meta) {
       sinks.deliverMessage(content, meta)
     },

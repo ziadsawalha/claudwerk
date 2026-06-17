@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { OpenDialogRegistry } from '../open-dialogs'
 import { _resetBrokerRpc, dispatchBrokerRpcResponse, setBrokerRpcSender } from './lib/broker-rpc'
 import { registerRecapTools } from './recap'
 import type { AgentHostIdentity, McpToolContext, ToolDef } from './types'
@@ -10,6 +11,7 @@ function buildCtx(opts: { identity?: AgentHostIdentity | null } = {}): McpToolCo
     getClaudeCodeVersion: () => '0.0.0',
     getDialogCwd: () => '/tmp',
     pendingDialogs: new Map(),
+    openDialogs: new OpenDialogRegistry(),
     elog: () => {},
   }
 }

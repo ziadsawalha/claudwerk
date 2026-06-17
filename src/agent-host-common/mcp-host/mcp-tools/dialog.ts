@@ -5,6 +5,7 @@ import { dialogToolInputSchema, validateDialogLayout } from '../../../shared/dia
 import { isPathWithinCwd } from '../../../shared/path-guard'
 import { secureTmpPath, writeSecureFile } from '../../../shared/secure-temp'
 import { debug } from '../debug'
+import { showPersistentDialog } from './dialog-persistent'
 import type { McpToolContext, ToolDef } from './types'
 
 function isUrl(s: string): boolean {
@@ -92,6 +93,29 @@ async function resolveDialogFiles(
   return null
 }
 
+/** Collect the layout's components and resolve/upload any CWD-jailed file refs.
+ *  Returns an error message, or null on success. */
+async function resolveLayoutFileRefs(ctx: McpToolContext, layout: DialogLayout): Promise<string | null> {
+  const allComponents: Array<Record<string, unknown>> = []
+  if (layout.body) allComponents.push(...(layout.body as unknown as Array<Record<string, unknown>>))
+  if (layout.pages) {
+    for (const page of layout.pages as unknown as Array<{ body: Array<Record<string, unknown>> }>) {
+      allComponents.push(...page.body)
+    }
+  }
+  ctx.elog(` ${allComponents.length} top-level components`)
+  const uploader = ctx.callbacks.onShareFile
+  if (!uploader) return null
+  debug('[channel] dialog: uploading files (CWD-jailed)')
+  const uploadAdapter = async (path: string): Promise<string | null> => {
+    const r = await uploader(path)
+    return 'url' in r ? r.url : null
+  }
+  const uploadErr = await resolveDialogFiles(allComponents, uploadAdapter, ctx.getDialogCwd(), ctx.elog)
+  if (uploadErr) ctx.elog(` upload error: ${uploadErr}`)
+  return uploadErr
+}
+
 export function registerDialogTool(ctx: McpToolContext): Record<string, ToolDef> {
   return {
     dialog: {
@@ -113,33 +137,14 @@ export function registerDialogTool(ctx: McpToolContext): Record<string, ToolDef>
           }
 
           ctx.elog(' resolving file paths...')
-          const allComponents: Array<Record<string, unknown>> = []
-          if (layout.body) allComponents.push(...(layout.body as unknown as Array<Record<string, unknown>>))
-          if (layout.pages) {
-            for (const page of layout.pages as unknown as Array<{ body: Array<Record<string, unknown>> }>) {
-              allComponents.push(...page.body)
-            }
-          }
-          ctx.elog(` ${allComponents.length} top-level components`)
-          const uploader = ctx.callbacks.onShareFile
-          if (uploader) {
-            debug('[channel] dialog: uploading files (CWD-jailed)')
-            const dialogCwd = ctx.getDialogCwd()
-            const uploadAdapter = async (path: string): Promise<string | null> => {
-              const r = await uploader(path)
-              return 'url' in r ? r.url : null
-            }
-            const uploadErr = await resolveDialogFiles(allComponents, uploadAdapter, dialogCwd, ctx.elog)
-            if (uploadErr) {
-              ctx.elog(` upload error: ${uploadErr}`)
-              return { content: [{ type: 'text', text: `Dialog file error: ${uploadErr}` }], isError: true }
-            }
-            ctx.elog(' file upload complete')
-          }
+          const fileErr = await resolveLayoutFileRefs(ctx, layout)
+          if (fileErr) return { content: [{ type: 'text', text: `Dialog file error: ${fileErr}` }], isError: true }
+
+          const dialogId = randomUUID()
+          // THE DIALOGUE: persistent dialogs are no-op-safe groundwork (D2 renderer).
+          if (layout.persistent === true) return showPersistentDialog(ctx, dialogId, layout)
 
           const timeout = (layout.timeout ?? 900) * 1000
-          const dialogId = randomUUID()
-
           ctx.elog(` "${layout.title}" (${dialogId.slice(0, 8)}, timeout=${timeout / 1000}s)`)
 
           ctx.callbacks.onDialogShow?.(dialogId, layout)

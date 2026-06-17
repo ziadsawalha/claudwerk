@@ -26,6 +26,9 @@ const noopSinks: HostSinks = {
   registerPermissionRequest() {},
   dialogShow() {},
   dialogDismiss() {},
+  dialogPatch() {},
+  dialogReopen() {},
+  dialogOrphan() {},
   togglePlanMode() {},
   exit() {},
 }

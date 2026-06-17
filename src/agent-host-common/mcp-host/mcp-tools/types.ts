@@ -1,5 +1,7 @@
+import type { DialogOp, DialogSnapshot } from '../../../shared/dialog-live'
 import type { DialogLayout, DialogResult } from '../../../shared/dialog-schema'
 import type { SpawnRequest } from '../../../shared/spawn-schema'
+import type { OpenDialogRegistry } from '../open-dialogs'
 
 export type ToolResult = { content: Array<{ type: string; text: string }>; isError?: boolean }
 
@@ -152,6 +154,17 @@ export interface McpChannelCallbacks {
   // dashboard so the user can answer it late; omitted = hard dismiss (answered or
   // conversation ended).
   onDialogDismiss?: (dialogId: string, reason?: 'timeout' | 'cancelled') => void
+  // THE DIALOGUE — live/persistent emits (host -> broker -> panel). Each carries
+  // the host-authoritative snapshot the broker persists opaquely.
+  onDialogPatch?: (
+    dialogId: string,
+    baseSeq: number,
+    ops: DialogOp[],
+    snapshot: DialogSnapshot,
+    rationale?: string,
+  ) => void
+  onDialogReopen?: (dialogId: string, snapshot: DialogSnapshot) => void
+  onDialogOrphaned?: (dialogId: string, reason: string, snapshot: DialogSnapshot) => void
   onDeliverMessage?: (content: string, meta: Record<string, string>) => void
   onRenameConversation?: (
     name: string,
@@ -168,6 +181,8 @@ export interface McpToolContext {
   getClaudeCodeVersion: () => string | undefined
   getDialogCwd: () => string
   pendingDialogs: Map<string, PendingDialog>
+  /** Host-authoritative registry of live/persistent dialogs (THE DIALOGUE). */
+  openDialogs: OpenDialogRegistry
   elog: (msg: string) => void
   // Broker access for HTTP-backed tools (search, etc). Optional so tests/headless
   // tools without a broker still work.

@@ -1,5 +1,6 @@
 import { registerConversationTools } from './conversations'
 import { registerDialogTool } from './dialog'
+import { registerDialogControlTools } from './dialog-control'
 import { registerHostTools } from './hosts'
 import { registerIdentityTools } from './identity'
 import { registerNotifyTools } from './notify'
@@ -28,6 +29,7 @@ export function registerAllTools(ctx: McpToolContext): Record<string, ToolDef> {
     ...registerHostTools(ctx),
     ...registerProjectBoardTools(ctx),
     ...registerDialogTool(ctx),
+    ...registerDialogControlTools(ctx),
     ...registerSearchTools(ctx),
     ...registerRecapTools(ctx),
     ...registerWebControlTools(ctx),

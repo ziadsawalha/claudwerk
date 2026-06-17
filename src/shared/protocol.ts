@@ -4,6 +4,7 @@
  */
 
 import type { JobRecord } from './cc-daemon/types'
+import type { DialogOp, DialogSnapshot } from './dialog-live'
 import type { DialogLayout, DialogResult } from './dialog-schema'
 import type { ProjectTask, ProjectTaskManifestEntry, ProjectTaskMeta, ProjectTaskRef } from './project-task-types'
 import type { SpawnRequest } from './spawn-schema'
@@ -941,6 +942,9 @@ export type AgentHostMessage =
   | ClipboardCapture
   | DialogShowMessage
   | DialogDismissMessage
+  | DialogPatchMessage
+  | DialogReopenMessage
+  | DialogOrphanedMessage
   | PlanApprovalRequest
   | PlanModeChanged
   | StreamDelta
@@ -1516,6 +1520,8 @@ export interface AskQuestionTimeout {
   toolUseId: string
 }
 
+// THE DIALOGUE — live/persistent dialog contract (snapshot + op grammar).
+export type { DialogOp, DialogSnapshot } from './dialog-live'
 // Dialog MCP tool (channel-based rich UI for user interaction)
 export type { DialogComponent, DialogLayout, DialogResult } from './dialog-schema'
 
@@ -1541,6 +1547,45 @@ export interface DialogDismissMessage {
   // 'timeout' = the dialog timed out on the agent host but the layout is kept
   // re-displayable (expired). Absent/other = hard dismiss (answered/cancelled/ended).
   reason?: 'timeout'
+}
+
+// ─── THE DIALOGUE — live/persistent dialog wire (host -> broker -> panel) ──
+//
+// All three carry a host-authoritative `DialogSnapshot`. The broker persists the
+// snapshot blob OPAQUELY (boundary rule: no ccSessionId, never interpreted) and
+// routes/replays it. The panel reconciles by stable block id. D1b emits these;
+// the broker handlers + persistence land in D1c.
+
+/** Agent patched a live dialog. `ops` drive the panel's visible reconciliation;
+ *  `snapshot` is the new authoritative state the broker persists. `baseSeq` is
+ *  the snapshot the ops applied to; `seq` (in the snapshot) is the result. */
+export interface DialogPatchMessage {
+  type: 'dialog_patch'
+  conversationId: string
+  dialogId: string
+  baseSeq: number
+  ops: DialogOp[]
+  snapshot: DialogSnapshot
+  /** Optional human-facing "why" the agent changed it (surfaced in D2). */
+  rationale?: string
+}
+
+/** Agent reopened a closed dialog into its persisted live state. */
+export interface DialogReopenMessage {
+  type: 'dialog_reopen'
+  conversationId: string
+  dialogId: string
+  snapshot: DialogSnapshot
+}
+
+/** A live dialog was orphaned (agent gone: /clear, conversation end). Becomes
+ *  read-only; not reopenable. */
+export interface DialogOrphanedMessage {
+  type: 'dialog_orphaned'
+  conversationId: string
+  dialogId: string
+  reason: string
+  snapshot: DialogSnapshot
 }
 
 // Plan approval relay (headless: ExitPlanMode -> agent host -> broker -> dashboard -> back)

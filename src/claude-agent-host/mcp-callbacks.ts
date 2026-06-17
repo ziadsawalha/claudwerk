@@ -90,6 +90,41 @@ function buildSinks(ctx: AgentHostContext, deps: McpCallbackDeps): HostSinks {
       } as unknown as AgentHostMessage)
     },
 
+    dialogPatch(dialogId, baseSeq, ops, snapshot, rationale) {
+      ctx.wsClient?.send({
+        type: 'dialog_patch',
+        conversationId: ctx.conversationId,
+        dialogId,
+        baseSeq,
+        ops,
+        snapshot,
+        ...(rationale ? { rationale } : {}),
+      } as unknown as AgentHostMessage)
+      // A closed dialog is terminal-but-reopenable; stop replaying it as active.
+      if (snapshot.status !== 'open') clearInteraction(ctx, dialogId)
+    },
+
+    dialogReopen(dialogId, snapshot) {
+      // Re-track for reconnect replay (close cleared it).
+      sendInteraction(ctx, 'dialog_show', dialogId, {
+        type: 'dialog_reopen',
+        conversationId: ctx.conversationId,
+        dialogId,
+        snapshot,
+      } as unknown as AgentHostMessage)
+    },
+
+    dialogOrphan(dialogId, reason, snapshot) {
+      clearInteraction(ctx, dialogId)
+      ctx.wsClient?.send({
+        type: 'dialog_orphaned',
+        conversationId: ctx.conversationId,
+        dialogId,
+        reason,
+        snapshot,
+      } as unknown as AgentHostMessage)
+    },
+
     togglePlanMode() {
       if (deps.headless) {
         if (ctx.streamProc) {

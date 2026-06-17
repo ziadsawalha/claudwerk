@@ -9,6 +9,7 @@
  * daemon hosts each supply their own sinks.
  */
 
+import type { DialogOp, DialogSnapshot } from '../../shared/dialog-live'
 import type { DialogLayout } from '../../shared/dialog-schema'
 import type { HostTransport } from '../../shared/host-transport'
 import type { PermissionRequestData } from '../mcp-host/mcp-tools/types'
@@ -36,6 +37,18 @@ export interface HostSinks {
   dialogShow: (dialogId: string, layout: DialogLayout) => void
   /** Dismiss a dialog: clear the outstanding interaction + notify the broker. */
   dialogDismiss: (dialogId: string, reason?: 'timeout' | 'cancelled') => void
+  /** THE DIALOGUE — emit a live patch (host-authoritative snapshot). */
+  dialogPatch: (
+    dialogId: string,
+    baseSeq: number,
+    ops: DialogOp[],
+    snapshot: DialogSnapshot,
+    rationale?: string,
+  ) => void
+  /** THE DIALOGUE — emit a reopen of a closed dialog. */
+  dialogReopen: (dialogId: string, snapshot: DialogSnapshot) => void
+  /** THE DIALOGUE — emit an orphan (agent gone); clears any replay tracking. */
+  dialogOrphan: (dialogId: string, reason: string, snapshot: DialogSnapshot) => void
   /** Toggle plan mode (headless control-request vs PTY `/plan`). */
   togglePlanMode: () => void
   /** Self-terminate the conversation (launch events + conversation-end + exit). */
