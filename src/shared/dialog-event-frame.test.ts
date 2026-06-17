@@ -74,4 +74,14 @@ describe('resolveDialogEventDelivery', () => {
       reason: 'not_open',
     })
   })
+
+  test('routes a user CLOSE to reason:close (never an agent turn), even when open', () => {
+    const closeEvent: DialogEventLike = { dialogId: 'dlg-1', handlerId: '__close__', on: 'close', seq: 9, state: {} }
+    expect(resolveDialogEventDelivery({ status: 'open', layout: { title: 'T' } }, closeEvent)).toEqual({
+      deliver: false,
+      reason: 'close',
+    })
+    // a close on an already-closed dialog still routes to close (the host close() no-ops)
+    expect(resolveDialogEventDelivery({ status: 'closed' }, closeEvent)).toEqual({ deliver: false, reason: 'close' })
+  })
 })

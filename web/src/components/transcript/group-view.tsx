@@ -107,7 +107,7 @@ function GroupView({
   const { chatBubbles, bubbleColor } = settings
 
   const hasInterConversationContent = items.some(
-    it => it.kind === 'channel' && (it.isInterConversation || it.isDialog || it.isSystem),
+    it => it.kind === 'channel' && (it.isInterConversation || it.isDialog || it.isDialogSubmit || it.isSystem),
   )
   const hasProjectTask = items.some(it => it.kind === 'project-task')
 

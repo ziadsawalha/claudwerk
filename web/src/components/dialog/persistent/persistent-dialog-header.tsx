@@ -4,7 +4,7 @@
  */
 
 import type { DialogStatus } from '@shared/dialog-live'
-import { Undo2 } from 'lucide-react'
+import { Undo2, X } from 'lucide-react'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,7 @@ export function PersistentDialogHeader({
   rationale,
   canUndo,
   onUndo,
+  onClose,
 }: {
   title: string
   description?: string
@@ -32,9 +33,11 @@ export function PersistentDialogHeader({
   rationale?: string
   canUndo: boolean
   onUndo: () => void
+  onClose: () => void
 }) {
   const badge = readOnly && status === 'open' ? 'readonly' : status
   const badgeLabel = readOnly && status === 'open' ? 'read-only' : status
+  const closeTitle = status === 'open' ? 'Close this dialog' : 'Dismiss (remove from view)'
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
@@ -53,12 +56,24 @@ export function PersistentDialogHeader({
         >
           {badgeLabel}
         </span>
-        {canUndo && (
-          <Button variant="ghost" size="sm" className="ml-auto h-6 gap-1 px-2 text-[10px]" onClick={onUndo}>
-            <Undo2 className="size-3" />
-            Undo
+        <div className="ml-auto flex items-center gap-1">
+          {canUndo && (
+            <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-[10px]" onClick={onUndo}>
+              <Undo2 className="size-3" />
+              Undo
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-muted-foreground hover:text-foreground"
+            title={closeTitle}
+            aria-label={closeTitle}
+            onClick={onClose}
+          >
+            <X className="size-3.5" />
           </Button>
-        )}
+        </div>
       </div>
       <h3 className="text-base font-semibold text-foreground">{title}</h3>
       {description && (

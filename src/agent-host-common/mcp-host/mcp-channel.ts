@@ -172,13 +172,33 @@ export function resolveDialog(dialogId: string, result: DialogResult): boolean {
  */
 export function deliverDialogEvent(event: DialogEventLike): boolean {
   const decision = resolveDialogEventDelivery(openDialogs.get(event.dialogId), event)
-  if (!decision.deliver) {
-    elog(`event for ${decision.reason} dialog ${event.dialogId.slice(0, 8)} — dropped`)
-    return false
+  if (decision.deliver) {
+    callbacks.onDeliverMessage?.(decision.content, decision.meta)
+    elog(`event delivered ${event.dialogId.slice(0, 8)} handler=${event.handlerId} on=${event.on} seq=${event.seq}`)
+    return true
   }
-  callbacks.onDeliverMessage?.(decision.content, decision.meta)
-  elog(`event delivered ${event.dialogId.slice(0, 8)} handler=${event.handlerId} on=${event.on} seq=${event.seq}`)
-  return true
+  // A user-initiated close is authoritative: close the dialog in place (terminal,
+  // reopenable) and broadcast the closed snapshot WITHOUT spending an agent turn.
+  // This is what makes the panel's close button stick (it won't resurrect on
+  // reconnect); the agent only learns of it if it later tries to patch.
+  if (decision.reason === 'close') {
+    const result = openDialogs.close(event.dialogId)
+    if (result.ok) {
+      callbacks.onDialogPatch?.(
+        event.dialogId,
+        result.snapshot.seq - 1,
+        [{ op: 'close' }],
+        result.snapshot,
+        'Closed by the user.',
+      )
+      elog(`user close ${event.dialogId.slice(0, 8)} -> seq=${result.snapshot.seq}`)
+    } else {
+      elog(`user close ${event.dialogId.slice(0, 8)} no-op (${result.reason})`)
+    }
+    return result.ok
+  }
+  elog(`event for ${decision.reason} dialog ${event.dialogId.slice(0, 8)} — dropped`)
+  return false
 }
 
 export function keepaliveDialog(dialogId: string): boolean {

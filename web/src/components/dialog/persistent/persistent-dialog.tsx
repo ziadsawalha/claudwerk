@@ -16,33 +16,14 @@ import { cn, haptic } from '@/lib/utils'
 import { collectRequired, hasValue } from '../dialog-form-init'
 import { dialogWidthClass } from '../dialog-width'
 import { PersistentDialogBody } from './persistent-dialog-body'
+import { FooterNote, READONLY_NOTE, STATUS_TONE } from './persistent-dialog-chrome'
 import { PersistentDialogHeader } from './persistent-dialog-header'
 import { DialogErrorBar, DialogWaitBar } from './persistent-dialog-wait'
 import { usePersistentDialogForm } from './use-persistent-form'
 
-const READONLY_NOTE: Record<string, string> = {
-  orphaned: 'The agent is gone -- this dialog is read-only.',
-  closed: 'Closed by the agent. It can be reopened from the agent side.',
-}
-
-// Per-status container tone. `open` stands out hard (primary border + ring +
-// glow) so a waiting dialog is impossible to miss against the transcript; closed
-// recedes (dimmed + slightly shrunk). The transition-* on the container tweens
-// between these, so closing animates the card away instead of snapping.
-const STATUS_TONE: Record<string, string> = {
-  open: 'border-primary/60 ring-2 ring-primary/20 shadow-xl shadow-primary/10',
-  closed: 'border-border/50 opacity-75 scale-[0.985] shadow-sm',
-  orphaned: 'border-amber-500/50 ring-1 ring-amber-500/20 opacity-90 shadow-sm',
-}
-
-function FooterNote({ text }: { text: string }) {
-  return (
-    <div className="rounded border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{text}</div>
-  )
-}
-
 export function PersistentDialog({ conversationId, entry }: { conversationId: string; entry: LiveDialogEntry }) {
   const emit = useLiveDialogsStore(s => s.emit)
+  const dismiss = useLiveDialogsStore(s => s.dismiss)
   const clearError = useLiveDialogsStore(s => s.clearError)
   const agentActive = useConversationsStore(s => s.conversationsById[conversationId]?.status === 'active')
   const canInteract = useConversationsStore(
@@ -91,6 +72,16 @@ export function PersistentDialog({ conversationId, entry }: { conversationId: st
     if (emit(conversationId, entry.dialogId, '__submit__', 'submit', undefined, state)) setPending(true)
   }
 
+  // User-side close. While open: emit a '__close__' lifecycle event -- the host
+  // closes the dialog authoritatively (terminal, reopenable) without spending an
+  // agent turn. Once closed/orphaned: a second press removes the receded record
+  // from this client's view (local dismiss; the broker keeps it for reopen).
+  const onClose = () => {
+    haptic('tap')
+    if (status === 'open') emit(conversationId, entry.dialogId, '__close__', 'close', undefined, {})
+    else dismiss(conversationId)
+  }
+
   return (
     <div
       className={cn(
@@ -111,6 +102,7 @@ export function PersistentDialog({ conversationId, entry }: { conversationId: st
         rationale={entry.rationale}
         canUndo={canUndo}
         onUndo={undo}
+        onClose={onClose}
       />
       <div className={cn('mt-3', readOnly && 'pointer-events-none opacity-70')}>
         <PersistentDialogBody

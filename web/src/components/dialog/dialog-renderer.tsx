@@ -38,21 +38,26 @@ export interface DialogFormState {
 
 // ─── Component renderers ───────────────────────────────────────────
 
-function MarkdownBlock({ content, color }: { content: string; color?: DialogColor }) {
+// memo on the pure display blocks: in a LIVE dialog every patch hands down a new
+// layout object, so each block's props are a fresh reference and ComponentRenderer
+// re-renders -- which would tear down + repaint the Markdown/Mermaid DOM (the
+// flicker). Their inputs are primitives, so memo skips the re-render entirely
+// when the block's own content is unchanged.
+const MarkdownBlock = memo(function MarkdownBlock({ content, color }: { content: string; color?: DialogColor }) {
   return (
     <div className={cn('prose prose-sm dark:prose-invert max-w-none', color && COLOR_CLASSES[color])}>
       <Markdown>{content}</Markdown>
     </div>
   )
-}
+})
 
-function DiagramBlock({ content }: { content: string }) {
+const DiagramBlock = memo(function DiagramBlock({ content }: { content: string }) {
   return (
     <div className="w-full overflow-x-auto rounded border border-border/30 bg-muted/20 p-4">
       <Markdown>{`\`\`\`mermaid\n${content}\n\`\`\``}</Markdown>
     </div>
   )
-}
+})
 
 function ImageBlock({ url, alt }: { url: string; alt?: string }) {
   return (

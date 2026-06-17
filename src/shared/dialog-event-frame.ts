@@ -33,18 +33,22 @@ export function dialogEventMeta(event: DialogEventLike): Record<string, string> 
 
 export type DialogEventDelivery =
   | { deliver: true; content: string; meta: Record<string, string> }
-  | { deliver: false; reason: 'unknown' | 'not_open' }
+  | { deliver: false; reason: 'unknown' | 'not_open' | 'close' }
 
 /**
- * Decide whether an inbound dialog_event becomes an agent turn. Pure: the host
- * passes the live snapshot (or undefined) + the event; only an OPEN dialog is
- * delivered (a closed/orphaned/unknown one drops -- the user's view is stale).
- * Keeps the side-effecting host path a one-liner around this.
+ * Decide what an inbound dialog_event does. Pure: the host passes the live
+ * snapshot (or undefined) + the event.
+ * - A user CLOSE ('__close__'/on:'close') => `reason:'close'`: the host closes
+ *   the dialog authoritatively (terminal, reopenable), never an agent turn.
+ * - Otherwise only an OPEN dialog is DELIVERED as a turn; a closed/orphaned/
+ *   unknown one drops (the user's view is stale).
+ * Keeps the side-effecting host path a thin switch around this.
  */
 export function resolveDialogEventDelivery(
   snapshot: { status: string; layout?: { title?: unknown } } | undefined,
   event: DialogEventLike,
 ): DialogEventDelivery {
+  if (event.on === 'close') return { deliver: false, reason: 'close' }
   if (!snapshot) return { deliver: false, reason: 'unknown' }
   if (snapshot.status !== 'open') return { deliver: false, reason: 'not_open' }
   const title = typeof snapshot.layout?.title === 'string' ? snapshot.layout.title : undefined
