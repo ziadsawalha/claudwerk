@@ -3,13 +3,20 @@
  * shared by the web debug modal (builds the picker + payload editor), the broker
  * (permission/danger gating) and the agent host (validates incoming sends).
  *
- * Wire shapes recovered from the CC 2.1.160 binary; see
- * `.claude/docs/plan-cc-subtype-adoption.md` for per-command rationale and
- * `.claude/docs/plan-cc-control-debug.md` for the modal architecture.
+ * Wire shapes recovered from the CC binary (control surface re-verified against
+ * 2.1.177); see `.claude/docs/plan-cc-subtype-adoption.md` for per-command
+ * rationale and `.claude/docs/plan-cc-control-debug.md` for the modal architecture.
  *
  * NOT included: `rewind_files` (excluded by decision), the streaming daemon ops
  * (`subscribe`/`attach`/`dispatch` -- those are not one-shot pokes), and
- * `oauth_token_refresh`/`host_auth_token_refresh` (inbound C->H only).
+ * `oauth_token_refresh`/`host_auth_token_refresh`. Those two are the ONLY auth
+ * subtypes that are genuinely unpokeable: they are *inbound* (CC -> host) callbacks
+ * that fire only when the SDK host owns the credential (Agent-SDK / Cowork 3P).
+ * rclaude spawns CC with its own per-profile CLAUDE_CONFIG_DIR credentials, so CC
+ * refreshes its own token and these never fire here. The login/OAuth-callback
+ * family below (`claude_authenticate`, `mcp_authenticate`, ...) is the *opposite*
+ * direction -- host -> CC `this.request({subtype})` SDK-client methods, identical
+ * class to `get_context_usage`/`mcp_status` -- so it IS pokeable and lives here.
  */
 
 export type ControlChannel = 'cc_control' | 'daemon_op'
@@ -71,6 +78,17 @@ const CC_CONTROL_COMMANDS: ControlCommandSpec[] = [
     channel: 'cc_control',
     label: 'Get settings',
     description: 'Effective merged settings + raw per-source settings.',
+    readOnly: true,
+    danger: false,
+    transports: ['headless'],
+    payloadTemplate: {},
+  },
+  {
+    command: 'get_usage',
+    channel: 'cc_control',
+    label: 'Get usage (experimental)',
+    description:
+      'Structured /usage data: session cost/usage totals + claude.ai plan rate-limit utilization when available. Experimental -- CC marks the response shape as may-change.',
     readOnly: true,
     danger: false,
     transports: ['headless'],
@@ -220,6 +238,39 @@ const CC_CONTROL_COMMANDS: ControlCommandSpec[] = [
     payloadHint: { serverName: 'string', enabled: 'boolean' },
   },
   {
+    command: 'mcp_authenticate',
+    channel: 'cc_control',
+    label: 'MCP authenticate (start OAuth)',
+    description: "Begin an MCP server's OAuth flow; returns the provider authorization URL to open.",
+    readOnly: false,
+    danger: false,
+    transports: ['headless'],
+    payloadTemplate: { serverName: '', redirectUri: '' },
+    payloadHint: { serverName: 'string', redirectUri: 'string -- OAuth redirect URI' },
+  },
+  {
+    command: 'mcp_oauth_callback_url',
+    channel: 'cc_control',
+    label: 'MCP OAuth callback URL',
+    description: 'Complete an MCP server OAuth flow by handing CC the redirected callback URL (with the auth code).',
+    readOnly: false,
+    danger: false,
+    transports: ['headless'],
+    payloadTemplate: { serverName: '', callbackUrl: '' },
+    payloadHint: { serverName: 'string', callbackUrl: 'string -- full callback URL incl. ?code=' },
+  },
+  {
+    command: 'mcp_clear_auth',
+    channel: 'cc_control',
+    label: 'MCP clear auth',
+    description: 'Clear stored OAuth credentials for an MCP server (forces re-auth on next connect).',
+    readOnly: false,
+    danger: false,
+    transports: ['headless'],
+    payloadTemplate: { serverName: '' },
+    payloadHint: { serverName: 'string' },
+  },
+  {
     command: 'reload_plugins',
     channel: 'cc_control',
     label: 'Reload plugins',
@@ -292,6 +343,44 @@ const CC_CONTROL_COMMANDS: ControlCommandSpec[] = [
     transports: ['headless'],
     payloadTemplate: { messageUuid: '' },
     payloadHint: { messageUuid: 'string' },
+  },
+
+  // --- claude.ai login flow (DANGER: mutates the profile's auth state) ---
+  // Three-step OAuth: authenticate -> (user visits URL) -> oauth_callback ->
+  // wait_for_completion. CC is already authed via CLAUDE_CONFIG_DIR here, so
+  // poking these re-runs login for the profile -- gated + confirm.
+  {
+    command: 'claude_authenticate',
+    channel: 'cc_control',
+    label: 'Claude login: start (DANGER)',
+    description:
+      'Begin a Claude.ai OAuth login for the profile; returns the authorization URL to open. Re-auths the profile.',
+    readOnly: false,
+    danger: true,
+    transports: ['headless'],
+    payloadTemplate: { loginWithClaudeAi: true },
+    payloadHint: { loginWithClaudeAi: 'boolean -- true = Claude.ai subscription login' },
+  },
+  {
+    command: 'claude_oauth_callback',
+    channel: 'cc_control',
+    label: 'Claude login: callback (DANGER)',
+    description: 'Complete the login with the authorization code + state returned from the OAuth redirect.',
+    readOnly: false,
+    danger: true,
+    transports: ['headless'],
+    payloadTemplate: { authorizationCode: '', state: '' },
+    payloadHint: { authorizationCode: 'string -- from the redirect', state: 'string -- from the redirect' },
+  },
+  {
+    command: 'claude_oauth_wait_for_completion',
+    channel: 'cc_control',
+    label: 'Claude login: wait (DANGER)',
+    description: 'Block until the in-progress Claude.ai login flow completes.',
+    readOnly: false,
+    danger: true,
+    transports: ['headless'],
+    payloadTemplate: {},
   },
 ]
 
