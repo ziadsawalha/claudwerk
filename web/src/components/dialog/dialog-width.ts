@@ -1,7 +1,15 @@
 /**
- * THE DIALOGUE — opt-in dialog width -> Tailwind class. Shared by the one-shot
- * modal and the persistent inline renderer so both honour `layout.width`
- * (normal | wide | full) identically.
+ * THE DIALOGUE — opt-in dialog width -> Tailwind class.
+ *
+ * Two maps because the two surfaces have different containing blocks:
+ *  - The one-shot MODAL is a viewport-centered overlay, so viewport units (vw)
+ *    are correct.
+ *  - The PERSISTENT inline card is docked INSIDE the (narrower) transcript
+ *    column. vw there sizes against the viewport, not the column, so a wide
+ *    setting (full=96vw) blows past the column and the column's overflow-hidden
+ *    clips the card -- the inline x-overflow bug. The inline map is therefore
+ *    COLUMN-RELATIVE (%): calc(100%-1rem) fills the column minus the card's
+ *    mx-2 margins; max-w caps narrower intents.
  */
 export const DIALOG_WIDTH_CLASS: Record<string, string> = {
   normal: 'sm:w-[560px]',
@@ -9,6 +17,12 @@ export const DIALOG_WIDTH_CLASS: Record<string, string> = {
   full: 'sm:w-[96vw] sm:max-w-[1400px]',
 }
 
-export function dialogWidthClass(width: string | undefined): string {
-  return DIALOG_WIDTH_CLASS[width ?? 'normal'] ?? DIALOG_WIDTH_CLASS.normal
+const DIALOG_INLINE_WIDTH_CLASS: Record<string, string> = {
+  normal: 'w-[calc(100%-1rem)] sm:max-w-[560px]',
+  wide: 'w-[calc(100%-1rem)] sm:max-w-[900px]',
+  full: 'w-[calc(100%-1rem)]',
+}
+
+export function dialogInlineWidthClass(width: string | undefined): string {
+  return DIALOG_INLINE_WIDTH_CLASS[width ?? 'normal'] ?? DIALOG_INLINE_WIDTH_CLASS.normal
 }
