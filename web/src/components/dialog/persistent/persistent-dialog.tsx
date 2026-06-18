@@ -85,7 +85,9 @@ export function PersistentDialog({ conversationId, entry }: { conversationId: st
   return (
     <div
       className={cn(
-        'mx-2 my-2 w-auto rounded-xl border-2 bg-card p-3 backdrop-blur',
+        // height-capped flex column: header/footer stay put, body scrolls (overflow-bug fix).
+        // overflow-x-hidden clips wide blocks (mermaid/code carry their own inner scroll).
+        'mx-2 my-2 flex max-h-[75vh] w-auto flex-col overflow-x-hidden rounded-xl border-2 bg-card p-3 backdrop-blur',
         // entrance: slide+fade in so a freshly-shown (or replayed) dialog draws the eye
         'animate-in fade-in slide-in-from-top-2 duration-300',
         // tween status changes (open -> closed/orphaned) so close animates away
@@ -94,17 +96,24 @@ export function PersistentDialog({ conversationId, entry }: { conversationId: st
         dialogWidthClass(layout.width),
       )}
     >
-      <PersistentDialogHeader
-        title={layout.title}
-        description={layout.description}
-        status={status}
-        readOnly={readOnly}
-        rationale={entry.rationale}
-        canUndo={canUndo}
-        onUndo={undo}
-        onClose={onClose}
-      />
-      <div className={cn('mt-3', readOnly && 'pointer-events-none opacity-70')}>
+      <div className="shrink-0">
+        <PersistentDialogHeader
+          title={layout.title}
+          description={layout.description}
+          status={status}
+          readOnly={readOnly}
+          rationale={entry.rationale}
+          canUndo={canUndo}
+          onUndo={undo}
+          onClose={onClose}
+        />
+      </div>
+      <div
+        className={cn(
+          'mt-3 min-h-0 flex-1 overflow-y-auto overflow-x-hidden',
+          readOnly && 'pointer-events-none opacity-70',
+        )}
+      >
         <PersistentDialogBody
           layout={layout}
           form={formWithAction}
@@ -116,7 +125,7 @@ export function PersistentDialog({ conversationId, entry }: { conversationId: st
         />
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 shrink-0 space-y-2">
         {entry.error && <DialogErrorBar error={entry.error} onDismiss={() => clearError(conversationId)} />}
         {pending && <DialogWaitBar agentActive={agentActive} overdue={overdue} onCancel={() => setPending(false)} />}
         {status !== 'open' && <FooterNote text={READONLY_NOTE[status]} />}
