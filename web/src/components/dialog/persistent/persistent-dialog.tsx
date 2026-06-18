@@ -87,7 +87,11 @@ export function PersistentDialog({ conversationId, entry }: { conversationId: st
       className={cn(
         // height-capped flex column: header/footer stay put, body scrolls (overflow-bug fix).
         // overflow-x-hidden clips wide blocks (mermaid/code carry their own inner scroll).
-        'mx-2 my-2 flex max-h-[75vh] w-auto flex-col overflow-x-hidden rounded-xl border-2 bg-card p-3 backdrop-blur',
+        // max-w cap pins the card to its column: dialogWidthClass uses vw units
+        // (e.g. full=96vw) which are viewport-relative, but this card lives INSIDE the
+        // narrower transcript column -- without the cap the whole card overflows on x.
+        // calc(100%-1rem) accounts for the mx-2 (0.5rem each side) so card+margins fit.
+        'mx-2 my-2 flex max-h-[75vh] w-auto max-w-[calc(100%-1rem)] flex-col overflow-x-hidden rounded-xl border-2 bg-card p-3 backdrop-blur',
         // entrance: slide+fade in so a freshly-shown (or replayed) dialog draws the eye
         'animate-in fade-in slide-in-from-top-2 duration-300',
         // tween status changes (open -> closed/orphaned) so close animates away
