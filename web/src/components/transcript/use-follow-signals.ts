@@ -85,6 +85,14 @@ export function useFollowSignals(opts: {
     const el = parentRef.current
     if (!el) return
     let userScrolling = false
+    // `wheel` fires continuously across a desktop scroll, but `touchstart` fires
+    // ONCE at the start of a finger drag -- by the time the drag has built up
+    // drift > 120 (many frames later) this flag has long since reset on the next
+    // rAF, so disengage never fired on mobile and the bottom-anchor yanked the
+    // reader back down. `touchmove` fires every frame of an active drag, keeping
+    // the flag alive through the whole gesture. A tap (drift ~0) still can't
+    // disengage -- the drift > 120 gate guards the old "every touch detaches /
+    // broke posting on mobile" regression.
     function onWheelOrTouch() {
       userScrolling = true
       requestAnimationFrame(() => {
@@ -127,10 +135,12 @@ export function useFollowSignals(opts: {
     }
     el.addEventListener('wheel', onWheelOrTouch, { passive: true })
     el.addEventListener('touchstart', onWheelOrTouch, { passive: true })
+    el.addEventListener('touchmove', onWheelOrTouch, { passive: true })
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       el.removeEventListener('wheel', onWheelOrTouch)
       el.removeEventListener('touchstart', onWheelOrTouch)
+      el.removeEventListener('touchmove', onWheelOrTouch)
       el.removeEventListener('scroll', onScroll)
       if (userScrollResetRef.current) clearTimeout(userScrollResetRef.current)
     }
