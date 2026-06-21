@@ -11,11 +11,16 @@ export interface PaletteCommand {
 
 export type PaletteMode = 'conversation' | 'command' | 'spawn' | 'task' | 'theme' | 'batch'
 
-/** Merged result item for the no-prefix palette: conversations + pinned projects + commands fuzzy-matched together. */
+/**
+ * Merged result item for the no-prefix palette: conversations + projects + commands.
+ * Ranked into hard tiers (higher `tier` wins) so a strong name match always beats fuzzy
+ * chaff; `score` is only the intra-tier sort value (its meaning depends on `tier`).
+ * See RANK_TIER + the comparator in use-conversation-mode.ts.
+ */
 export type MergedItem =
-  | { kind: 'conversation'; conversation: Conversation; score: number; live: boolean }
-  | { kind: 'project'; projectUri: string; score: number; live: boolean }
-  | { kind: 'command'; command: PaletteCommand; score: number; live: boolean }
+  | { kind: 'conversation'; conversation: Conversation; tier: number; score: number; live: boolean }
+  | { kind: 'project'; projectUri: string; tier: number; score: number; live: boolean }
+  | { kind: 'command'; command: PaletteCommand; tier: number; score: number; live: boolean }
 
 export interface CommandPaletteProps {
   onSelect: (conversationId: string) => void
