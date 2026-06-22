@@ -97,29 +97,36 @@ export function listDispatchRosterCandidates(store: ConversationStore): Dispatch
 
 // ─── Executor (the live spawn/route/revive backends) ────────────────
 
+/** Spawn a headless conversation as the trusted desk (shared by the executor's
+ *  `new` path AND the project-context scout, P4). Honors an explicit model. */
+export async function spawnDeskConversation(
+  rt: DispatchRuntime,
+  req: { cwd: string; intent: string; profile?: string; model?: string },
+): Promise<{ conversationId: string }> {
+  const callerContext: SpawnCallerContext = {
+    kind: 'mcp',
+    hasSpawnPermission: true,
+    trustLevel: 'trusted',
+    callerProject: null,
+  }
+  const deps: SpawnDispatchDeps = {
+    conversationStore: rt.store,
+    getProjectSettings,
+    getGlobalSettings,
+    callerContext,
+    rendezvousCallerConversationId: rt.callerConversationId ?? null,
+  }
+  const result = await dispatchSpawn(
+    { cwd: req.cwd, prompt: req.intent, profile: req.profile, model: req.model, headless: true },
+    deps,
+  )
+  if (!result.ok) throw new Error(result.error)
+  return { conversationId: result.conversationId }
+}
+
 function buildExecutor(rt: DispatchRuntime): DispatchExecutor {
   return {
-    spawn: async req => {
-      const callerContext: SpawnCallerContext = {
-        kind: 'mcp',
-        hasSpawnPermission: true,
-        trustLevel: 'trusted',
-        callerProject: null,
-      }
-      const deps: SpawnDispatchDeps = {
-        conversationStore: rt.store,
-        getProjectSettings,
-        getGlobalSettings,
-        callerContext,
-        rendezvousCallerConversationId: rt.callerConversationId ?? null,
-      }
-      const result = await dispatchSpawn(
-        { cwd: req.cwd, prompt: req.intent, profile: req.profile, headless: true },
-        deps,
-      )
-      if (!result.ok) throw new Error(result.error)
-      return { conversationId: result.conversationId }
-    },
+    spawn: req => spawnDeskConversation(rt, { cwd: req.cwd, intent: req.intent, profile: req.profile }),
     route: async req => {
       const ws = rt.store.getConversationSocket(req.conversationId)
       if (!ws) throw new Error(`route target ${req.conversationId} not connected`)

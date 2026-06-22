@@ -54,6 +54,12 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   // ── dispatch (Front Desk, broker only) ─────────────────────────────
   { name: 'dispatch', group: 'dispatch', sites: BROKER_ONLY, summary: 'Route an intent: spawn / route / revive' },
   { name: 'list_threads', group: 'dispatch', sites: BROKER_ONLY, summary: "Dispatcher's near-memory threads" },
+  {
+    name: 'report_project_context',
+    group: 'dispatch',
+    sites: BROKER_ONLY,
+    summary: "Scout reports a condensed project brief back into the dispatcher's memory",
+  },
 
   // ── core (both sites) ──────────────────────────────────────────────
   { name: 'notify', group: 'core', sites: BOTH, summary: "Push notification to the user's devices" },
@@ -99,6 +105,12 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'list_hosts', group: 'hosts', sites: HOST_ONLY, summary: 'List connected sentinels + profiles/pools' },
   { name: 'share_file', group: 'files', sites: HOST_ONLY, summary: 'Upload a local file, return a public URL' },
   { name: 'dialog', group: 'dialog', sites: HOST_ONLY, summary: 'Show an interactive dialog and await a response' },
+  {
+    name: 'dialog_taxonomy',
+    group: 'dialog',
+    sites: HOST_ONLY,
+    summary: 'Index-first docs for authoring dialog block DSLs',
+  },
   { name: 'update_dialog', group: 'dialog', sites: HOST_ONLY, summary: 'Patch a live (persistent) dialog in place' },
   {
     name: 'close_dialog',

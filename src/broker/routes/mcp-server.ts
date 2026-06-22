@@ -14,6 +14,9 @@ import { formatTranscriptWindow } from '../../shared/transcript-window-format'
 import { BUILD_VERSION } from '../../shared/version'
 import { resolveAuth } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
+import { condenseProjectNow } from '../desk/desk-memory-service'
+import { recordRawEvent } from '../desk/project-memory'
+import { resolveDeskProject } from '../desk/projects'
 import { runDispatch } from '../desk/runtime'
 import { listThreads } from '../desk/threads'
 import { getGlobalSettings } from '../global-settings'
@@ -402,6 +405,34 @@ export function createMcpServer(
       } catch (e) {
         return toolText(`dispatch failed: ${(e as Error).message}`, true)
       }
+    },
+  )
+
+  // ─── report_project_context (scout -> dispatcher memory) ─────────────
+  mcp.tool(
+    'report_project_context',
+    "Report a condensed brief about a project back into the dispatcher's per-project memory. Used by a project SCOUT launched via build_project_context: after exploring the project, call this once with the project (name/slug/uri) and a short brief. The brief is folded into the project's durable memory (integrated with what is already known, not blindly overwritten).",
+    {
+      project: z.string().describe('The project this brief is about (name, slug, or uri).'),
+      brief: z
+        .string()
+        .describe('A short condensed brief: what the project is, current goals, key topics, where it stands.'),
+    },
+    async ({ project, brief }) => {
+      const dp = resolveDeskProject(project)
+      if (!dp) return toolText(`report_project_context: no project matching "${project}"`, true)
+      const now = Date.now()
+      recordRawEvent({
+        projectKey: dp.key,
+        projectUri: dp.projectUri,
+        label: dp.label,
+        kind: 'context_report',
+        summary: `SCOUT REPORT: ${brief.trim()}`,
+        ts: now,
+      })
+      // Fold it in immediately so the dispatcher sees the learned context.
+      await condenseProjectNow(dp.key, dp.projectUri, dp.label)
+      return toolText(`Recorded project context for ${dp.label}.`)
     },
   )
 
