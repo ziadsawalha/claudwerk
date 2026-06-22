@@ -125,6 +125,10 @@ function buildSinks(ctx: AgentHostContext, deps: McpCallbackDeps): HostSinks {
       } as unknown as AgentHostMessage)
     },
 
+    noteStatusSet() {
+      ctx.statusSetThisTurn = true
+    },
+
     togglePlanMode() {
       if (deps.headless) {
         if (ctx.streamProc) {

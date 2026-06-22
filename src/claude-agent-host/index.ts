@@ -130,6 +130,8 @@ async function main() {
     subagentWatchers: new Map(),
     runningSubagents: new Set(),
     bgTaskOutputWatchers: new Map(),
+    statusSetThisTurn: false,
+    didWorkThisTurn: false,
 
     pendingEditInputs: new Map(),
     pendingReadPaths: new Map(),
@@ -267,7 +269,7 @@ async function main() {
     conversationId,
     mcpEnabled: true,
     onHookEvent(event: HookEvent) {
-      processHookEvent(ctx, event)
+      return processHookEvent(ctx, event)
     },
     onNotify(message: string, title?: string) {
       debug(`Notify: ${title ? `[${title}] ` : ''}${message}`)

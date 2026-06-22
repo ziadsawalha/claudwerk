@@ -5,7 +5,7 @@ export function registerConversationTools(ctx: McpToolContext): Record<string, T
   return {
     list_conversations: {
       description:
-        'List Claude Code conversations. Returns COMPACT rows by default: `id, name, status` plus `self: true` on your own row, plus `host` (sentinel alias) and `profile` (sentinel-profile name) when the backend exposes them. `host`/`profile` are OPTIONAL and omitted for backends with no such concept (e.g. hermes, chat-api, daemon without a sentinel). `id` is a stable compound address ("project:conversation-name", e.g. "rclaude:fuzzy-rabbit") -- use it as the `to` target for send_message / control_conversation / configure_conversation. DIAL UP for more detail: `fields: "standard"` adds `project, conversation_id, description, link` plus the top-level `self` block; `fields: "full"` adds `projectUri, conversationUri, capabilities, title, summary, label, metadata` and self mirrors (model, permissionMode, effortLevel). Granular override: `include: ["summary","capabilities"]` adds specific fields on top of any tier (names: project, conversation_id, description, link, uris, capabilities, title, summary, label, metadata, self). Ad-hoc conversations are hidden unless linked. Messages to offline conversations are queued. HINT: When the user says "tell X to Y", "ask X to Y", or "use X to Y", consider that X may be a conversation name -- call list_conversations to check.',
+        'List Claude Code conversations. Returns COMPACT rows by default: `id, name, status` plus `self: true` on your own row, plus `host` (sentinel alias) and `profile` (sentinel-profile name) when the backend exposes them. `host`/`profile` are OPTIONAL and omitted for backends with no such concept (e.g. hermes, chat-api, daemon without a sentinel). `id` is a stable compound address ("project:conversation-name", e.g. "rclaude:fuzzy-rabbit") -- use it as the `to` target for send_message / control_conversation / configure_conversation. DIAL UP for more detail: `fields: "standard"` adds `project, conversation_id, description, link` plus the top-level `self` block; `fields: "full"` adds `projectUri, conversationUri, capabilities, title, summary, label, metadata, agent_status` and self mirrors (model, permissionMode, effortLevel). Granular override: `include: ["summary","capabilities"]` adds specific fields on top of any tier (names: project, conversation_id, description, link, uris, capabilities, title, summary, label, metadata, self, agent_status). Ad-hoc conversations are hidden unless linked. Messages to offline conversations are queued. HINT: When the user says "tell X to Y", "ask X to Y", or "use X to Y", consider that X may be a conversation name -- call list_conversations to check.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -23,7 +23,7 @@ export function registerConversationTools(ctx: McpToolContext): Record<string, T
             type: 'string',
             enum: ['minimal', 'standard', 'full'],
             description:
-              'Verbosity tier (default: minimal). minimal = id, name, status, self?, host?, profile?, queued?. standard = + project, conversation_id, description, link, top-level self block. full = + projectUri, conversationUri, capabilities, title, summary, label, metadata, self mirrors (model/mode/effort). Keep minimal to save tokens; dial up when you need extras. Combine with `include` for surgical additions.',
+              'Verbosity tier (default: minimal). minimal = id, name, status, self?, host?, profile?, queued?. standard = + project, conversation_id, description, link, top-level self block. full = + projectUri, conversationUri, capabilities, title, summary, label, metadata, agent_status, self mirrors (model/mode/effort). Keep minimal to save tokens; dial up when you need extras. Combine with `include` for surgical additions.',
           },
           include: {
             type: 'array',
@@ -41,10 +41,11 @@ export function registerConversationTools(ctx: McpToolContext): Record<string, T
                 'label',
                 'metadata',
                 'self',
+                'agent_status',
               ],
             },
             description:
-              'Additive field overrides on top of `fields`. Example: `fields: "minimal", include: ["summary","capabilities"]` returns minimal plus those two. `uris` is a pair (projectUri + conversationUri). `metadata` is benevolent-only.',
+              'Additive field overrides on top of `fields`. Example: `fields: "minimal", include: ["summary","capabilities"]` returns minimal plus those two. `uris` is a pair (projectUri + conversationUri). `metadata` is benevolent-only. `agent_status` returns the conversation’s last self-reported set_status as `agentStatus` (state + detail fields + safe_to_close).',
           },
           show_metadata: {
             type: 'boolean',

@@ -252,6 +252,7 @@ type FieldFlag =
   | 'label'
   | 'metadata'
   | 'self'
+  | 'agent_status'
 
 const KNOWN_FIELD_FLAGS = new Set<FieldFlag>([
   'project',
@@ -265,9 +266,10 @@ const KNOWN_FIELD_FLAGS = new Set<FieldFlag>([
   'label',
   'metadata',
   'self',
+  'agent_status',
 ])
 const STANDARD_FIELDS: FieldFlag[] = ['project', 'conversation_id', 'description', 'link', 'self']
-const FULL_EXTRA_FIELDS: FieldFlag[] = ['uris', 'capabilities', 'title', 'summary', 'label', 'metadata']
+const FULL_EXTRA_FIELDS: FieldFlag[] = ['uris', 'capabilities', 'title', 'summary', 'label', 'metadata', 'agent_status']
 
 function buildFieldSet(tier: FieldTier, include: readonly string[]): Set<FieldFlag> {
   const f = new Set<FieldFlag>()
@@ -412,6 +414,10 @@ const channelListConversations: MessageHandler = (ctx, data) => {
       if (fieldSet.has('capabilities') && s.capabilities) row.capabilities = s.capabilities
       if (fieldSet.has('title') && s.title) row.title = s.title
       if (fieldSet.has('summary') && s.summary) row.summary = s.summary
+      // THE STATUS: the agent's last self-reported status (state + detail fields
+      // + safe_to_close). Emitted as `agentStatus` so it never clobbers the
+      // lifecycle `status` (live/inactive) that every row already carries.
+      if (fieldSet.has('agent_status') && s.liveStatus) row.agentStatus = s.liveStatus
       if (fieldSet.has('label') && projSettings?.label && projSettings.label !== conversationName) {
         row.label = projSettings.label
       }

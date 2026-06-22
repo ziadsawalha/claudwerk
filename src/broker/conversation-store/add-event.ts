@@ -1,6 +1,7 @@
 import type { Conversation, HookEvent, HookEventOf, HookEventType, TranscriptUserEntry } from '../../shared/protocol'
 import { parseRecapContent } from '../../shared/recap'
 import { recordHookEvent } from '../analytics-store'
+import { rearmAttentionNotify } from '../attention-notify'
 import { getProjectSettings } from '../project-settings'
 import { MAX_EVENTS, PASSIVE_HOOKS, TRANSCRIPT_KICK_EVENT_THRESHOLD } from './constants'
 import type { ConversationStoreContext } from './event-context'
@@ -238,6 +239,25 @@ function dispatchClearPendingAttention(
   clearPendingAttention(conv)
 }
 
+// THE STATUS — a new user turn makes any prior status stale (old `done` is gone
+// once new work starts). Reset the slot to a bare `working` and re-arm the
+// attention debouncer so the next genuine needs_you buzzes immediately. seq=0 so
+// the host's next monotonic set_status (>=1) always wins the stale-drop guard.
+function dispatchResetStatus(
+  _ctx: ConversationStoreContext,
+  conversationId: string,
+  conv: Conversation,
+  event: HookEvent,
+): void {
+  rearmAttentionNotify(conversationId)
+  const ls = conv.liveStatus
+  const isBareWorking =
+    ls?.state === 'working' && !ls.done && !ls.pending && !ls.caveats && !ls.blocked && !ls.notes && !ls.safe_to_close
+  if (ls && !isBareWorking) {
+    conv.liveStatus = { state: 'working', seq: 0, updatedAt: event.timestamp }
+  }
+}
+
 function dispatchSubagentStart(
   ctx: ConversationStoreContext,
   conversationId: string,
@@ -292,6 +312,7 @@ const eventHandlers: Partial<Record<HookEventType, EventHandler>> = {
   PermissionDenied: dispatchPermissionDenied,
   Elicitation: dispatchElicitation,
   PostToolUse: dispatchPostToolUse,
+  UserPromptSubmit: dispatchResetStatus,
   PostToolUseFailure: dispatchClearPendingAttention,
   ElicitationResult: dispatchClearPendingAttention,
   SubagentStart: dispatchSubagentStart,

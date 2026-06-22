@@ -9,6 +9,7 @@ import { registerProjectBoardTools } from './project-board'
 import { registerRecapTools } from './recap'
 import { registerSearchTools } from './search'
 import { registerSpawnTools } from './spawn'
+import { registerStatusTool } from './status'
 import type { McpToolContext, ToolDef } from './types'
 import { registerWebControlTools } from './web-control'
 
@@ -24,6 +25,7 @@ export type {
 export function registerAllTools(ctx: McpToolContext): Record<string, ToolDef> {
   return {
     ...registerNotifyTools(ctx),
+    ...registerStatusTool(ctx),
     ...registerIdentityTools(ctx),
     ...registerConversationTools(ctx),
     ...registerSpawnTools(ctx),

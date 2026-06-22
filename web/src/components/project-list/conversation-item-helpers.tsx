@@ -7,6 +7,7 @@ import { cn, haptic } from '@/lib/utils'
 import { Markdown } from '../markdown'
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { InlineConfirmButton } from './inline-confirm-button'
+import { StatusBadge } from './status-badge'
 import { StatusIndicator } from './status-indicator'
 
 // ─── Spawn lineage (Phase 4) ───────────────────────────────────────
@@ -55,13 +56,15 @@ export function ConversationAttentionBadges({ conversation }: { conversation: Co
   const hasPendingLink = useConversationsStore(s =>
     s.pendingProjectLinks.some(r => r.fromConversation === conversation.id || r.toConversation === conversation.id),
   )
+  // THE STATUS: the self-reported `needs_you` badge subsumes the broker's
+  // WAITING (they corroborate under Option B) -- show one, not both.
+  const showWaiting = conversation.pendingAttention && conversation.liveStatus?.state !== 'needs_you'
   return (
     <>
       {hasPendingLink && <span className="text-[9px] text-teal-400 font-bold animate-pulse">LINK</span>}
       {hasPendingPermission && <span className="text-[9px] text-amber-400 font-bold animate-pulse">PERM</span>}
-      {conversation.pendingAttention && (
-        <span className="text-[9px] text-amber-400 font-bold animate-pulse">WAITING</span>
-      )}
+      {showWaiting && <span className="text-[9px] text-amber-400 font-bold animate-pulse">WAITING</span>}
+      <StatusBadge status={conversation.liveStatus} />
       {conversation.hasNotification && <span className="text-[9px] text-teal-400 font-bold">NOTIFY</span>}
       <SpawnedChildrenBadge conversation={conversation} />
     </>

@@ -51,6 +51,8 @@ export interface HostSinks {
   dialogOrphan: (dialogId: string, reason: string, snapshot: DialogSnapshot) => void
   /** Toggle plan mode (headless control-request vs PTY `/plan`). */
   togglePlanMode: () => void
+  /** THE STATUS — record that the agent set a status this turn (suppresses the Stop nudge). */
+  noteStatusSet?: () => void
   /** Self-terminate the conversation (launch events + conversation-end + exit). */
   exit: (status: 'success' | 'error', message?: string) => void
 }
