@@ -1,6 +1,7 @@
 import { registerConversationTools } from './conversations'
 import { registerDialogTool } from './dialog'
 import { registerDialogControlTools } from './dialog-control'
+import { registerDialogTaxonomyTool } from './dialog-taxonomy'
 import { registerHostTools } from './hosts'
 import { registerIdentityTools } from './identity'
 import { registerNightshiftTools } from './nightshift'
@@ -34,6 +35,7 @@ export function registerAllTools(ctx: McpToolContext): Record<string, ToolDef> {
     ...registerNightshiftTools(ctx),
     ...registerDialogTool(ctx),
     ...registerDialogControlTools(ctx),
+    ...registerDialogTaxonomyTool(),
     ...registerSearchTools(ctx),
     ...registerRecapTools(ctx),
     ...registerWebControlTools(ctx),
