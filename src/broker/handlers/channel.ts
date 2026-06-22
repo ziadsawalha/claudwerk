@@ -15,6 +15,7 @@ import {
 } from '../../shared/protocol'
 import { slugify } from '../address-book'
 import { getUser } from '../auth'
+import { deliverDispatcherReport } from '../desk/async-impulse'
 import { refreshAliasUse } from '../former-slugs'
 import { GuardError, type HandlerContext, type MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
@@ -726,6 +727,20 @@ function deliverToOne(
   toTarget: string,
   conversationId: string,
 ): ChannelSendResultEntry {
+  // RESERVED `dispatcher` SINK (plan B3): a dispatched worker reporting its findings
+  // back to the user's dispatcher. This is a SYSTEM sink, not a peer conversation --
+  // it MUST bypass the inter-conversation link-approval gate entirely (Jonas: "send
+  // to dispatcher must be ALWAYS ALLOWED"). Fire the async impulse fire-and-forget
+  // (it runs an LLM turn) so the worker's send returns 'delivered' instantly + exits.
+  if (toTarget === 'dispatcher') {
+    const message = typeof data.message === 'string' ? data.message : ''
+    void deliverDispatcherReport(ctx.conversations, fromConversation, message).catch(err =>
+      ctx.log.debug(`[dispatcher-sink] ${fromConversation.slice(0, 8)} report failed: ${(err as Error).message}`),
+    )
+    ctx.log.debug(`[dispatcher-sink] ${fromConversation.slice(0, 8)} -> dispatcher (link gate bypassed)`)
+    return { to: toTarget, ok: true, status: 'delivered' }
+  }
+
   const sender = (): QueuedSender => ({ fromConversation, fromConv, callerProject })
   const colonIdx = toTarget.indexOf(':')
   const projectSlug = colonIdx >= 0 ? toTarget.slice(0, colonIdx) : toTarget
