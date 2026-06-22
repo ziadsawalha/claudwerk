@@ -1,5 +1,8 @@
 # Build stage - compile all binaries
-FROM oven/bun:1 AS builder
+# Pinned to an exact Bun version for reproducible broker builds. The floating
+# `oven/bun:1` tag can silently shift the embedded runtime under the broker on
+# any rebuild. Bump in lockstep with MIN_BUN_VERSION (src/shared/bun-version.ts).
+FROM oven/bun:1.3.14 AS builder
 WORKDIR /build
 
 # Build args used by gen-version.ts (which has no git inside the container).
