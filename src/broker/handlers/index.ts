@@ -26,6 +26,7 @@ import { registerSentinelHandlers } from './sentinel'
 import { registerShellHandlers } from './shell'
 import { registerSpawnHandlers } from './spawn'
 import { registerSpawnApprovalHandlers } from './spawn-approval'
+import { registerStatusHandlers } from './status'
 import { registerTerminalHandlers } from './terminal'
 import { registerThinkingProgressHandlers } from './thinking-progress'
 import { registerTranscriptHandlers } from './transcript'
@@ -54,6 +55,7 @@ export function registerAllHandlers(): void {
   registerConversationReassignHandlers()
   registerDaemonHandlers()
   registerSpawnApprovalHandlers()
+  registerStatusHandlers()
   registerSpawnHandlers()
   registerShellHandlers()
   registerTerminalHandlers()

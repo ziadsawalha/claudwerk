@@ -9,6 +9,8 @@ export type {
   ConnectionRole,
   ExtraUsage,
   LaunchConfig,
+  LiveStatus,
+  LiveStatusState,
   MonitorInfo,
   ProfileUsageSnapshot,
   ProjectSettings,
@@ -23,6 +25,7 @@ import type {
   BgTaskInfo as BgTaskSummary,
   ConversationTaskFields,
   LaunchConfig,
+  LiveStatus,
   MonitorInfo,
   ProjectSettings,
 } from '@shared/protocol'
@@ -131,6 +134,8 @@ export interface Conversation extends ConversationTaskFields {
     question?: string
     timestamp: number
   }
+  /** THE STATUS — agent self-reported task state; drives the attention badge. */
+  liveStatus?: LiveStatus
   pendingSpawnApproval?: {
     requestId: string
     requestedAt: number

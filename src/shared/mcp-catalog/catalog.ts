@@ -30,7 +30,17 @@ export interface CatalogTool {
   /** One-line purpose. Canonical identity for drift visibility; not (yet) the
    *  string the servers serve -- those still live at the impl sites. */
   summary: string
-  group: 'core' | 'project' | 'conversation' | 'identity' | 'hosts' | 'files' | 'dialog' | 'recap' | 'web-control' | 'nightshift'
+  group:
+    | 'core'
+    | 'project'
+    | 'conversation'
+    | 'identity'
+    | 'hosts'
+    | 'files'
+    | 'dialog'
+    | 'recap'
+    | 'web-control'
+    | 'nightshift'
   /** Sites where this tool is MEANT to be exposed. */
   sites: readonly McpSite[]
 }
@@ -46,6 +56,12 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
 
   // ── core (both sites) ──────────────────────────────────────────────
   { name: 'notify', group: 'core', sites: BOTH, summary: "Push notification to the user's devices" },
+  {
+    name: 'set_status',
+    group: 'core',
+    sites: HOST_ONLY,
+    summary: 'Report this conversation’s task state for the attention overview',
+  },
   { name: 'send_message', group: 'core', sites: BOTH, summary: 'Send a message to other conversations' },
   { name: 'spawn_conversation', group: 'core', sites: BOTH, summary: 'Spawn a new conversation' },
   { name: 'search_transcripts', group: 'core', sites: BOTH, summary: 'FTS5 search across transcripts' },
@@ -83,11 +99,26 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'share_file', group: 'files', sites: HOST_ONLY, summary: 'Upload a local file, return a public URL' },
   { name: 'dialog', group: 'dialog', sites: HOST_ONLY, summary: 'Show an interactive dialog and await a response' },
   { name: 'update_dialog', group: 'dialog', sites: HOST_ONLY, summary: 'Patch a live (persistent) dialog in place' },
-  { name: 'close_dialog', group: 'dialog', sites: HOST_ONLY, summary: 'Close a live (persistent) dialog (terminal but reopenable)' },
-  { name: 'reopen_dialog', group: 'dialog', sites: HOST_ONLY, summary: 'Reopen a previously-closed live (persistent) dialog' },
+  {
+    name: 'close_dialog',
+    group: 'dialog',
+    sites: HOST_ONLY,
+    summary: 'Close a live (persistent) dialog (terminal but reopenable)',
+  },
+  {
+    name: 'reopen_dialog',
+    group: 'dialog',
+    sites: HOST_ONLY,
+    summary: 'Reopen a previously-closed live (persistent) dialog',
+  },
 
   // ── nightshift (host) ─────────────────────────────────────────────
-  { name: 'nightshift', group: 'nightshift', sites: HOST_ONLY, summary: 'Write the NIGHTSHIFT morning report for an unattended night run' },
+  {
+    name: 'nightshift',
+    group: 'nightshift',
+    sites: HOST_ONLY,
+    summary: 'Write the NIGHTSHIFT morning report for an unattended night run',
+  },
 
   // ── recap (host) ───────────────────────────────────────────────────
   { name: 'recap_create', group: 'recap', sites: HOST_ONLY, summary: 'Create a period recap' },

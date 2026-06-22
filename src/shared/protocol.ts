@@ -785,6 +785,57 @@ export interface AgentHostNotify {
   title?: string
 }
 
+/**
+ * THE STATUS — the agent's self-reported, single-slot task state for the
+ * per-conversation attention overview. Distinct from `ConversationStatusSignal`
+ * (active/idle lifecycle) and `DaemonRunState`: this is what the AGENT says it's
+ * doing, set via the `set_status` MCP tool. The `state` enum is the one required
+ * triage signal (drives badge colour/icon); the text fields are detail-on-expand
+ * and are individually optional ("empty is signal" — a fully-done conversation is
+ * `state:'done'` + one line in `done`, everything else empty).
+ */
+export type LiveStatusState = 'working' | 'done' | 'needs_you' | 'blocked'
+
+export interface LiveStatus {
+  /** The one required triage signal. */
+  state: LiveStatusState
+  /** What FINISHED. */
+  done?: string
+  /** What still must happen for this to be COMPLETE (blocks "done"). */
+  pending?: string
+  /** Done-but-watch. */
+  caveats?: string
+  /** What did NOT get done + why (errors / dead-ends). */
+  blocked?: string
+  /** FYI asides that are NOT todos (e.g. "didn't commit/deploy"). */
+  notes?: string
+  /**
+   * The agent's explicit "nothing in flight — safe to close this conversation"
+   * signal. Set true only when there's no uncommitted/unpushed work, no pending
+   * interaction, and nothing the user still needs from it. Surfaces as a visible
+   * marker so the user can tell at a glance which conversations are disposable.
+   */
+  safe_to_close?: boolean
+  /** Host-stamped monotonic ordering token (stale-drop guard). */
+  seq: number
+  /** Host wall-clock at set time. */
+  updatedAt: number
+}
+
+/** The text fields the agent supplies to `set_status` (seq/updatedAt are host-stamped). */
+export type LiveStatusInput = Omit<LiveStatus, 'seq' | 'updatedAt'>
+
+/**
+ * Agent self-reported status (agent host -> broker -> dashboard). Single live
+ * slot per conversation; a new one REPLACES the slot, full history stays in the
+ * transcript. Re-broadcast verbatim to dashboards. AGENT_HOST_ONLY origin.
+ */
+export interface AgentStatusMessage {
+  type: 'agent_status'
+  conversationId: string
+  status: LiveStatus
+}
+
 /** First frame from the agent host after the WS handshake, sent BEFORE CC has
  *  produced a session id. Gives the broker enough to create a
  *  placeholder "booting" conversation so the dashboard shows progress from t=0. */
@@ -956,6 +1007,7 @@ export type AgentHostMessage =
   | DialogDismissMessage
   | DialogPatchMessage
   | DialogReopenMessage
+  | AgentStatusMessage
   | DialogOrphanedMessage
   | PlanApprovalRequest
   | PlanModeChanged
@@ -2757,6 +2809,10 @@ export interface Conversation {
   claudeAuth?: { email?: string; orgId?: string; orgName?: string; subscriptionType?: string }
   startedAt: number
   lastActivity: number
+  /** Last time a MESSAGE was posted to this conversation (a user prompt /
+   *  impulse), distinct from `lastActivity` which ticks on every hook event.
+   *  Stamped on UserPromptSubmit; drives the "impulse age" in list_conversations. */
+  lastInputAt?: number
   status: 'active' | 'idle' | 'ended' | 'starting' | 'booting'
   compacting?: boolean
   compactedAt?: number
@@ -2838,6 +2894,13 @@ export interface Conversation {
     lastEventSeq?: number
     updatedAt: number
   }
+  /**
+   * THE STATUS — the agent's self-reported task state (single live slot; full
+   * history lives in the transcript). Set via the `set_status` MCP tool, RESET
+   * to `working` on every user prompt (old `done` is stale once new work starts).
+   * `state` drives the per-conversation attention badge; the text fields expand.
+   */
+  liveStatus?: LiveStatus
   pendingPlanApproval?: {
     requestId: string
     toolUseId?: string
@@ -4641,6 +4704,8 @@ export interface ConversationSummary extends ConversationTaskFields {
   rateLimit?: Conversation['rateLimit']
   planMode?: boolean
   pendingAttention?: Conversation['pendingAttention']
+  /** THE STATUS — agent self-reported task state; drives the attention badge. */
+  liveStatus?: LiveStatus
   /** Mirror of caller.pendingSpawnApproval -- drives the in-panel approval banner. */
   pendingSpawnApproval?: Conversation['pendingSpawnApproval']
   /** Sticky bit: caller has been granted standing spawn approval. */

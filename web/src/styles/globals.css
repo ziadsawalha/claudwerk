@@ -340,6 +340,9 @@ body {
 		margin: 0.75em 0;
 		overflow-x: auto;
 		border-radius: 2px;
+		/* Tight leading so box-drawing chars (┌─┐│└┘) connect vertically.
+		   Inherited prose line-height (1.6) shreds ASCII art. */
+		line-height: 1.15;
 	}
 
 	pre code {
