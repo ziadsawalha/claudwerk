@@ -41,6 +41,7 @@ export interface CatalogTool {
     | 'recap'
     | 'web-control'
     | 'nightshift'
+    | 'dispatch'
   /** Sites where this tool is MEANT to be exposed. */
   sites: readonly McpSite[]
 }

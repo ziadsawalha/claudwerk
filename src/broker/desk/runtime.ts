@@ -50,7 +50,9 @@ function toRosterEntry(c: Conversation): DispatchRosterEntry {
   if (c.lastActivity) entry.idleMs = Date.now() - c.lastActivity
   const model = c.model ?? c.resolvedProfile
   if (model) entry.model = model
-  // liveState stays undefined until status-tool's LiveStatus feed lands.
+  // status-tool's qualitative LiveStatus (landed origin/main 53ba4463): the
+  // agent's self-reported state ('working'|'done'|'needs_you'|'blocked').
+  if (c.liveStatus?.state) entry.liveState = c.liveStatus.state
   return entry
 }
 
