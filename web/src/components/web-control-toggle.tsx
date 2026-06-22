@@ -108,7 +108,7 @@ export function WebControlToggle({ ariaLabel }: { ariaLabel?: string }) {
         </div>
       )}
       {active && (
-        <label className="flex items-center gap-2 pl-6 text-[11px] text-muted-foreground">
+        <label className="flex items-start gap-2 pl-6 text-[11px] text-muted-foreground">
           <input
             type="checkbox"
             checked={scriptOn}
