@@ -64,7 +64,10 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss(), assetManifestPlugin()],
     resolve: {
       tsconfigPaths: true,
-      conditions: reactDev ? ['development'] : [],
+      // 'production' is needed so @excalidraw/excalidraw's `./index.css` export
+      // resolves -- it only declares production/development conditions (no default),
+      // so an empty list leaves it unresolvable under the bare `import` condition.
+      conditions: reactDev ? ['development'] : ['production'],
       // Force a SINGLE React copy. react-virtuoso lives in the ROOT node_modules
       // and resolves its `react` import to ROOT/node_modules/react, while the web
       // app uses web/node_modules/react -- two physically distinct copies (same

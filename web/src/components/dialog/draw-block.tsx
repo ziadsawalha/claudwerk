@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import type { DialogFormState } from './dialog-renderer'
 import { useDrawInitial } from './use-draw-initial'
 
-const DrawCanvas = lazy(() => import('./draw-canvas'))
+const DrawCanvas = lazy(() => import('./excalidraw-canvas'))
 
 function safeParse(s: string): unknown {
   try {
