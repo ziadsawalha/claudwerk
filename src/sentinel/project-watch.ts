@@ -15,7 +15,7 @@
  */
 
 import { join } from 'node:path'
-import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
+import { type TreeWatcher, watchTree } from '../shared/fs-watch'
 import { listProjectManifest, listProjectTasks } from '../shared/project-store'
 import type { ProjectTaskManifestEntry } from '../shared/project-task-types'
 import type { ProjectChanged, ProjectDiff } from '../shared/protocol'
@@ -49,11 +49,10 @@ const PROJECT_TASK_PATTERN = new RegExp(`\\.rclaude/project/(${TASK_STATUS_PATTE
 interface WatchEntry {
   /** Canonical project URI -- echoed in project_changed for broker broadcast scoping. */
   project: string
-  watcher: FSWatcher
+  watcher: TreeWatcher
   lastManifest: Map<ManifestKey, ProjectTaskManifestEntry>
   expiryTimer: ReturnType<typeof setTimeout>
   pollInterval: ReturnType<typeof setInterval>
-  debounce: ReturnType<typeof setTimeout> | null
 }
 
 type SendFn = (msg: ProjectChanged) => void
@@ -94,36 +93,32 @@ export function watchProject(projectRoot: string, project: string, leaseMs: numb
   }
 
   const projectDir = join(projectRoot, '.rclaude', 'project')
-  const watcher = chokidarWatch(join(projectDir, '**', '*.md'), {
-    ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
-    depth: 2,
-  })
 
   const entry: WatchEntry = {
     project,
-    watcher,
+    // Assigned immediately below; watchTree's onEvent forward-refs `entry`
+    // (same pattern as pollInterval's closure).
+    watcher: undefined as unknown as TreeWatcher,
     lastManifest: manifestMap(projectRoot),
     expiryTimer: setTimeout(() => {
       log(`[project-watch] lease expired (no renew): ${projectRoot}`)
       unwatchProject(projectRoot, log)
     }, leaseMs),
     pollInterval: setInterval(() => emitIfChanged(projectRoot, entry, send), 5000),
-    debounce: null,
   }
+  // Recursive .md watch under the board dir (depth 2), filtered to status-folder
+  // task files. The 300ms debounce replaces chokidar's awaitWriteFinish + the
+  // old manual per-entry debounce; the 5s poll is the floor for fs.watch drops
+  // or a board dir that does not exist yet.
+  entry.watcher = watchTree({
+    dir: projectDir,
+    recursive: true,
+    depth: 2,
+    filter: abs => PROJECT_TASK_PATTERN.test(abs),
+    debounceMs: 300,
+    onEvent: () => emitIfChanged(projectRoot, entry, send),
+  })
   watches.set(projectRoot, entry)
-
-  function onChange(path: string) {
-    if (!PROJECT_TASK_PATTERN.test(path)) return
-    if (entry.debounce) clearTimeout(entry.debounce)
-    entry.debounce = setTimeout(() => {
-      entry.debounce = null
-      emitIfChanged(projectRoot, entry, send)
-    }, 300)
-  }
-  watcher.on('add', onChange)
-  watcher.on('change', onChange)
-  watcher.on('unlink', onChange)
 
   log(
     `[project-watch] started: ${projectRoot} (lease ${Math.round(leaseMs / 1000)}s, tasks ${entry.lastManifest.size})`,
@@ -136,8 +131,7 @@ export function unwatchProject(projectRoot: string, log: LogFn): void {
   if (!entry) return
   clearTimeout(entry.expiryTimer)
   clearInterval(entry.pollInterval)
-  if (entry.debounce) clearTimeout(entry.debounce)
-  void entry.watcher.close()
+  entry.watcher.close()
   watches.delete(projectRoot)
   log(`[project-watch] stopped: ${projectRoot}`)
 }

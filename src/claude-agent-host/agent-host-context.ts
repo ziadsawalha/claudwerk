@@ -4,7 +4,7 @@
  * without needing globals or circular imports.
  */
 
-import type { FSWatcher as ChokidarWatcher } from 'chokidar'
+import type { TreeWatcher } from '../shared/fs-watch'
 import type {
   AgentHostLaunchEvent,
   AgentHostLaunchPhase,
@@ -83,7 +83,7 @@ export interface AgentHostContext {
   streamProc: StreamProcess | null
 
   // Watchers
-  taskWatcher: ChokidarWatcher | null
+  taskWatcher: TreeWatcher | null
   taskCandidateDirs: string[]
   transcriptWatcher: TranscriptWatcher | null
   readonly subagentWatchers: Map<string, TranscriptWatcher>

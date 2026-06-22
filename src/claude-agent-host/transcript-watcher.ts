@@ -3,15 +3,16 @@
  * Watches Claude transcript files for new entries, parses them,
  * processes inline images (extract base64 -> blob hash), and emits entries.
  *
- * Uses directory-level chokidar watching instead of file-level to work around
- * a Bun fs.watch bug on macOS where closing a file watcher and starting a new
- * one on a different file in the same directory causes events to silently stop.
- * This happens on /clear and compaction which create new transcript files.
+ * Uses directory-level native fs.watch (Bun 1.3.14) so that /clear and
+ * compaction -- which mint a NEW transcript file in the same dir -- keep firing
+ * events. (Bun 1.3.14 fixed the older macOS fs.watch close/reopen bug that once
+ * forced a chokidar workaround here.) A post-read stat drain + a low-frequency
+ * poll cover fs.watch's inherent event coalescing under bursty writes.
  */
 
 import { access, type FileHandle, open, stat } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { type FSWatcher as ChokidarWatcher, watch as chokidarWatch } from 'chokidar'
+import { type TreeWatcher, watchTree } from '../shared/fs-watch'
 import type { TranscriptEntry } from '../shared/protocol'
 
 /** Parse JSONL lines with Bun.JSONL fast path + manual fallback */
@@ -68,7 +69,7 @@ export function createTranscriptWatcher(options: TranscriptWatcherOptions): Tran
   const { onEntries, onNewFile, onError, debug, waitForFileMs = 0 } = options
 
   let fileHandle: FileHandle | null = null
-  let watcher: ChokidarWatcher | null = null
+  let watcher: TreeWatcher | null = null
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let offset = 0
   let entryCount = 0
@@ -145,7 +146,7 @@ export function createTranscriptWatcher(options: TranscriptWatcherOptions): Tran
       }
     } finally {
       reading = false
-      // chokidar on macOS occasionally drops `change` events under bursty writes
+      // fs.watch on macOS coalesces/drops `change` events under bursty writes
       // (only 1 event fires for ~10 rapid appendFile calls). The pendingRead
       // mechanism above only catches events that arrived DURING a read; it can't
       // recover bytes that arrived AFTER the read with no follow-up event. So
@@ -158,7 +159,7 @@ export function createTranscriptWatcher(options: TranscriptWatcherOptions): Tran
             readNewLines(false)
           }
         } catch {
-          // stat failure here means the file vanished; the next chokidar event
+          // stat failure here means the file vanished; the next fs.watch event
           // (if any) will surface the error. No point swallowing twice.
         }
       } else if (pendingRead) {
@@ -199,35 +200,31 @@ export function createTranscriptWatcher(options: TranscriptWatcherOptions): Tran
     await readNewLines(true)
     debug?.(`Initial read done, entryCount=${entryCount}`)
 
-    // Watch the PARENT DIRECTORY instead of the file directly.
-    // Bun's fs.watch on macOS silently stops firing events after closing a file
-    // watcher and starting a new one on a different file in the same directory.
-    // /clear and compaction create new transcript files in the same dir, triggering
-    // this bug. Directory-level watching is immune.
+    // Watch the PARENT DIRECTORY (not the file): /clear + compaction mint a new
+    // transcript file in the same dir and we must keep firing for it. Any event
+    // on the current file -> drain it; an 'add' of a different .jsonl -> new file.
     const dir = dirname(path)
     const absPath = resolve(path)
-    watcher = chokidarWatch(dir, {
-      ignoreInitial: true,
-      depth: 0,
-      awaitWriteFinish: false,
+    watcher = watchTree({
+      dir,
+      onEvent(event, changedAbs) {
+        if (changedAbs === absPath) {
+          debug?.(`fs.watch event on transcript`)
+          readNewLines(false)
+        } else if (event === 'add' && changedAbs.endsWith('.jsonl')) {
+          const name = changedAbs.split('/').pop() || changedAbs
+          debug?.(`New transcript file detected: ${name}`)
+          onNewFile?.(name)
+        }
+      },
+      onError(err) {
+        if (!stopped) onError?.(err)
+      },
     })
-    watcher.on('change', changedPath => {
-      if (resolve(changedPath) === absPath) {
-        debug?.(`chokidar change event`)
-        readNewLines(false)
-      }
-    })
-    watcher.on('add', addedPath => {
-      const name = addedPath.split('/').pop() || addedPath
-      if (name.endsWith('.jsonl')) {
-        debug?.(`New transcript file detected: ${name}`)
-        onNewFile?.(name)
-      }
-    })
-    debug?.(`Chokidar dir watcher setup OK: ${dir}`)
+    debug?.(`Native dir watcher setup OK: ${dir}`)
 
-    // Safety-net poll for chokidar/macOS event drops. Under bursty writes
-    // (e.g. CC streaming many tool results in tight succession), chokidar
+    // Safety-net poll for fs.watch/macOS event drops. Under bursty writes
+    // (e.g. CC streaming many tool results in tight succession), fs.watch
     // sometimes fires only one `change` event for a series of appends, and
     // the post-read stat in readNewLines can't catch bytes that arrive after
     // it. A low-frequency stat closes that gap without the CPU cost of full

@@ -93,7 +93,6 @@
     "@tanstack/react-virtual": "^3.14.2",
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.17",
-    "chokidar": "^5.0.0",
     "diff": "^9.0.0",
     "hono": "^4.12.23",
     "liquidjs": "^10.27.0",

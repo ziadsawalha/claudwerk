@@ -15,11 +15,11 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import { list } from '../shared/cc-daemon/ops'
 import { resolveControlSocket } from '../shared/cc-daemon/socket-path'
 import { CC_DAEMON_PROTO, type JobRecord } from '../shared/cc-daemon/types'
 import { claudeConfigDir } from '../shared/claude-config-dir'
+import { type TreeWatcher, watchTree } from '../shared/fs-watch'
 import type { DaemonJobInfo, DaemonRosterUpdate } from '../shared/protocol'
 
 /**
@@ -43,7 +43,7 @@ export function daemonRosterPaths(env: NodeJS.ProcessEnv = process.env): { daemo
 }
 
 const { daemonDir: DAEMON_DIR, mapPath: MAP_PATH } = daemonRosterPaths()
-/** Poll fallback -- chokidar gives instant updates, the poll is the floor. */
+/** Poll fallback -- fs.watch gives instant updates, the poll is the floor. */
 const POLL_INTERVAL_MS = 10_000
 /** The CLAUDE_CONFIG_DIR whose daemon this roster watches (fixed at module load,
  *  matches `daemonRosterPaths`). Scopes `registerDaemonSession`: only sessions on
@@ -120,7 +120,7 @@ function saveIdMap(idMap: Record<string, string>, deps: RosterWatchDeps): void {
 }
 
 // --- module state ------------------------------------------------------------
-let watcher: FSWatcher | null = null
+let watcher: TreeWatcher | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let running = false
 let idMap: Record<string, string> = {}
@@ -272,18 +272,17 @@ async function scanAndPush(ws: WebSocket, deps: RosterWatchDeps): Promise<void> 
   }
 }
 
-/** Attach the chokidar watcher once the daemon dir exists. Idempotent. */
+/** Attach the native dir watcher once the daemon dir exists. Idempotent. */
 function ensureWatcher(scan: () => void, deps: RosterWatchDeps): void {
   if (watcher || !existsSync(DAEMON_DIR)) return
-  // Watch the parent dir (depth 0), filter by name: the Bun/macOS fs.watch
-  // gotcha is that re-creating a watcher on the file itself drops events.
-  const fsWatcher = chokidarWatch(DAEMON_DIR, { depth: 0, ignoreInitial: true })
-  const onEvent = (path: string): void => {
-    if (path.endsWith('roster.json')) scan()
-  }
-  fsWatcher.on('add', onEvent).on('change', onEvent).on('unlink', onEvent)
-  fsWatcher.on('error', err => deps.diag('daemon', `Roster watcher error: ${errMsg(err)}`))
-  watcher = fsWatcher
+  // Watch the parent dir (non-recursive), filter to roster.json. A poll floor
+  // (POLL_INTERVAL_MS) covers fs.watch's inherent event coalescing.
+  watcher = watchTree({
+    dir: DAEMON_DIR,
+    filter: abs => abs.endsWith('roster.json'),
+    onEvent: () => scan(),
+    onError: err => deps.diag('daemon', `Roster watcher error: ${errMsg(err)}`),
+  })
   deps.diag('daemon', 'Roster file watcher attached', { dir: DAEMON_DIR })
 }
 

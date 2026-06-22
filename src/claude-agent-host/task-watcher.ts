@@ -9,9 +9,9 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { watch as chokidarWatch } from 'chokidar'
+import { dirname, join } from 'node:path'
 import { claudeConfigDir } from '../shared/claude-config-dir'
+import { watchTree } from '../shared/fs-watch'
 import type { TaskInfo, TasksUpdate } from '../shared/protocol'
 import { normalizeTodoStatus } from '../shared/task-normalize'
 import type { AgentHostContext } from './agent-host-context'
@@ -101,17 +101,29 @@ export function startTaskWatching(ctx: AgentHostContext) {
   candidates.add(join(tasksBase, ctx.conversationId))
   ctx.taskCandidateDirs = Array.from(candidates)
 
-  const watchPaths = ctx.taskCandidateDirs.map(d => join(d, '*.json'))
   debug(`Task watcher dirs: ${ctx.taskCandidateDirs.map(d => d.split('/').pop()).join(', ')}`)
-  ctx.taskWatcher = chokidarWatch(watchPaths, {
-    ignoreInitial: false,
-    awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
-  })
+  const candidateSet = new Set(ctx.taskCandidateDirs)
   const reader = () => readAndSendTasks(ctx)
-  ctx.taskWatcher.on('add', reader)
-  ctx.taskWatcher.on('change', reader)
-  ctx.taskWatcher.on('unlink', reader)
+  // Watch the tasks base recursively (CC mints per-id subdirs AFTER session
+  // start, so we can't watch them directly yet) and filter to our candidate
+  // dirs' *.json. emitInitial mirrors chokidar ignoreInitial:false; the debounce
+  // coalesces CC's rapid todo rewrites; the 5s poll is the floor for any
+  // fs.watch drop or a tasks base that does not exist yet.
+  const inner = watchTree({
+    dir: tasksBase,
+    recursive: true,
+    depth: 1,
+    filter: abs => abs.endsWith('.json') && candidateSet.has(dirname(abs)),
+    emitInitial: true,
+    debounceMs: 100,
+    onEvent: reader,
+  })
   const pollInterval = setInterval(reader, 5000)
-  ctx.taskWatcher.on('close', () => clearInterval(pollInterval))
-  ctx.diag('watch', 'Task watcher started', { dirs: ctx.taskCandidateDirs.map(d => d.split('/').pop()), watchPaths })
+  ctx.taskWatcher = {
+    close() {
+      inner.close()
+      clearInterval(pollInterval)
+    },
+  }
+  ctx.diag('watch', 'Task watcher started', { dirs: ctx.taskCandidateDirs.map(d => d.split('/').pop()) })
 }
