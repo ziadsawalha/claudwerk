@@ -17,9 +17,30 @@ const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_RETRIES = 3
 
+/** One tool call the model emitted (function-call shape). `arguments` is the
+ *  raw JSON string the model produced -- the caller parses + validates it. */
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: string
+}
+
+/** A tool offered to the model. `parameters` is a JSON Schema object (derive it
+ *  from a zod schema with z.toJSONSchema). */
+export interface ChatTool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** Assistant turn that called tools (round-trips back so the model sees its
+   *  own calls alongside the results). */
+  toolCalls?: ToolCall[]
+  /** A `tool` message: which call this result answers. */
+  toolCallId?: string
 }
 
 export interface ChatRequest {
@@ -30,6 +51,10 @@ export interface ChatRequest {
   maxTokens?: number
   temperature?: number
   responseFormat?: { type: 'json_object' } | { type: 'text' }
+  /** Tools the model may call (function-calling). */
+  tools?: ChatTool[]
+  /** Tool-choice policy. Default (when tools present) is the provider's 'auto'. */
+  toolChoice?: 'auto' | 'none' | 'required'
   timeoutMs?: number
   retries?: number
   /** Retries specifically for a TIMEOUT (the attempt exceeding timeoutMs).
@@ -45,6 +70,10 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   content: string
+  /** Tool calls the model emitted this turn (empty/undefined when none). */
+  toolCalls?: ToolCall[]
+  /** Provider finish reason ('stop' | 'tool_calls' | 'length' | ...). */
+  finishReason?: string
   raw: unknown
   usage: NormalizedUsage
   model: string
@@ -116,7 +145,7 @@ function buildBody(req: ChatRequest): Record<string, unknown> {
   if (messages.length === 0) throw new OpenRouterError('chat requires at least one message')
   return {
     model: req.model,
-    messages,
+    messages: messages.map(toWireMessage),
     // Opt into OpenRouter's real billed cost + token accounting. Without this
     // the response carries no `usage.cost` and normalizeUsage falls back to a
     // LiteLLM price-table ESTIMATE (costSource='litellm'). With it we get the
@@ -126,7 +155,29 @@ function buildBody(req: ChatRequest): Record<string, unknown> {
     ...(req.maxTokens != null && { max_tokens: req.maxTokens }),
     ...(req.temperature != null && { temperature: req.temperature }),
     ...(req.responseFormat && { response_format: req.responseFormat }),
+    ...(req.tools && req.tools.length > 0 && { tools: req.tools.map(toWireTool) }),
+    ...(req.toolChoice && { tool_choice: req.toolChoice }),
   }
+}
+
+/** OpenAI/OpenRouter function-tool wire shape. */
+function toWireTool(t: ChatTool): Record<string, unknown> {
+  return { type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }
+}
+
+/** Map our ChatMessage to the OpenAI/OpenRouter wire shape, carrying tool_calls
+ *  (assistant) and tool_call_id (tool results) when present. */
+function toWireMessage(m: ChatMessage): Record<string, unknown> {
+  const wire: Record<string, unknown> = { role: m.role, content: m.content }
+  if (m.toolCalls && m.toolCalls.length > 0) {
+    wire.tool_calls = m.toolCalls.map(c => ({
+      id: c.id,
+      type: 'function',
+      function: { name: c.name, arguments: c.arguments },
+    }))
+  }
+  if (m.toolCallId) wire.tool_call_id = m.toolCallId
+  return wire
 }
 
 function assembleMessages(req: ChatRequest): ChatMessage[] {
@@ -213,16 +264,39 @@ async function safeReadBody(res: Response): Promise<string | undefined> {
   }
 }
 
+interface WireToolCall {
+  id?: string
+  function?: { name?: string; arguments?: string }
+}
+
+/** Pull the function-call list off a choice's message into our ToolCall shape. */
+function extractToolCalls(raw: WireToolCall[] | undefined): ToolCall[] {
+  return (raw ?? [])
+    .map((c, i) => ({
+      id: c.id ?? `call_${i}`,
+      name: c.function?.name ?? '',
+      arguments: c.function?.arguments ?? '{}',
+    }))
+    .filter(c => c.name)
+}
+
+// fallow-ignore-next-line complexity
 async function parseResponse(model: string, res: Response): Promise<ChatResponse> {
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
+    choices?: Array<{ message?: { content?: string; tool_calls?: WireToolCall[] }; finish_reason?: string }>
     usage?: Parameters<typeof normalizeUsage>[1]
     model?: string
   }
-  const content = data.choices?.[0]?.message?.content?.trim() ?? ''
-  if (!content) throw new OpenRouterError('OpenRouter returned an empty completion')
+  const choice = data.choices?.[0]
+  const content = choice?.message?.content?.trim() ?? ''
+  const toolCalls = extractToolCalls(choice?.message?.tool_calls)
+  // A tool-calling turn legitimately has empty content -- only error when the
+  // model returned NOTHING usable (no text AND no tool calls).
+  if (!content && toolCalls.length === 0) throw new OpenRouterError('OpenRouter returned an empty completion')
   return {
     content,
+    ...(toolCalls.length > 0 && { toolCalls }),
+    ...(choice?.finish_reason && { finishReason: choice.finish_reason }),
     raw: data,
     usage: normalizeUsage(model, data.usage),
     model: data.model ?? model,

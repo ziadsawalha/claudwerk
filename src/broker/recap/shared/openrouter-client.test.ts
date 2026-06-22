@@ -196,3 +196,75 @@ describe('chat()', () => {
     expect(getAttempt()).toBe(4)
   })
 })
+
+function toolCallResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          finish_reason: 'tool_calls',
+          message: {
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_a',
+                type: 'function',
+                function: { name: 'list_conversations', arguments: '{"status":"live"}' },
+              },
+            ],
+          },
+        },
+      ],
+      usage: {},
+      model: 'anthropic/claude-haiku-4-5',
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  )
+}
+
+describe('chat() tool-calling', () => {
+  it('serializes tools into the function-tool wire shape + tool_choice', async () => {
+    const { fn, calls } = makeFetcher(() => toolCallResponse())
+    await chat({
+      model: 'anthropic/claude-haiku-4-5',
+      user: 'list everything',
+      tools: [{ name: 'list_conversations', description: 'list', parameters: { type: 'object', properties: {} } }],
+      toolChoice: 'auto',
+      fetcher: fn,
+    })
+    const body = JSON.parse(calls[0].init.body as string)
+    expect(body.tool_choice).toBe('auto')
+    expect(body.tools).toEqual([
+      {
+        type: 'function',
+        function: { name: 'list_conversations', description: 'list', parameters: { type: 'object', properties: {} } },
+      },
+    ])
+  })
+
+  it('parses tool_calls + finishReason and does NOT throw on empty content', async () => {
+    const { fn } = makeFetcher(() => toolCallResponse())
+    const res = await chat({ model: 'anthropic/claude-haiku-4-5', user: 'x', fetcher: fn })
+    expect(res.content).toBe('')
+    expect(res.finishReason).toBe('tool_calls')
+    expect(res.toolCalls).toEqual([{ id: 'call_a', name: 'list_conversations', arguments: '{"status":"live"}' }])
+  })
+
+  it('round-trips assistant tool_calls + tool result messages onto the wire', async () => {
+    const { fn, calls } = makeFetcher(() => jsonResponse('done'))
+    await chat({
+      model: 'anthropic/claude-haiku-4-5',
+      messages: [
+        { role: 'user', content: 'go' },
+        { role: 'assistant', content: '', toolCalls: [{ id: 'call_a', name: 'ping', arguments: '{}' }] },
+        { role: 'tool', content: 'pong', toolCallId: 'call_a' },
+      ],
+      fetcher: fn,
+    })
+    const msgs = JSON.parse(calls[0].init.body as string).messages
+    expect(msgs[1].tool_calls).toEqual([
+      { id: 'call_a', type: 'function', function: { name: 'ping', arguments: '{}' } },
+    ])
+    expect(msgs[2]).toEqual({ role: 'tool', content: 'pong', tool_call_id: 'call_a' })
+  })
+})
