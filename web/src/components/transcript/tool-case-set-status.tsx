@@ -1,6 +1,5 @@
-import { Fragment } from 'react'
-import { Markdown } from '@/components/markdown'
-import { STATUS_FIELDS, STATUS_META } from '@/lib/status-style'
+import { StatusDetailFields } from '@/components/status-handoff-body'
+import { STATUS_META } from '@/lib/status-style'
 import type { LiveStatusState } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import type { ToolCaseInput, ToolCaseResult } from './tool-case-types'
@@ -21,7 +20,6 @@ function resolveState(raw: unknown): LiveStatusState {
 function HandoffCard({ input, state }: { input: Record<string, unknown>; state: LiveStatusState }) {
   const meta = STATUS_META[state]
   const safeToClose = input.safe_to_close === true
-  const fields = STATUS_FIELDS.filter(f => typeof input[f.key] === 'string' && input[f.key])
   return (
     <div className={cn('mt-1.5 overflow-hidden rounded-md border', meta.border, meta.bg)}>
       <div className={cn('flex items-center gap-2.5 border-b px-3.5 py-2', meta.border)}>
@@ -39,20 +37,7 @@ function HandoffCard({ input, state }: { input: Record<string, unknown>; state: 
           </span>
         )}
       </div>
-      {fields.length > 0 && (
-        <div className="grid grid-cols-[4.5rem_1fr] gap-x-4 gap-y-3 px-3.5 py-3">
-          {fields.map(f => (
-            <Fragment key={f.key}>
-              <span className={cn('pt-px text-right text-[10px] font-bold uppercase tracking-wide', f.tone)}>
-                {f.label}
-              </span>
-              <div className="min-w-0 text-[13px] leading-relaxed [&_a]:underline [&_li]:my-0 [&_ol]:my-1 [&_p]:my-0 [&_pre]:my-1.5 [&_ul]:my-1">
-                <Markdown>{input[f.key] as string}</Markdown>
-              </div>
-            </Fragment>
-          ))}
-        </div>
-      )}
+      <StatusDetailFields source={input} className="px-3.5 py-3" />
     </div>
   )
 }

@@ -73,7 +73,7 @@ export function ConversationAttentionBadges({ conversation }: { conversation: Co
       {hasPendingLink && <span className="text-[9px] text-teal-400 font-bold animate-pulse">LINK</span>}
       {hasPendingPermission && <span className="text-[9px] text-amber-400 font-bold animate-pulse">PERM</span>}
       {showWaiting && <span className="text-[9px] text-amber-400 font-bold animate-pulse">WAITING</span>}
-      <StatusBadge status={conversation.liveStatus} dimmed={dimStatus} />
+      <StatusBadge status={conversation.liveStatus} dimmed={dimStatus} lastInputAt={conversation.lastInputAt} />
       {conversation.hasNotification && <span className="text-[9px] text-teal-400 font-bold">NOTIFY</span>}
       <SpawnedChildrenBadge conversation={conversation} />
     </>

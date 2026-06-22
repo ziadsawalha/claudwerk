@@ -10,16 +10,19 @@ const st = (over: Partial<LiveStatus> = {}): LiveStatus => ({
   ...over,
 })
 
+// The detail tooltip moved from a native `title` to the portaled StatusHoverCard
+// (only mounts on hover), so these SSR assertions cover the always-visible glyph
+// surface; the Markdown panel body is covered in status-hover-panel.test.tsx.
 describe('StatusIcon', () => {
   it('renders nothing without a status', () => {
     expect(renderToStaticMarkup(<StatusIcon status={undefined} />)).toBe('')
   })
 
-  it('renders the state glyph + age', () => {
+  it('renders the state glyph + age + accessible label', () => {
     const html = renderToStaticMarkup(<StatusIcon status={st({ state: 'done' })} />)
     expect(html).toContain('✓')
     expect(html).toContain('5m')
-    expect(html).toContain('DONE')
+    expect(html).toContain('DONE') // aria-label on the glyph
   })
 
   it('shows the closeable marker only when safe_to_close', () => {
@@ -27,26 +30,23 @@ describe('StatusIcon', () => {
     expect(renderToStaticMarkup(<StatusIcon status={st({ safe_to_close: false })} />)).not.toContain('✕')
   })
 
-  it('dims + strikes a superseded status (user input after updatedAt) and notes it', () => {
+  it('dims + strikes a superseded status (user input after updatedAt)', () => {
     const status = st({ updatedAt: 1000 })
     const html = renderToStaticMarkup(<StatusIcon status={status} lastInputAt={2000} />)
     expect(html).toContain('opacity-40')
     expect(html).toContain('line-through')
-    expect(html).toContain('superseded')
   })
 
   it('does NOT dim when the status is current (input predates it)', () => {
     const status = st({ updatedAt: 5000 })
     const html = renderToStaticMarkup(<StatusIcon status={status} lastInputAt={4000} />)
     expect(html).not.toContain('opacity-40')
-    expect(html).not.toContain('superseded')
   })
 
-  it('hides the visible age span when showAge is false (tooltip still carries it)', () => {
+  it('hides the visible age span when showAge is false', () => {
     const html = renderToStaticMarkup(<StatusIcon status={st({ updatedAt: Date.now() - 3000 })} showAge={false} />)
-    // The age still lives in the hover tooltip, but the standalone age span (its
-    // dim class) must not render.
+    // The age now lives only in the hover card; the standalone age span (its dim
+    // class) must not render here.
     expect(html).not.toContain('text-[9px]')
-    expect(html).toContain('3s ago') // tooltip
   })
 })
