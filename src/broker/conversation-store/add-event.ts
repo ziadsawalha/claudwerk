@@ -184,12 +184,31 @@ function dispatchCompact(
   handleCompactEvent(ctx, conversationId, conv, event as HookEventOf<'PreCompact' | 'PostCompact' | 'SessionStart'>)
 }
 
+/** True when liveStatus is a bare `working` with no populated detail fields. */
+function isBareWorking(ls: Conversation['liveStatus']): boolean {
+  return (
+    ls?.state === 'working' && !ls.done && !ls.pending && !ls.caveats && !ls.blocked && !ls.notes && !ls.safe_to_close
+  )
+}
+
 function dispatchPreToolUse(
   ctx: ConversationStoreContext,
   conversationId: string,
   conv: Conversation,
   event: HookEvent,
 ): void {
+  // THE STATUS — real work has resumed. The first tool use of a turn makes any
+  // prior non-working status stale: the last turn's `done` / `safe_to_close` /
+  // `needs_you` / `blocked` belonged to work that is now superseded. Reset to a
+  // bare `working` (seq=0 so the host's next monotonic set_status always wins).
+  // Idempotent: a bare-working slot is left untouched, so only the FIRST tool of
+  // a resumed turn clears the badge. We reset HERE (not on UserPromptSubmit) so a
+  // terminal `done` survives both the harness "no visible output" nag (itself a
+  // UserPromptSubmit) and the next user prompt — the user keeps seeing it until
+  // the conversation genuinely starts working again.
+  if (conv.liveStatus && !isBareWorking(conv.liveStatus)) {
+    conv.liveStatus = { state: 'working', seq: 0, updatedAt: event.timestamp }
+  }
   handlePreToolUse(ctx, conversationId, conv, event as HookEventOf<'PreToolUse'>)
 }
 
@@ -239,25 +258,20 @@ function dispatchClearPendingAttention(
   clearPendingAttention(conv)
 }
 
-// THE STATUS — a new user turn makes any prior status stale (old `done` is gone
-// once new work starts). Reset the slot to a bare `working` and re-arm the
-// attention debouncer so the next genuine needs_you buzzes immediately. seq=0 so
-// the host's next monotonic set_status (>=1) always wins the stale-drop guard.
-function dispatchResetStatus(
+// THE STATUS — a new user impulse: re-arm the attention debouncer (so the next
+// genuine needs_you buzzes immediately) and stamp the impulse-age clock. It does
+// NOT touch liveStatus: a terminal `done` / `safe_to_close` must survive both the
+// harness "no visible output" nag (itself a UserPromptSubmit) and the next user
+// prompt, so the user can still see + act on it. The slot is cleared only when
+// work genuinely RESUMES — the first PreToolUse, in dispatchPreToolUse.
+function dispatchUserPrompt(
   _ctx: ConversationStoreContext,
   conversationId: string,
   conv: Conversation,
   event: HookEvent,
 ): void {
   rearmAttentionNotify(conversationId)
-  // Stamp the "impulse age" clock — last time a message was posted here.
   conv.lastInputAt = event.timestamp
-  const ls = conv.liveStatus
-  const isBareWorking =
-    ls?.state === 'working' && !ls.done && !ls.pending && !ls.caveats && !ls.blocked && !ls.notes && !ls.safe_to_close
-  if (ls && !isBareWorking) {
-    conv.liveStatus = { state: 'working', seq: 0, updatedAt: event.timestamp }
-  }
 }
 
 function dispatchSubagentStart(
@@ -314,7 +328,7 @@ const eventHandlers: Partial<Record<HookEventType, EventHandler>> = {
   PermissionDenied: dispatchPermissionDenied,
   Elicitation: dispatchElicitation,
   PostToolUse: dispatchPostToolUse,
-  UserPromptSubmit: dispatchResetStatus,
+  UserPromptSubmit: dispatchUserPrompt,
   PostToolUseFailure: dispatchClearPendingAttention,
   ElicitationResult: dispatchClearPendingAttention,
   SubagentStart: dispatchSubagentStart,

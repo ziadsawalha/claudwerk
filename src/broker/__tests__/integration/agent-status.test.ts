@@ -2,7 +2,8 @@
  * THE STATUS — agent self-reported status broker integration tests.
  *
  * Covers: agent_status persists to the single liveStatus slot + broadcasts;
- * monotonic seq stale-drop guard; reset-to-working on UserPromptSubmit; and the
+ * monotonic seq stale-drop guard; status survives the user prompt but clears when
+ * work resumes (first PreToolUse, so the no-output nag can't wipe a `done`); the
  * derived needs_you gate (badge always, but the push path only when a real
  * pendingAttention corroborates — exercised here for no-throw + slot integrity).
  */
@@ -31,6 +32,15 @@ function status(over: Partial<LiveStatus> = {}): LiveStatus {
 }
 function userPrompt(convId: string): HookEvent {
   return { type: 'hook', conversationId: convId, hookEvent: 'UserPromptSubmit', timestamp: 2, data: {} } as HookEvent
+}
+function preToolUse(convId: string): HookEvent {
+  return {
+    type: 'hook',
+    conversationId: convId,
+    hookEvent: 'PreToolUse',
+    timestamp: 3,
+    data: { tool_name: 'Bash' },
+  } as HookEvent
 }
 
 describe('the status — persist + broadcast', () => {
@@ -74,27 +84,51 @@ describe('the status — persist + broadcast', () => {
   })
 })
 
-describe('the status — reset on user input', () => {
-  it('resets a stale done/blocked status to bare working on the next user prompt', () => {
+describe('the status — survives the user prompt, clears when work resumes', () => {
+  it('KEEPS a terminal done through a user prompt (the no-output nag must not wipe it)', () => {
     const convId = testId('conv')
     const agent = bootActiveAgent(h, convId, PROJECT)
-    sendStatus(agent, convId, status({ state: 'done', done: 'old work', seq: 1 }))
+    sendStatus(agent, convId, status({ state: 'done', done: 'shipped', seq: 1 }))
 
+    // A UserPromptSubmit (a real prompt OR the harness "no visible output" nag)
+    // must NOT clobber the done — the user still needs to see it.
     h.conversationStore.addEvent(convId, userPrompt(convId))
 
     const ls = h.conversationStore.getConversation(convId)!.liveStatus
-    expect(ls?.state).toBe('working')
-    expect(ls?.done).toBeUndefined()
-    // seq reset to 0 so the host's next monotonic status always wins.
-    expect(ls?.seq).toBe(0)
+    expect(ls?.state).toBe('done')
+    expect(ls?.done).toBe('shipped')
   })
 
-  it('clears a stale safe_to_close on the next user prompt', () => {
+  it('KEEPS safe_to_close through a user prompt', () => {
     const convId = testId('conv')
     const agent = bootActiveAgent(h, convId, PROJECT)
     sendStatus(agent, convId, status({ state: 'done', safe_to_close: true, seq: 1 }))
     h.conversationStore.addEvent(convId, userPrompt(convId))
-    expect(h.conversationStore.getConversation(convId)!.liveStatus?.safe_to_close).toBeUndefined()
+    expect(h.conversationStore.getConversation(convId)!.liveStatus?.safe_to_close).toBe(true)
+  })
+
+  it('resets a stale done to bare working when work RESUMES (first PreToolUse)', () => {
+    const convId = testId('conv')
+    const agent = bootActiveAgent(h, convId, PROJECT)
+    sendStatus(agent, convId, status({ state: 'done', done: 'old work', safe_to_close: true, seq: 1 }))
+
+    h.conversationStore.addEvent(convId, preToolUse(convId))
+
+    const ls = h.conversationStore.getConversation(convId)!.liveStatus
+    expect(ls?.state).toBe('working')
+    expect(ls?.done).toBeUndefined()
+    expect(ls?.safe_to_close).toBeUndefined()
+    // seq reset to 0 so the host's next monotonic status always wins.
+    expect(ls?.seq).toBe(0)
+  })
+
+  it('leaves a bare working untouched on PreToolUse (idempotent — only the first tool clears)', () => {
+    const convId = testId('conv')
+    const agent = bootActiveAgent(h, convId, PROJECT)
+    sendStatus(agent, convId, status({ state: 'working', seq: 4 }))
+    h.conversationStore.addEvent(convId, preToolUse(convId))
+    // Untouched: still the host's seq=4 working, not a fresh seq=0 reset.
+    expect(h.conversationStore.getConversation(convId)!.liveStatus?.seq).toBe(4)
   })
 
   it('stamps lastInputAt (impulse clock) on a user prompt', () => {
