@@ -1,8 +1,8 @@
 /**
- * Resolve a Draw block's INITIAL tldraw snapshot, once. Priority:
+ * Resolve a Draw block's INITIAL Excalidraw scene, once. Priority:
  *   1. an existing form value (user already drew, or a reload/switch restored it)
- *   2. the block's inline `content` (snapshot JSON string)
- *   3. the block's `contentUrl` (blob holding the snapshot JSON -- fetched)
+ *   2. the block's inline `content` (scene JSON string)
+ *   3. the block's `contentUrl` (blob holding the scene JSON -- fetched)
  *
  * Re-resolves only when the agent patches `content`/`contentUrl` (a redraw), NOT
  * when the user's own edits churn the form value -- that would reset the canvas.

@@ -1,10 +1,10 @@
 /**
- * Draw block (tldraw whiteboard) -- shared constants + the submit-state shape.
+ * Draw block (Excalidraw whiteboard) -- shared constants + the submit-state shape.
  *
- * A drawing is a tldraw STORE SNAPSHOT (the JSON `getSnapshot()` returns).
- * Small drawings ride inline in the dialog form state; large ones spill to the
- * broker blob store (`POST /api/files`, same as uploaded images) and ride as a
- * URL reference so the WS event + persisted snapshot stay small.
+ * A drawing is an Excalidraw SCENE (the JSON `serializeAsJSON()` returns: elements
+ * + appState + files). Small drawings ride inline in the dialog form state; large
+ * ones spill to the broker blob store (`POST /api/files`, same as uploaded images)
+ * and ride as a URL reference so the WS event + persisted scene stay small.
  */
 
 /**
@@ -15,10 +15,10 @@
  */
 export const DRAW_INLINE_MAX = 256 * 1024
 
-/** Small drawing: the tldraw snapshot rides inline in the form state. */
+/** Small drawing: the Excalidraw scene rides inline in the form state. */
 export interface DrawInlineValue {
   kind: 'draw'
-  /** tldraw store snapshot as a JSON string. */
+  /** Excalidraw scene as a JSON string. */
   snapshot: string
   bytes: number
 }
@@ -26,7 +26,7 @@ export interface DrawInlineValue {
 /** Large drawing: snapshot spilled to a blob; only the URL rides the wire. */
 export interface DrawRefValue {
   kind: 'draw-ref'
-  /** Blob URL holding the tldraw snapshot JSON. */
+  /** Blob URL holding the Excalidraw scene JSON. */
   url: string
   bytes: number
 }

@@ -23,7 +23,7 @@ function isImageFile(file: File): boolean {
 /**
  * Bare upload: POST a File to the broker blob store and return its public URL.
  * The single chokepoint for `/api/files` from the browser -- reuse it, never
- * re-hand-roll the fetch (e.g. the Draw block spills its tldraw snapshot here).
+ * re-hand-roll the fetch (e.g. the Draw block spills its Excalidraw scene here).
  */
 export async function uploadFile(file: File, conversationId?: string): Promise<{ url: string; filename: string }> {
   const formData = new FormData()

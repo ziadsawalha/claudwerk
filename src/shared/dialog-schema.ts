@@ -44,24 +44,25 @@ export interface DiagramComponent {
 }
 
 /**
- * Interactive whiteboard canvas, backed by tldraw. The user can draw, edit, and
- * (unless readOnly) submit the modified drawing back. The drawing payload is a
- * tldraw STORE SNAPSHOT (the JSON shape returned by tldraw's `getSnapshot()`).
+ * Interactive whiteboard canvas, backed by Excalidraw. The user can draw, edit, and
+ * (unless readOnly) submit the modified drawing back. The drawing payload is an
+ * Excalidraw SCENE (the JSON shape returned by Excalidraw's `serializeAsJSON()`:
+ * elements + appState + files).
  *
- * Provide the initial drawing via `content` (inline snapshot JSON) OR `contentUrl`
+ * Provide the initial drawing via `content` (inline scene JSON) OR `contentUrl`
  * (a blob URL holding that JSON, used for large / spilled drawings). On submit the
  * user's drawing arrives in the form state keyed by `id`:
  *   - small drawing:  values[id] = { kind: 'draw', snapshot: <json string>, bytes }
  *   - large drawing:  values[id] = { kind: 'draw-ref', url: <blob url>, bytes }
- * For draw-ref, fetch the url to read the snapshot JSON. To redraw it, feed the
- * same snapshot/url back as content/contentUrl.
+ * For draw-ref, fetch the url to read the scene JSON. To redraw it, feed the
+ * same scene/url back as content/contentUrl.
  */
 export interface DrawComponent {
   type: 'Draw'
   id: string
-  /** Inline tldraw store snapshot (JSON string). Mutually exclusive with contentUrl. */
+  /** Inline Excalidraw scene (JSON string). Mutually exclusive with contentUrl. */
   content?: string
-  /** URL to a blob holding the tldraw snapshot JSON (large / spilled drawings). */
+  /** URL to a blob holding the Excalidraw scene JSON (large / spilled drawings). */
   contentUrl?: string
   /** View-only: render the canvas but disable drawing/editing. */
   readOnly?: boolean
@@ -478,7 +479,7 @@ function validateComponent(comp: unknown, errors: string[], ids: Set<string>, de
     case 'Draw':
       if (typeof c.id !== 'string' || c.id === '') errors.push('Draw.id is required')
       if (c.content !== undefined && typeof c.content !== 'string') {
-        errors.push('Draw.content must be a string (tldraw snapshot JSON)')
+        errors.push('Draw.content must be a string (Excalidraw scene JSON)')
       }
       if (c.contentUrl !== undefined && typeof c.contentUrl !== 'string') {
         errors.push('Draw.contentUrl must be a string URL')
@@ -656,7 +657,7 @@ export function dialogToolInputSchema(): Record<string, unknown> {
       body: {
         type: 'array',
         description:
-          'Single-page layout. Array of components. Mutually exclusive with "pages". Component types: Markdown (content OR file -- use file to reference a local path instead of inlining text, saves context tokens; color?), Diagram (content, id?, commentable? -- live dialogs: with id+commentable the user clicks a node to attach a note; notes arrive as values[id]={nodeId:note}, redraw to address them), Draw (id, content?, contentUrl?, readOnly?, height?, label? -- an INTERACTIVE WHITEBOARD canvas powered by tldraw; the user draws/edits freely and submits the result back. The drawing payload is a tldraw STORE SNAPSHOT, i.e. the exact JSON that tldraw getSnapshot() returns; seed it via content [inline snapshot JSON string] OR contentUrl [blob URL holding that JSON, for large drawings]. On submit you receive values[id]={kind:"draw",snapshot,bytes} for small drawings or values[id]={kind:"draw-ref",url,bytes} for large ones -- fetch the url to get the snapshot JSON. To redraw their edit, feed the same snapshot/url back as content/contentUrl. Best in a persistent dialog with width "wide"/"full"), Image (url, alt?), Alert (intent?: info|warning|error|success, content), Divider, Diff (content: unified diff text, filename?), FileTree (entries[{path, status?: added|modified|removed|unchanged, note?}], label?), DataModel (name, fields[{name, type, note?, status?}]), ApiEndpoint (method, path, description?, request?: JSON string, response?: JSON string), AnnotatedCode (code, language?, filename?, annotations[{line, note}]), Options (id, options[{value,label,description?}], label?, multi?, required?, default?), TextInput (id, label?, placeholder?, required?, multiline?, default?), ImagePicker (id, images[{value,url,label?}], label?, multi?, allowUpload?), Toggle (id, label, default?), Slider (id, label?, min?, max?, step?, default?), Button (id, label, variant?: default|primary|outline|ghost, intent?: neutral|destructive|success), Stack (direction?: vertical|horizontal, children[]), Grid (columns?, children[]), Group (label, collapsed?, children[]). Colors: primary|secondary|muted|accent|destructive|success|warning|info. All text/label fields support markdown.',
+          'Single-page layout. Array of components. Mutually exclusive with "pages". Component types: Markdown (content OR file -- use file to reference a local path instead of inlining text, saves context tokens; color?), Diagram (content, id?, commentable? -- live dialogs: with id+commentable the user clicks a node to attach a note; notes arrive as values[id]={nodeId:note}, redraw to address them), Draw (id, content?, contentUrl?, readOnly?, height?, label? -- an INTERACTIVE WHITEBOARD canvas powered by Excalidraw; the user draws/edits freely and submits the result back. The drawing payload is an Excalidraw SCENE, i.e. the JSON that Excalidraw serializeAsJSON() returns (elements + appState + files); seed it via content [inline scene JSON string] OR contentUrl [blob URL holding that JSON, for large drawings]. On submit you receive values[id]={kind:"draw",snapshot,bytes} for small drawings or values[id]={kind:"draw-ref",url,bytes} for large ones -- fetch the url to get the scene JSON. To redraw their edit, feed the same scene/url back as content/contentUrl. Best in a persistent dialog with width "wide"/"full"), Image (url, alt?), Alert (intent?: info|warning|error|success, content), Divider, Diff (content: unified diff text, filename?), FileTree (entries[{path, status?: added|modified|removed|unchanged, note?}], label?), DataModel (name, fields[{name, type, note?, status?}]), ApiEndpoint (method, path, description?, request?: JSON string, response?: JSON string), AnnotatedCode (code, language?, filename?, annotations[{line, note}]), Options (id, options[{value,label,description?}], label?, multi?, required?, default?), TextInput (id, label?, placeholder?, required?, multiline?, default?), ImagePicker (id, images[{value,url,label?}], label?, multi?, allowUpload?), Toggle (id, label, default?), Slider (id, label?, min?, max?, step?, default?), Button (id, label, variant?: default|primary|outline|ghost, intent?: neutral|destructive|success), Stack (direction?: vertical|horizontal, children[]), Grid (columns?, children[]), Group (label, collapsed?, children[]). Colors: primary|secondary|muted|accent|destructive|success|warning|info. All text/label fields support markdown.',
         items: { type: 'object' },
       },
       pages: {

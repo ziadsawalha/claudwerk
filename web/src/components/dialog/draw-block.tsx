@@ -1,7 +1,7 @@
 /**
  * Draw block chrome: header (label + size meter + fullscreen toggle) wrapping the
- * lazily-loaded tldraw canvas. tldraw lives in draw-canvas.tsx and is React.lazy'd
- * here so its ~13MB chunk loads only when a Draw block paints (LAZY LOAD covenant).
+ * lazily-loaded Excalidraw canvas. Excalidraw lives in excalidraw-canvas.tsx and is
+ * React.lazy'd here so its chunk loads only when a Draw block paints (LAZY LOAD covenant).
  *
  * Size meter: a drawing over DRAW_INLINE_MAX is flagged ("large -- saved as file"),
  * because on submit draw-spill.ts uploads it to a blob and sends a URL reference
