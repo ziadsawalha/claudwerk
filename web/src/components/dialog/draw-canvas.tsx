@@ -7,8 +7,9 @@
  * (debounced) tldraw store snapshot back up as a JSON string + byte size.
  */
 import { useCallback, useRef } from 'react'
-import { type Editor, getSnapshot, loadSnapshot, type TLEditorSnapshot, Tldraw } from 'tldraw'
+import { type Editor, getSnapshot, loadSnapshot, type TLComponents, type TLEditorSnapshot, Tldraw } from 'tldraw'
 import 'tldraw/tldraw.css'
+import './draw-canvas.css'
 import { utf8Bytes } from '@shared/draw'
 
 // tldraw 5.x is license-enforced: on a production domain WITHOUT a key it paints
@@ -17,6 +18,13 @@ import { utf8Bytes } from '@shared/draw'
 // is public + domain-bound (safe to ship in the client bundle); it comes from
 // web/.env at build time. Undefined => eval mode (watermark on localhost only).
 const LICENSE_KEY = import.meta.env.VITE_TLDRAW_LICENSE_KEY as string | undefined
+
+// UI trimmed for an embedded dialog canvas: drop the page menu (no multi-page concept
+// here). StylePanel + Toolbar stay at tldraw defaults -- selecting a shape opens its
+// properties, and keyboard shortcuts (v/r/o/a/t/...) work out of the box since the
+// canvas auto-focuses. The toolbar is shrunk via draw-canvas.css (transform scale),
+// leaning on those shortcuts instead of a big tool row.
+const COMPONENTS: TLComponents = { PageMenu: null }
 
 export interface DrawCanvasProps {
   /** Parsed tldraw snapshot to seed the canvas (null = blank). */
@@ -61,5 +69,13 @@ export default function DrawCanvas({ initialSnapshot, readOnly, onSnapshot }: Dr
     [initialSnapshot, readOnly, onSnapshot],
   )
 
-  return <Tldraw licenseKey={LICENSE_KEY} onMount={handleMount} hideUi={readOnly} />
+  return (
+    <Tldraw
+      className="rclaude-draw-canvas"
+      licenseKey={LICENSE_KEY}
+      components={COMPONENTS}
+      onMount={handleMount}
+      hideUi={readOnly}
+    />
+  )
 }
