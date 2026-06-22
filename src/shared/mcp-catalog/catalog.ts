@@ -37,8 +37,13 @@ export interface CatalogTool {
 
 const BOTH = ['broker', 'host'] as const
 const HOST_ONLY = ['host'] as const
+const BROKER_ONLY = ['broker'] as const
 
 export const MCP_CATALOG: readonly CatalogTool[] = [
+  // ── dispatch (Front Desk, broker only) ─────────────────────────────
+  { name: 'dispatch', group: 'dispatch', sites: BROKER_ONLY, summary: 'Route an intent: spawn / route / revive' },
+  { name: 'list_threads', group: 'dispatch', sites: BROKER_ONLY, summary: "Dispatcher's near-memory threads" },
+
   // ── core (both sites) ──────────────────────────────────────────────
   { name: 'notify', group: 'core', sites: BOTH, summary: "Push notification to the user's devices" },
   { name: 'send_message', group: 'core', sites: BOTH, summary: 'Send a message to other conversations' },
