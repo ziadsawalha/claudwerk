@@ -1,4 +1,6 @@
+import { STATUS_META } from '@/lib/status-style'
 import type { LiveStatus, LiveStatusState } from '@/lib/types'
+import { cn } from '@/lib/utils'
 
 /**
  * THE STATUS — the per-conversation attention badge, keyed off the agent's
@@ -6,13 +8,13 @@ import type { LiveStatus, LiveStatusState } from '@/lib/types'
  * (it's the default — the StatusIndicator dot already conveys "active"), so the
  * badge only appears for the states that warrant a glance. The text fields
  * (done/pending/blocked/...) surface as the hover tooltip — "empty is signal".
+ *
+ * `dimmed` fades a terminal status (done / safe-to-close) when the conversation
+ * has woken back up — the report is from the prior turn and about to clear once
+ * real work resumes (the broker clears it on the first PreToolUse).
  */
 
-const STYLES: Record<Exclude<LiveStatusState, 'working'>, { label: string; className: string }> = {
-  needs_you: { label: 'NEEDS YOU', className: 'text-amber-400 animate-pulse' },
-  blocked: { label: 'BLOCKED', className: 'text-rose-400' },
-  done: { label: 'DONE', className: 'text-emerald-400' },
-}
+const PULSE: Partial<Record<LiveStatusState, boolean>> = { needs_you: true }
 
 /** Join the populated detail fields into a tooltip string. */
 function statusTooltip(s: LiveStatus): string {
@@ -27,10 +29,10 @@ function statusTooltip(s: LiveStatus): string {
 
 /** "safe to close" — a glanceable marker for a disposable conversation. Shown
  *  independent of state (usually paired with `done`). */
-function SafeToCloseBadge() {
+function SafeToCloseBadge({ dimmed }: { dimmed?: boolean }) {
   return (
     <span
-      className="text-[9px] font-bold text-muted-foreground"
+      className={cn('text-[9px] font-bold text-muted-foreground', dimmed && 'opacity-40')}
       title="Agent reports this conversation is safe to close"
     >
       {'✕ CLOSEABLE'}
@@ -38,19 +40,28 @@ function SafeToCloseBadge() {
   )
 }
 
-export function StatusBadge({ status }: { status: LiveStatus | undefined }) {
+export function StatusBadge({ status, dimmed = false }: { status: LiveStatus | undefined; dimmed?: boolean }) {
   if (!status) return null
-  const style = status.state === 'working' ? undefined : STYLES[status.state]
-  if (!style && !status.safe_to_close) return null
+  // `working` shows nothing on the card — the live dot already conveys "active".
+  const meta = status.state === 'working' ? undefined : STATUS_META[status.state]
+  if (!meta && !status.safe_to_close) return null
   const tooltip = statusTooltip(status)
   return (
     <>
-      {style && (
-        <span className={`text-[9px] font-bold ${style.className}`} title={tooltip || style.label}>
-          {style.label}
+      {meta && (
+        <span
+          className={cn(
+            'text-[9px] font-bold',
+            meta.text,
+            PULSE[status.state] && !dimmed && 'animate-pulse',
+            dimmed && 'opacity-40',
+          )}
+          title={tooltip || meta.label}
+        >
+          {meta.label}
         </span>
       )}
-      {status.safe_to_close && <SafeToCloseBadge />}
+      {status.safe_to_close && <SafeToCloseBadge dimmed={dimmed} />}
     </>
   )
 }

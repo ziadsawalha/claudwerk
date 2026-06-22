@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { canonicalizeToolUse } from '@/lib/legacy-to-canonical'
 import { renderMcpSendMessage } from './tool-case-send-message'
+import { renderMcpSetStatus } from './tool-case-set-status'
 import type { ToolCaseInput, ToolCaseResult } from './tool-case-types'
 import { renderAgentTask, renderAskUserQuestion } from './tool-cases-agent'
 import { renderBash, renderEdit, renderRead, renderRepl, renderWrite } from './tool-cases-core'
@@ -107,6 +108,7 @@ const toolHandlers: Record<string, ToolHandler> = {
   mcp__rclaude__control_conversation: renderMcpControlConversation,
   mcp__rclaude__configure_conversation: renderMcpConfigureConversation,
   mcp__rclaude__dialog: renderMcpDialog,
+  mcp__rclaude__set_status: renderMcpSetStatus,
   mcp__gmail__search_emails: renderGmailSearchEmails,
   mcp__gmail__get_thread: renderGmailGetThread,
   mcp__gmail__draft_email: renderGmailDraftEmail,

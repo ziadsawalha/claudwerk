@@ -59,12 +59,15 @@ export function ConversationAttentionBadges({ conversation }: { conversation: Co
   // THE STATUS: the self-reported `needs_you` badge subsumes the broker's
   // WAITING (they corroborate under Option B) -- show one, not both.
   const showWaiting = conversation.pendingAttention && conversation.liveStatus?.state !== 'needs_you'
+  // A terminal `done` shown while the conversation is active again is stale-in-
+  // waiting: dim it (the broker clears it on the first PreToolUse of the new turn).
+  const dimStatus = conversation.status === 'active' && conversation.liveStatus?.state === 'done'
   return (
     <>
       {hasPendingLink && <span className="text-[9px] text-teal-400 font-bold animate-pulse">LINK</span>}
       {hasPendingPermission && <span className="text-[9px] text-amber-400 font-bold animate-pulse">PERM</span>}
       {showWaiting && <span className="text-[9px] text-amber-400 font-bold animate-pulse">WAITING</span>}
-      <StatusBadge status={conversation.liveStatus} />
+      <StatusBadge status={conversation.liveStatus} dimmed={dimStatus} />
       {conversation.hasNotification && <span className="text-[9px] text-teal-400 font-bold">NOTIFY</span>}
       <SpawnedChildrenBadge conversation={conversation} />
     </>
