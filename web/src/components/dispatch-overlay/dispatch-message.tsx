@@ -1,4 +1,5 @@
 import type { DispatchDecision } from '@shared/protocol'
+import { Markdown } from '../markdown'
 import { DispatchActions } from './dispatch-actions-block'
 import { useDispatchStore } from './dispatch-store'
 import { modelLabel, ToolEvents } from './dispatch-tool-events'
@@ -29,8 +30,15 @@ export function DispatchMessage({ decision: d }: { decision: DispatchDecision })
           {/* The gears, dimmed: the tool calls the dispatcher ran this turn. */}
           <ToolEvents events={toolEvents} />
 
-          {/* The agent's answer (reply), or the one-line rationale otherwise. */}
-          <p className="text-[14px] leading-relaxed text-foreground/90">{d.reply ?? d.reasoning}</p>
+          {/* The agent's answer (reply), markdown-rendered; or the one-line
+              rationale (plain) when there is no reply. */}
+          {d.reply ? (
+            <div className="text-[14px] leading-relaxed text-foreground/90">
+              <Markdown>{d.reply}</Markdown>
+            </div>
+          ) : (
+            <p className="text-[14px] leading-relaxed text-foreground/90">{d.reasoning}</p>
+          )}
           {model && <span className="font-mono text-[10.5px] text-comment/45">via {model}</span>}
 
           <DispatchActions d={d} routeTo={routeTo} confirmExpensive={confirmExpensive} />
