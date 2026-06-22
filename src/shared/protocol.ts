@@ -3012,11 +3012,15 @@ export interface ReviveResult {
   error?: string
   tmuxSession?: string
   continued: boolean // true if --resume worked, false if fresh session
-  /** The sentinel-profile name the sentinel actually used (echoed back from
-   *  the URI userinfo). Revive never re-rolls balanced/random selection -- it
-   *  pins the profile written into the stored `projectUri` -- so this is
-   *  always the same name the broker sent in `ReviveConversation.profile`.
-   *  Present only when the conversation runs under a non-default profile. */
+  /** The sentinel-profile NAME the sentinel actually resolved for this revive.
+   *  A revive CAN re-target a different profile than the one the conversation
+   *  last ran under (terminate on A, revive on B); the broker overwrites
+   *  `conv.resolvedProfile` from this so the UI + list_conversations stop
+   *  reporting the stale name. ALWAYS sent on a successful revive, INCLUDING
+   *  the literal `'default'` (broker maps that back to `undefined`) so a revive
+   *  to default can clear a previously-named profile. Absent => an un-rebuilt
+   *  sentinel; the broker leaves the value unchanged. PROFILE-ENV BOUNDARY:
+   *  NAME only, never configDir / env. */
   resolvedProfile?: string
 }
 
@@ -3639,6 +3643,40 @@ export interface SentinelUsageReport {
   type: 'sentinel_usage_report'
   profiles: ProfileUsageSnapshot[]
   polledAt: number // ms epoch of the polling cycle start
+}
+
+/** Classified reason a profile's auth is in trouble. Derived from the
+ *  ProfileUsageSnapshot.error the sentinel already reports each poll cycle. */
+export type AuthTroubleReason = 'http_401' | 'http_403' | 'no_token' | 'invalid_grant'
+
+/**
+ * Broker -> control-panel: a profile's OAuth auth has failed and needs a manual
+ * re-login (`claude auth login` -- which CANNOT be automated; only the
+ * inference-only `setup-token` is headless). Detected broker-side from the
+ * per-profile error in `sentinel_usage_report`, debounced once-per-window per
+ * `sentinelId:profile`, and broadcast as a first-class event that also drives a
+ * push notification. Broadcast on the ControlPanelMessage channel.
+ *
+ * PROFILE-ENV BOUNDARY: the broker has no `configDir` (it is redacted from every
+ * snapshot), so neither this message nor the push can carry the real profile
+ * directory -- they name the profile and the generic recovery command only.
+ */
+export interface ProfileAuthTrouble {
+  type: 'profile_auth_trouble'
+  /** Sentinel that owns the profile -- stamped by the broker from the authed
+   *  connection. Part of the debounce key (profiles aren't unique across hosts). */
+  sentinelId: string
+  /** Profile name, e.g. "work". */
+  profile: string
+  reason: AuthTroubleReason
+  /** HTTP status when reason is http_401 / http_403. */
+  status?: number
+  /** Sanitized error snippet -- NEVER contains configDir (Profile-Env Boundary). */
+  detail?: string
+  /** ms epoch of the poll cycle that surfaced the failure. */
+  polledAt: number
+  /** Human recovery hint, e.g. "Run: CLAUDE_CONFIG_DIR=<your dir> claude auth login". */
+  recoveryHint: string
 }
 
 // External status data (broker polls clanker.watch + usage.report)

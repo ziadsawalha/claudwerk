@@ -18,7 +18,9 @@ import { useLaunchProfileManagerState } from '@/components/launch-profiles/manag
 import { LinkPreviewPane } from '@/components/link-preview-pane'
 import { MarkdownViewerModal } from '@/components/markdown-viewer-modal'
 import { MediaLightbox } from '@/components/media-lightbox'
+import { useMermaidLightbox } from '@/components/mermaid-lightbox-bus'
 import { PanelBoundary } from '@/components/panel-boundary'
+import { PinnedSwitchStrip } from '@/components/pinned-switch-strip'
 import { ProjectList } from '@/components/project-list'
 import { quickTaskBus } from '@/components/quick-task-trigger'
 import { PublicRecapView } from '@/components/recap/public-recap-view'
@@ -151,6 +153,11 @@ const ChecklistAddNotesModal = lazyModule(
 const LaunchProfileManager = lazyModule(
   named(() => import('@/components/launch-profiles/manager'), 'LaunchProfileManager'),
   () => useLaunchProfileManagerState().open,
+)
+// Mermaid pan/zoom overlay -- chunk loads only when a diagram is first opened.
+const MermaidLightbox = lazyModule(
+  named(() => import('@/components/mermaid-lightbox'), 'MermaidLightbox'),
+  () => useMermaidLightbox(s => s.open),
 )
 // Parent-conditional: gated on showBatchPalette below, so plain React.lazy.
 const BatchModeModal = lazy(() =>
@@ -331,6 +338,10 @@ function Dashboard() {
         )}
       </div>
 
+      {/* Mobile quick-switch strip -- pinned + recent-active conversations.
+          Self-hides on desktop (lg:hidden) and when there's nothing to switch to. */}
+      <PinnedSwitchStrip />
+
       {/* Host-shell dock -- global floating-shell tray. Self-hides when empty. */}
       <div className="shrink-0">
         <ShellDock />
@@ -404,6 +415,7 @@ function Dashboard() {
         <JsonInspectorDialog />
       </PanelBoundary>
       <MediaLightbox />
+      <MermaidLightbox />
       <LinkPreviewPane />
       <AudioPlayerHost />
       {canAdmin && <QuickTaskModal />}
