@@ -64,7 +64,7 @@ export function createDeskDebugRouter(
   }
 
   app.post('/api/desk/debug/dispatch', async c => {
-    let body: { intent?: string; userId?: string; dryRun?: boolean }
+    let body: { intent?: string; userId?: string; dryRun?: boolean; system?: string }
     try {
       body = await c.req.json()
     } catch {
@@ -74,6 +74,7 @@ export function createDeskDebugRouter(
     if (!intent) return c.json({ error: 'intent is required' }, 400)
     const userId = typeof body.userId === 'string' && body.userId ? body.userId : 'jonas'
     const dryRun = body.dryRun !== false // default true -- safe by default
+    const systemOverride = typeof body.system === 'string' && body.system ? body.system : undefined
 
     const frames: ToolFrame[] = []
     const spawns: Array<{ cwd: string; model?: string; intent: string }> = []
@@ -89,6 +90,7 @@ export function createDeskDebugRouter(
       const decision = await runDispatchAgent(intent, buildRuntime(), {
         userId,
         questSpawn: dryRun ? dryRunSpawn : undefined,
+        systemOverride,
         onToolCall: e => frames.push({ phase: 'call', callId: e.callId, name: e.name, args: e.args }),
         onToolResult: e =>
           frames.push({

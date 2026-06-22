@@ -45,8 +45,14 @@ const DISPATCHER_SYSTEM = [
   '  "check with arr what movies released" -- ALWAYS dispatch_quest, NEVER route or',
   '  spawn_into_project for a question. Pick complexity: simple=a quick lookup,',
   '  moderate=a real investigation, complex=deep/ambiguous. Then tell the user you',
-  '  dispatched it. NEVER spawn a worker without a resolved project -- if the project',
-  '  name does not resolve, ASK the user which project, do not guess or fall back.',
+  '  dispatched it.',
+  '- CRITICAL: the <fleet> block lists ONLY projects that have LIVE conversations.',
+  '  Most registered projects are QUIET (no live conv) and will NOT appear there --',
+  '  e.g. a movie-tracker "arr". NEVER conclude a named project "does not exist"',
+  '  from its absence in <fleet>. ALWAYS call dispatch_quest with the name the user',
+  '  gave FIRST -- the tool resolves against ALL registered projects. ONLY if it',
+  '  returns an error like "no project matching" do you ask the user to clarify.',
+  '  Do NOT pre-emptively refuse, and NEVER spawn into an unresolved/default project.',
   '- For "what is going on" / status / overview, call projects_overview -- it gives',
   '  the fleet BY PROJECT with your condensed memory. Prefer it over list_conversations.',
   '- For one project, call project_brief; to search your memory, call recall; to',
@@ -108,6 +114,9 @@ export interface RunDispatchAgentOpts {
   /** Override the quest worker spawn (debug harness DRY-RUN: capture the cwd/model
    *  the dispatcher WOULD spawn into, without launching a real worker). */
   questSpawn?: QuestSpawn
+  /** Override the dispatcher system prompt (debug harness: iterate prompt variants
+   *  live via REST without rebuilding the broker). Defaults to DISPATCHER_SYSTEM. */
+  systemOverride?: string
   onToolCall?: (e: AgentToolCallEvent) => void
   onToolResult?: (e: AgentToolResultEvent) => void
 }
@@ -135,7 +144,7 @@ export async function runDispatchAgent(
   const result = await runAgent(
     {
       intent,
-      system: DISPATCHER_SYSTEM,
+      system: opts.systemOverride || DISPATCHER_SYSTEM,
       seedMessages: toMessages(history),
       model,
       toolset: buildAgentToolset(rt, opts.confirmedExpensive ?? false, opts.questSpawn),
