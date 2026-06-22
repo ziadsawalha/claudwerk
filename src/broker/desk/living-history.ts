@@ -1,0 +1,138 @@
+/**
+ * The LIVING HISTORY engine -- the heart of the dispatcher (Jonas, 2026-06-23).
+ *
+ * The LLM is stateless: every turn we resubmit the whole message array, so that
+ * array is OURS to REWRITE each turn, not a log we append to. The dispatcher is
+ * therefore a LIVING conversation whose context we MUTATE as things happen --
+ * NOT a single-shot snapshot loop and NOT an append-only TanStack/Vercel array.
+ *
+ * The history holds two kinds of entry:
+ *  - BLOCKS: addressable, mutable, XML-tagged state -- `<fleet>`, `<memory>`,
+ *    `<pending id>`, `<findings id>`. Async results arrive as a block MUTATION
+ *    (rewrite `<pending q1>` into `<findings q1>` in place), which IS the impulse.
+ *  - TURNS: the dialogue (user impulses + dispatcher replies), timestamped.
+ *
+ * Context is bounded by TIME, not length: turns older than ~1h phase out and
+ * condense into memory (consolidate.ts), so the history shrinks as it ages. This
+ * module is the pure data structure + mutation API + serialization + the
+ * consolidation POLICY (when to fold). The LLM fold itself lives in consolidate.ts.
+ */
+
+import type { ChatMessage } from '../recap/shared/openrouter-client'
+
+export type Role = 'user' | 'assistant'
+
+export interface Turn {
+  kind: 'turn'
+  role: Role
+  content: string
+  ts: number
+}
+
+export interface Block {
+  kind: 'block'
+  /** Stable address -- mutating the same id rewrites the block in place. */
+  id: string
+  /** XML tag the block renders as (`fleet`, `memory`, `pending`, `findings`). */
+  tag: string
+  content: string
+  ts: number
+}
+
+export interface LivingHistory {
+  /** Addressable state blocks, insertion-ordered (a Map preserves order; an
+   *  in-place upsert keeps the block's slot -- pending->findings stays put). */
+  blocks: Map<string, Block>
+  turns: Turn[]
+}
+
+export function createHistory(): LivingHistory {
+  return { blocks: new Map(), turns: [] }
+}
+
+// ─── Mutations ──────────────────────────────────────────────────────
+
+/** Append a dialogue turn (a user impulse or the dispatcher's reply). */
+export function appendTurn(h: LivingHistory, role: Role, content: string, ts: number): void {
+  h.turns.push({ kind: 'turn', role, content, ts })
+}
+
+/** Create or REWRITE a state block by id. This is THE mutation -- e.g. turning
+ *  `<pending q1>` into `<findings q1>` when async work reports back. */
+export function upsertBlock(h: LivingHistory, id: string, tag: string, content: string, ts: number): void {
+  h.blocks.set(id, { kind: 'block', id, tag, content, ts })
+}
+
+export function dropBlock(h: LivingHistory, id: string): void {
+  h.blocks.delete(id)
+}
+
+export function getBlock(h: LivingHistory, id: string): Block | undefined {
+  return h.blocks.get(id)
+}
+
+// ─── Serialization (history -> the message array we submit) ─────────
+
+function renderBlock(b: Block): string {
+  return `<${b.tag} id="${b.id}">\n${b.content}\n</${b.tag}>`
+}
+
+/** Render the living history into the LLM message array: one leading state
+ *  message carrying all current blocks (the mutable working memory), then the
+ *  dialogue turns in order. The system prompt is passed to chat() separately. */
+export function toMessages(h: LivingHistory): ChatMessage[] {
+  const messages: ChatMessage[] = []
+  if (h.blocks.size > 0) {
+    const state = [...h.blocks.values()].map(renderBlock).join('\n')
+    messages.push({ role: 'user', content: state })
+  }
+  for (const t of h.turns) messages.push({ role: t.role, content: t.content })
+  return messages
+}
+
+/** Rough token estimate (chars/4) over the whole history -- drives the size valve. */
+export function estimateTokens(h: LivingHistory): number {
+  let chars = 0
+  for (const b of h.blocks.values()) chars += b.content.length + b.tag.length * 2 + b.id.length
+  for (const t of h.turns) chars += t.content.length
+  return Math.ceil(chars / 4)
+}
+
+// ─── Consolidation policy (WHEN to fold; the LLM fold is consolidate.ts) ─────
+
+export const ONE_HOUR_MS = 60 * 60_000
+export const TEN_MIN_MS = 10 * 60_000
+/** Above this, condense FASTER (bypass the interval) -- cost + context-window. */
+export const DEFAULT_SIZE_TOKEN_LIMIT = 6000
+
+/** Turns aged past the phase-out horizon -- these condense into memory + drop. */
+export function agedTurns(h: LivingHistory, now: number, maxAgeMs = ONE_HOUR_MS): Turn[] {
+  return h.turns.filter(t => now - t.ts >= maxAgeMs)
+}
+
+export interface ConsolidatePolicyInput {
+  history: LivingHistory
+  now: number
+  lastRunAt: number
+  maxAgeMs?: number
+  minIntervalMs?: number
+  sizeTokenLimit?: number
+}
+
+/**
+ * Decide whether to run the (expensive) consolidation fold now.
+ *  - SHORT-CIRCUIT: nothing aged out AND not over size -> false (no LLM cost).
+ *  - SIZE VALVE: over the token limit -> true, even before the interval elapses.
+ *  - TIME: aged-out turns exist AND it's been >= the min interval (≤ once/10min).
+ */
+export function shouldConsolidate(input: ConsolidatePolicyInput): boolean {
+  const { history, now, lastRunAt } = input
+  const minIntervalMs = input.minIntervalMs ?? TEN_MIN_MS
+  const sizeTokenLimit = input.sizeTokenLimit ?? DEFAULT_SIZE_TOKEN_LIMIT
+
+  const tooBig = estimateTokens(history) > sizeTokenLimit
+  const hasAged = agedTurns(history, now, input.maxAgeMs).length > 0
+  if (!hasAged && !tooBig) return false // short-circuit: nothing to do, no cost
+  if (tooBig) return true // size valve bypasses the interval
+  return now - lastRunAt >= minIntervalMs
+}
