@@ -9,10 +9,13 @@ import type { DialogLayout, DialogResult } from './dialog-schema'
 import type {
   NightshiftBlocked,
   NightshiftConfig,
+  NightshiftFinalizeInput,
+  NightshiftReportInput,
+  NightshiftRun,
   NightshiftRunSnapshot,
+  NightshiftRunStartInput,
   NightshiftSkipped,
   NightshiftTaskMeta,
-  NightshiftTaskReport,
 } from './nightshift-types'
 import type { ProjectTask, ProjectTaskManifestEntry, ProjectTaskMeta, ProjectTaskRef } from './project-task-types'
 import type { SpawnRequest } from './spawn-schema'
@@ -1733,6 +1736,7 @@ export type BrokerMessage =
   | ChecklistReplaceRequest
   | ChecklistArchiveRequest
   | ChecklistPurgeRequest
+  | NightshiftRequest
 
 export interface NotifyConfigUpdated {
   type: 'notify_config_updated'
@@ -3338,6 +3342,102 @@ export interface ProjectUnsubscribe {
   project: string
 }
 
+// ===========================================================================
+// NIGHTSHIFT RPCs (Dashboard / night-manager <-> Broker <-> Sentinel)
+//
+// The `.nightshift/` artifact tree (plan-nightshift.md §3) is written + read by
+// the SENTINEL -- the same lease-watcher host that owns `.rclaude/project/` --
+// so the morning Result screen works with ZERO live agent hosts. One op-envelope
+// per direction, mirroring the ProjectBoardOp/Result idiom: the dashboard sends
+// a project URI + op, the broker resolves it to an absolute `projectRoot` + the
+// owning sentinel, forwards `nightshift_op`, and relays `nightshift_result` back.
+//
+// THE ARTIFACT IS THE API: writers (run_start / report / run_finalize) and
+// readers (snapshot / config) all route here. The safe-to-do gate (Jonas
+// directive #2) rides the `report` op with kind=skipped + a feasibility reason.
+// ===========================================================================
+
+/** The op selector shared by the dashboard request, the sentinel op, and the result. */
+export type NightshiftOpKind =
+  | 'snapshot' // read a run snapshot (runId omitted = latest) -- the Result screen
+  | 'config_read'
+  | 'config_write'
+  | 'run_start' // create run dir + run.md (status=running) + repoint `latest`
+  | 'report' // write one task / blocked / skipped artifact
+  | 'run_finalize' // recompute totals, flip run.md to done, stamp digest/cost
+
+/** Dashboard / night-manager -> Broker: one nightshift artifact op. */
+export interface NightshiftRequest {
+  type: 'nightshift_request'
+  requestId: string
+  /** Canonical project URI; the broker resolves it to projectRoot + sentinel. */
+  project: string
+  op: NightshiftOpKind
+  /** snapshot (specific run; omit = latest) / run_start / report / run_finalize. */
+  runId?: string
+  /** config_write payload. */
+  config?: NightshiftConfig
+  /** run_start payload. */
+  runStart?: NightshiftRunStartInput
+  /** report payload (task | blocked | skipped). */
+  report?: NightshiftReportInput
+  /** run_finalize payload. */
+  finalize?: NightshiftFinalizeInput
+}
+
+/** Broker -> Sentinel: the same op, with the resolved absolute projectRoot. */
+export interface NightshiftOp {
+  type: 'nightshift_op'
+  requestId: string
+  projectRoot: string
+  op: NightshiftOpKind
+  runId?: string
+  config?: NightshiftConfig
+  runStart?: NightshiftRunStartInput
+  report?: NightshiftReportInput
+  finalize?: NightshiftFinalizeInput
+}
+
+/** Sentinel -> Broker: result of one op. Populated field depends on `op`. */
+export interface NightshiftResult {
+  type: 'nightshift_result'
+  requestId: string
+  op: NightshiftOpKind
+  ok: boolean
+  /** snapshot -- null when the project has no runs yet. */
+  snapshot?: NightshiftRunSnapshot | null
+  /** config_read / config_write -- the effective config. */
+  config?: NightshiftConfig
+  /** run_start / run_finalize -- the run after the write. */
+  run?: NightshiftRun
+  /** report(kind=task) -- the persisted task meta. */
+  task?: NightshiftTaskMeta
+  /** report(kind=blocked) -- the persisted blocked entry. */
+  blocked?: NightshiftBlocked
+  /** report(kind=skipped) -- the persisted skipped entry. */
+  skipped?: NightshiftSkipped
+  error?: string
+}
+
+/**
+ * Broker -> Dashboard broadcast (permission-scoped by project URI): a nightshift
+ * lifecycle beat, fired after the matching write op persists. The §6 event
+ * vocabulary collapsed into one envelope -- the Result screen re-fetches the
+ * snapshot on receipt rather than reconstructing state from the beat. The live
+ * Status screen (P3) will read the richer fields directly.
+ */
+export interface NightshiftEvent {
+  type: 'nightshift_event'
+  /** Canonical project URI -- the broadcast scope key. */
+  project: string
+  event: 'run_started' | 'task_update' | 'task_done' | 'blocked' | 'impulse' | 'run_done'
+  runId: string
+  taskId?: string
+  status?: string
+  verdict?: string
+  digest?: string
+}
+
 // ─── Project Checklists ─────────────────────────────────────────────────
 // Per-project personal checklist ("notes from me to me") shown in the
 // conversation list above a project's conversations. Broker-local data
@@ -3984,6 +4084,7 @@ export type SentinelMessage =
   | FetchArtifactResult
   | ProjectBoardResult
   | ProjectChanged
+  | NightshiftResult
   | UsageUpdate
   | SentinelUsageReport
   | LaunchLog
@@ -4276,6 +4377,7 @@ export type BrokerSentinelMessage =
   | ProjectBoardOp
   | ProjectWatch
   | ProjectUnwatch
+  | NightshiftOp
   | SentinelPatchConfig
   | SentinelQuit
   | SentinelReject

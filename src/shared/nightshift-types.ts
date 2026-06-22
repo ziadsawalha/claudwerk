@@ -173,6 +173,73 @@ export interface NightshiftRunSnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Wire inputs (control panel / nightshift manager -> sentinel writer)
+//
+// These are the JSON-safe payloads carried over the broker<->sentinel RPC.
+// They map 1:1 onto the nightshift-store writers (writeTask / writeBlocked /
+// appendSkipped / startRun / finalizeRun) but stay free of functions/closures
+// so they serialize cleanly. The store, not the wire, owns the `created`
+// timestamp + the canonical file layout.
+// ---------------------------------------------------------------------------
+
+/** Start (or no-op re-open) a run. runId is the run DATE, YYYY-MM-DD. */
+export interface NightshiftRunStartInput {
+  runId: string
+  date?: string
+  taskCount?: number
+  window?: string
+  digest?: string
+}
+
+/**
+ * Report one task outcome. `kind` selects the lane the store writes it to:
+ * - `task`    -> runs/<runId>/tasks/NNN-*.md   (done | errored | spinning | running)
+ * - `blocked` -> runs/<runId>/blocked/NNN-*.md (a refinement question for Jonas)
+ * - `skipped` -> runs/<runId>/skipped.md       (the safe-to-do gate declined it)
+ */
+export interface NightshiftReportInput {
+  kind: 'task' | 'blocked' | 'skipped'
+  id: string
+  title: string
+  project: string
+  // task lane
+  status?: NightshiftTaskStatus
+  verdict?: NightshiftVerdict
+  feasibility?: NightshiftFeasibility
+  branch?: string
+  base?: string
+  commits?: number
+  diffstat?: string
+  files?: string[]
+  acceptance?: string
+  tests?: NightshiftTests
+  risk?: NightshiftRisk
+  profile?: string
+  reroutes?: number
+  attempts?: number
+  tokens?: number
+  cost_usd?: number
+  duration_min?: number
+  /** Body sections (What it did / How to verify / Notes / Open loops). */
+  taskReport?: NightshiftTaskReport
+  // blocked lane
+  question?: string
+  options?: string[]
+  body?: string
+  // skipped lane (the safe-to-do gate verdict + why)
+  reason?: string
+}
+
+/** Flip a run to done + stamp digest/runtime/cost. Totals are recomputed from disk. */
+export interface NightshiftFinalizeInput {
+  digest?: string
+  runtime_min?: number
+  cost_usd?: number
+  profiles?: string[]
+  taskCount?: number
+}
+
+// ---------------------------------------------------------------------------
 // config.json (per-project nightshift config, plan §2.2 + §10)
 // ---------------------------------------------------------------------------
 

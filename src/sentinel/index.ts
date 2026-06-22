@@ -42,6 +42,7 @@ import type {
   GitLogResult,
   ListCcSessionsResult,
   ListDirsResult,
+  NightshiftOp,
   ProfileUsageSnapshot,
   ProjectBoardOp,
   ProjectMoveFile,
@@ -86,6 +87,7 @@ import {
 import { writeDaemonMcpConfig } from './daemon-mcp-config'
 import { registerDaemonSession, startDaemonRosterWatch, stopDaemonRosterWatch } from './daemon-roster'
 import { runGitLog } from './git-log'
+import { handleNightshiftOp } from './nightshift-handlers'
 import { applyOAuthToken, applyOAuthTokenDelta } from './oauth-token-env'
 import { type PreflightIssue, preflightSpawn } from './preflight'
 import { runProfileCli } from './profile-cli'
@@ -3962,6 +3964,13 @@ function connect(
           const m = msg as ProjectBoardOp
           const root = expandPath(m.projectRoot, spawnRoot)
           ws.send(JSON.stringify(handleProjectBoardOp(root, m, Date.now())))
+          break
+        }
+
+        case 'nightshift_op': {
+          const m = msg as NightshiftOp
+          const root = expandPath(m.projectRoot, spawnRoot)
+          ws.send(JSON.stringify(handleNightshiftOp(root, m, Date.now())))
           break
         }
 
