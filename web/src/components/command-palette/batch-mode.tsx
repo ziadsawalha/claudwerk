@@ -1,4 +1,3 @@
-import { extractProjectLabel } from '@shared/project-uri'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useConversationsStore } from '@/hooks/use-conversations'
@@ -11,6 +10,15 @@ import { StatusIcon } from '../project-list/status-icon'
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { BatchBroadcastInput, BatchReassignInputs } from './batch-action-inputs'
 import { ALL_BATCH_ACTIONS, type BatchAction } from './batch-actions'
+import {
+  type ConvRow,
+  defaultSort,
+  effectiveProject,
+  type FlatRow,
+  flatten,
+  type GroupRow,
+  projectLabelFor,
+} from './batch-grouping'
 import { BatchProgress } from './batch-progress'
 
 const SELECT_ALL_CAP = 50
@@ -64,77 +72,6 @@ function filterConversations(conversations: Conversation[], filter: FilterState)
       matchesSentinel(c, filter.sentinel) &&
       matchesText(c, filter.text),
   )
-}
-
-function projectLabelFor(c: Conversation, settings: Record<string, ProjectSettings>): string {
-  return settings[c.project]?.label || extractProjectLabel(c.project)
-}
-
-/** Project asc, then lastActivity desc (newest first within a project). */
-function defaultSort(a: Conversation, b: Conversation, settings: Record<string, ProjectSettings>): number {
-  const ap = projectLabelFor(a, settings).toLowerCase()
-  const bp = projectLabelFor(b, settings).toLowerCase()
-  if (ap !== bp) return ap < bp ? -1 : 1
-  return (b.lastActivity ?? 0) - (a.lastActivity ?? 0)
-}
-
-interface GroupRow {
-  kind: 'group'
-  project: string
-  label: string
-  count: number
-  color?: string
-  icon?: string
-}
-interface ConvRow {
-  kind: 'conv'
-  conv: Conversation
-  project: string
-}
-type FlatRow = GroupRow | ConvRow
-
-function flatten(rows: Conversation[], groupBy: boolean, settings: Record<string, ProjectSettings>): FlatRow[] {
-  if (!groupBy) return rows.map(c => ({ kind: 'conv' as const, conv: c, project: c.project }))
-  const out: FlatRow[] = []
-  let lastProject: string | null = null
-  let runStart = 0
-  for (let i = 0; i < rows.length; i++) {
-    const c = rows[i]
-    if (!c) continue
-    if (c.project !== lastProject) {
-      // close previous header (write count once)
-      if (lastProject !== null) {
-        const header = out[runStart] as GroupRow
-        header.count = i - runStart - (out.length - rows.slice(0, i).length)
-      }
-      const ps = settings[c.project]
-      out.push({
-        kind: 'group',
-        project: c.project,
-        label: ps?.label || extractProjectLabel(c.project),
-        count: 0, // patched on next boundary / at end
-        color: ps?.color,
-        icon: ps?.icon,
-      })
-      runStart = out.length - 1
-      lastProject = c.project
-    }
-    out.push({ kind: 'conv', conv: c, project: c.project })
-  }
-  // patch the final header's count
-  let lastHeader: GroupRow | null = null
-  let runCount = 0
-  for (const r of out) {
-    if (r.kind === 'group') {
-      if (lastHeader) lastHeader.count = runCount
-      lastHeader = r
-      runCount = 0
-    } else {
-      runCount++
-    }
-  }
-  if (lastHeader) lastHeader.count = runCount
-  return out
 }
 
 function StatusDot({ status }: { status: Conversation['status'] }) {
@@ -775,7 +712,7 @@ function BatchRow({
 }) {
   const { conv } = row
   const projectLabel = projectLabelFor(conv, projectSettings)
-  const ps = projectSettings[conv.project]
+  const ps = projectSettings[effectiveProject(conv)]
   const color = ps?.color
   const icon = ps?.icon
   const host = hostLabel(conv)
