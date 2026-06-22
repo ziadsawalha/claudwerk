@@ -28,7 +28,7 @@ import { recapOpenBus } from '@/components/recap/recap-open-trigger'
 import { recapConfigBus } from '@/components/recap-jobs/recap-config-trigger'
 import { recapHistoryBus } from '@/components/recap-jobs/recap-history-trigger'
 import { RecapJobsWidget } from '@/components/recap-jobs/recap-jobs-widget'
-import { renameModalBus } from '@/components/rename-modal-trigger'
+import { RenameModal } from '@/components/rename-modal'
 import { reviveDialogBus } from '@/components/revive-dialog-trigger'
 import { manageChatConnectionsBus } from '@/components/settings/manage-chat-connections-trigger'
 import { manageProjectLinksBus } from '@/components/settings/manage-project-links-trigger'
@@ -101,10 +101,6 @@ const ManageProjectLinksDialog = lazyModule(
 const ManageChatConnectionsDialog = lazyModule(
   named(() => import('@/components/settings/manage-chat-connections-dialog'), 'ManageChatConnectionsDialog'),
   manageChatConnectionsBus.useArmed,
-)
-const RenameModal = lazyModule(
-  named(() => import('@/components/rename-modal'), 'RenameModal'),
-  renameModalBus.useArmed,
 )
 const QuickTaskModal = lazyModule(
   named(() => import('@/components/quick-task-modal'), 'QuickTaskModal'),
