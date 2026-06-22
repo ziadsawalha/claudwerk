@@ -1503,6 +1503,46 @@ export interface DispatchDecision {
   resultConversationId?: string
   traceId: string
   ts: number
+  /**
+   * The user this decision belongs to (the dispatcher near-memory / decisions
+   * are PER-USER). Nullable + forward-compatible: the broker WS seam stamps it
+   * from the authed connection today; the backend store gains a `user_id`
+   * column in the per-user increment. The overlay scopes on this.
+   */
+  userId?: string | null
+}
+
+/** Control-panel -> broker: fetch the current user's dispatcher near-memory
+ *  threads. A thin request/response over the dashboard WS (the `dispatch`/
+ *  `list_threads` MCP tools have no authed-user identity; the WS connection
+ *  does). The broker replies with `DispatchThreadsResult`. */
+export interface DispatchListThreadsRequest {
+  type: 'dispatch_list_threads'
+  /** Max threads (default 50). */
+  limit?: number
+  /** Correlation id so the reply can be matched to this request. */
+  requestId?: string
+}
+
+/** broker -> the requesting control panel: the resolved dispatch decision for a
+ *  `dispatch_request`, correlated by `requestId`. The same decision is also
+ *  broadcast as a `DispatchDecision` to all subscribers (audit/live); this is
+ *  the direct, correlated reply to the caller. */
+export interface DispatchRequestResult {
+  type: 'dispatch_request_result'
+  requestId?: string
+  ok: boolean
+  decision?: DispatchDecision
+  error?: string
+}
+
+/** broker -> the requesting control panel: the user's near-memory threads. */
+export interface DispatchThreadsResult {
+  type: 'dispatch_threads_result'
+  requestId?: string
+  threads: DispatchThread[]
+  /** The authed user the threads were scoped to (null when single-user). */
+  userId?: string | null
 }
 
 export interface ProjectLinkRequest {
@@ -1860,6 +1900,8 @@ export type BrokerMessage =
   | InterConversationDelivery
   | SystemChannelDelivery
   | DispatchDecision
+  | DispatchRequestResult
+  | DispatchThreadsResult
   | ProjectLinkRequest
   | ProjectLinkGranted
   | InterConversationListResponse

@@ -1,4 +1,4 @@
-import { Settings } from 'lucide-react'
+import { Radar, Settings } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { EfficiencyWidget } from '@/components/efficiency-widget'
@@ -9,6 +9,7 @@ import { ProjectSettingsEditor } from '@/components/project-settings-editor-lazy
 const NerdModal = lazy(() => import('@/components/nerd-modal').then(m => ({ default: m.NerdModal })))
 const SettingsDialog = lazy(() => import('@/components/settings-page').then(m => ({ default: m.SettingsDialog })))
 
+import { useDispatchStore } from '@/components/dispatch-overlay/dispatch-store'
 import { TokenFlowBar } from '@/components/token-flow-bar'
 import { UsageBar } from '@/components/usage-bar'
 import { useConversationsStore } from '@/hooks/use-conversations'
@@ -193,6 +194,16 @@ export function Header() {
             nerd
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={() => useDispatchStore.getState().openOverlay()}
+          className="text-muted-foreground hover:text-primary transition-colors shrink-0"
+          title="Dispatch cockpit (⌘K J)"
+          aria-label="Open dispatch cockpit"
+        >
+          <Radar className="size-3.5" />
+        </button>
 
         <button
           type="button"

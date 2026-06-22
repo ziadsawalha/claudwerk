@@ -4,6 +4,7 @@ import {
   openChecklistArchive,
   openChecklistBulkEdit,
 } from '@/components/checklist/checklist-bus'
+import { exposeDispatchControl, useDispatchStore } from '@/components/dispatch-overlay/dispatch-store'
 import { openLaunchProfileManager } from '@/components/launch-profiles/manager-state'
 import { openRecapConfigDialog } from '@/components/recap-jobs/recap-config-trigger'
 import { openRecapHistory } from '@/components/recap-jobs/recap-history-trigger'
@@ -93,6 +94,27 @@ export function useGlobalCommands(toggleSidebar: () => void) {
   useChordCommand('open-canvas-chord', openCanvas, {
     label: 'THE CANVAS',
     key: 'c',
+    group: 'Navigation',
+  })
+
+  // The per-user dispatch cockpit. Expose the remote-control surface once so the
+  // web_* debug tools can drive it (open / read state / submit intent).
+  useEffect(() => {
+    exposeDispatchControl()
+  }, [])
+
+  const openDispatch = useCallback(() => {
+    useDispatchStore.getState().openOverlay()
+  }, [])
+
+  useCommand('open-dispatch', openDispatch, {
+    label: 'DISPATCH (cockpit)',
+    group: 'Navigation',
+  })
+
+  useChordCommand('open-dispatch-chord', openDispatch, {
+    label: 'DISPATCH cockpit',
+    key: 'j',
     group: 'Navigation',
   })
 

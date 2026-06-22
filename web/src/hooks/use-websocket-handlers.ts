@@ -16,6 +16,8 @@ import { formatResetIn } from '@shared/format-reset-time'
 import type { LaunchProfile } from '@shared/launch-profile'
 import type {
   ConversationSummary,
+  DispatchDecision,
+  DispatchThread,
   RecapCompleteMessage,
   RecapCreatedMessage,
   RecapErrorMessage,
@@ -25,6 +27,7 @@ import type {
   RecapSummary,
   ShellRosterEntry,
 } from '@shared/protocol'
+import { useDispatchStore } from '@/components/dispatch-overlay/dispatch-store'
 import { handleLaunchProfilesUpdatedMessage } from '@/components/launch-profiles/use-launch-profiles'
 import { daemonControlToast } from '@/lib/daemon-control'
 import { record } from '@/lib/perf-metrics'
@@ -1585,6 +1588,22 @@ function handleRateLimitStatus(msg: DashboardMessage) {
 
 export type MessageHandler = (msg: DashboardMessage) => void
 
+function handleDispatchRequestResult(msg: DashboardMessage) {
+  useDispatchStore
+    .getState()
+    .onRequestResult(msg as DashboardMessage & { ok?: boolean; error?: string; decision?: DispatchDecision })
+}
+
+function handleDispatchThreadsResult(msg: DashboardMessage) {
+  useDispatchStore
+    .getState()
+    .onThreadsResult(msg as DashboardMessage & { threads?: DispatchThread[]; userId?: string | null })
+}
+
+function handleDispatchDecision(msg: DashboardMessage) {
+  useDispatchStore.getState().onDecisionBroadcast(msg as unknown as DispatchDecision)
+}
+
 export const handlers: Record<string, MessageHandler> = {
   // sync
   sync_ok: handleSyncOk,
@@ -1676,4 +1695,8 @@ export const handlers: Record<string, MessageHandler> = {
   recap_regenerated: handleRecapRegenerated,
   recap_error: handleRecapError,
   recap_list_result: handleRecapListResult,
+  // dispatch cockpit (per-user Front Desk overlay)
+  dispatch_request_result: handleDispatchRequestResult,
+  dispatch_threads_result: handleDispatchThreadsResult,
+  dispatch_decision: handleDispatchDecision,
 }

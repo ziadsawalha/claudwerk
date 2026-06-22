@@ -10,6 +10,7 @@ import { ChordOverlay } from '@/components/chord-overlay'
 import { CommandPalette } from '@/components/command-palette'
 import { ConversationDetail } from '@/components/conversation-detail'
 import { DebugConsole } from '@/components/debug-console'
+import { dispatchBus } from '@/components/dispatch-overlay/dispatch-bus'
 import { Header } from '@/components/header'
 import { JsonInspectorDialog } from '@/components/json-inspector'
 import { LaunchProfileCommands } from '@/components/launch-profiles/launch-profile-commands'
@@ -155,6 +156,8 @@ const MermaidLightbox = lazyModule(
   named(() => import('@/components/mermaid-lightbox'), 'MermaidLightbox'),
   () => useMermaidLightbox(s => s.open),
 )
+// The per-user dispatch cockpit -- chunk loads only when first summoned.
+const DispatchOverlay = lazyModule(() => import('@/components/dispatch-overlay/dispatch-overlay'), dispatchBus.useArmed)
 // Parent-conditional: gated on showBatchPalette below, so plain React.lazy.
 const BatchModeModal = lazy(() =>
   import('@/components/command-palette/batch-mode').then(m => ({ default: m.BatchModeModal })),
@@ -412,6 +415,7 @@ function Dashboard() {
       </PanelBoundary>
       <MediaLightbox />
       <MermaidLightbox />
+      {canAdmin && <DispatchOverlay />}
       <LinkPreviewPane />
       <AudioPlayerHost />
       {canAdmin && <QuickTaskModal />}

@@ -10,6 +10,7 @@ import { registerDashboardActionHandlers } from './control-panel-actions'
 import { registerConversationLifecycleHandlers } from './conversation-lifecycle'
 import { registerConversationReassignHandlers } from './conversation-reassign'
 import { registerDaemonHandlers } from './daemon'
+import { registerDispatchHandlers } from './dispatch-actions'
 import { registerDebugControlHandlers } from './debug-control'
 import { registerDialogHandlers } from './dialog'
 import { registerDialogLiveHandlers } from './dialog-live'
@@ -40,6 +41,7 @@ export function registerAllHandlers(): void {
   registerChannelHandlers()
   registerChecklistHandlers()
   registerDashboardActionHandlers()
+  registerDispatchHandlers()
   registerDialogHandlers()
   registerDialogLiveHandlers()
   registerGatewayHandlers()
