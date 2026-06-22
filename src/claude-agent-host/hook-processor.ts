@@ -21,12 +21,47 @@ import { emitCwdChanged } from './worktree-detect'
 
 const debug = (msg: string) => _debug(msg)
 
+/** A Stop-hook decision returned to Claude Code (re-invokes the agent once). */
+export interface HookDecision {
+  decision: 'block'
+  reason: string
+}
+
+const STATUS_NUDGE_REASON = `You did work this turn but never called set_status. Set one so the user can triage this conversation at a glance:
+
+  set_status({ state: 'working' | 'done' | 'needs_you' | 'blocked', ... })
+
+Use 'done' if the task the user asked for is complete, 'needs_you' if you're blocked on the user, 'blocked' if stuck on something else, or 'working' if still going. Keep the text fields sparse -- empty is fine, only fill what matters. This is a one-time reminder; a single set_status call satisfies it. Do NOT explain at length -- just set the status and end your turn.`
+
+/**
+ * THE STATUS — decide whether the Stop hook should nudge the agent to call
+ * set_status. Fires at most once per stop chain (guarded by CC's
+ * `stop_hook_active`) and ONLY when the agent did real work but set no status.
+ * A pure-conversation turn (no tools) is never nudged.
+ */
+function computeStatusNudge(ctx: AgentHostContext, event: HookEvent): HookDecision | undefined {
+  if (event.hookEvent !== 'Stop') return undefined
+  const stopActive = (event.data as { stop_hook_active?: boolean } | undefined)?.stop_hook_active === true
+  if (stopActive || ctx.statusSetThisTurn || !ctx.didWorkThisTurn) return undefined
+  debug('Stop: nudging set_status (work done, no status set this turn)')
+  return { decision: 'block', reason: STATUS_NUDGE_REASON }
+}
+
 /**
  * Process a hook event from Claude Code.
  * Handles SessionStart (session ID extraction, transcript watcher setup),
  * SubagentStart/Stop (subagent watcher lifecycle), and event forwarding/queuing.
+ * Returns a Stop-hook decision when the agent should be nudged (else undefined).
  */
-export function processHookEvent(ctx: AgentHostContext, event: HookEvent) {
+export function processHookEvent(ctx: AgentHostContext, event: HookEvent): HookDecision | undefined {
+  // THE STATUS per-turn flags: a new user turn clears them; the first real tool
+  // use marks that work happened (so a no-tool conversational turn isn't nudged).
+  if (event.hookEvent === 'UserPromptSubmit') {
+    ctx.statusSetThisTurn = false
+    ctx.didWorkThisTurn = false
+  } else if (event.hookEvent === 'PreToolUse') {
+    ctx.didWorkThisTurn = true
+  }
   // Extract Claude's real session ID from SessionStart
   if (event.hookEvent === 'SessionStart' && event.data) {
     const data = event.data as Record<string, unknown>
@@ -175,4 +210,7 @@ export function processHookEvent(ctx: AgentHostContext, event: HookEvent) {
   // queue). Attribution is computed inside, at observation time, so the broker
   // can keep subagent side effects off the parent (see hook-forward.ts).
   forwardOrQueueHookEvent(ctx, event)
+
+  // THE STATUS — a Stop with work-but-no-status returns a one-shot nudge.
+  return computeStatusNudge(ctx, event)
 }

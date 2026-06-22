@@ -16,6 +16,7 @@ import type {
   NightshiftRunStartInput,
   NightshiftSkipped,
   NightshiftTaskMeta,
+  NightshiftTaskPatchInput,
 } from './nightshift-types'
 import type { ProjectTask, ProjectTaskManifestEntry, ProjectTaskMeta, ProjectTaskRef } from './project-task-types'
 import type { SpawnRequest } from './spawn-schema'
@@ -785,6 +786,57 @@ export interface AgentHostNotify {
   title?: string
 }
 
+/**
+ * THE STATUS — the agent's self-reported, single-slot task state for the
+ * per-conversation attention overview. Distinct from `ConversationStatusSignal`
+ * (active/idle lifecycle) and `DaemonRunState`: this is what the AGENT says it's
+ * doing, set via the `set_status` MCP tool. The `state` enum is the one required
+ * triage signal (drives badge colour/icon); the text fields are detail-on-expand
+ * and are individually optional ("empty is signal" — a fully-done conversation is
+ * `state:'done'` + one line in `done`, everything else empty).
+ */
+export type LiveStatusState = 'working' | 'done' | 'needs_you' | 'blocked'
+
+export interface LiveStatus {
+  /** The one required triage signal. */
+  state: LiveStatusState
+  /** What FINISHED. */
+  done?: string
+  /** What still must happen for this to be COMPLETE (blocks "done"). */
+  pending?: string
+  /** Done-but-watch. */
+  caveats?: string
+  /** What did NOT get done + why (errors / dead-ends). */
+  blocked?: string
+  /** FYI asides that are NOT todos (e.g. "didn't commit/deploy"). */
+  notes?: string
+  /**
+   * The agent's explicit "nothing in flight — safe to close this conversation"
+   * signal. Set true only when there's no uncommitted/unpushed work, no pending
+   * interaction, and nothing the user still needs from it. Surfaces as a visible
+   * marker so the user can tell at a glance which conversations are disposable.
+   */
+  safe_to_close?: boolean
+  /** Host-stamped monotonic ordering token (stale-drop guard). */
+  seq: number
+  /** Host wall-clock at set time. */
+  updatedAt: number
+}
+
+/** The text fields the agent supplies to `set_status` (seq/updatedAt are host-stamped). */
+export type LiveStatusInput = Omit<LiveStatus, 'seq' | 'updatedAt'>
+
+/**
+ * Agent self-reported status (agent host -> broker -> dashboard). Single live
+ * slot per conversation; a new one REPLACES the slot, full history stays in the
+ * transcript. Re-broadcast verbatim to dashboards. AGENT_HOST_ONLY origin.
+ */
+export interface AgentStatusMessage {
+  type: 'agent_status'
+  conversationId: string
+  status: LiveStatus
+}
+
 /** First frame from the agent host after the WS handshake, sent BEFORE CC has
  *  produced a session id. Gives the broker enough to create a
  *  placeholder "booting" conversation so the dashboard shows progress from t=0. */
@@ -946,6 +998,7 @@ export type AgentHostMessage =
   | BgTaskOutput
   | AgentHostNotify
   | InterConversationMessage
+  | DispatchRequest
   | ProjectLinkResponse
   | InterConversationListRequest
   | PermissionRequest
@@ -955,6 +1008,7 @@ export type AgentHostMessage =
   | DialogDismissMessage
   | DialogPatchMessage
   | DialogReopenMessage
+  | AgentStatusMessage
   | DialogOrphanedMessage
   | PlanApprovalRequest
   | PlanModeChanged
@@ -1337,6 +1391,121 @@ export interface SystemChannelDelivery {
   recapId?: string
 }
 
+// ─── Dispatch (Front Desk routing brain) ────────────────────────────────
+// The dispatcher takes an INTENT and decides a DISPOSITION -- spawn a NEW
+// conversation, ROUTE a message to an existing one, or REVIVE an ended one --
+// then executes via the existing spawn/route/revive handlers. Every decision
+// is broadcast as a `dispatch_decision` (the structured-message backbone) and
+// audited. `desk.dispatch` is the verb; see .claude/docs/plan-dispatcher-build.md.
+
+/** Disposition the dispatcher chose for an intent. `ask` = unsure, surface
+ *  candidate cards for one-click select (rich conversation_select UX). */
+export type DispatchDisposition = 'new' | 'route' | 'revive' | 'ask'
+
+/** Relative cost reading for a route/spawn target -- the confirmation-gate input.
+ *  Metrics are read off the existing Conversation record (token_samples /
+ *  lastActivity / cost), NOT re-emitted by status-tool. */
+export interface DispatchCostSignal {
+  tier: 'cheap' | 'moderate' | 'expensive' | 'very_expensive'
+  contextTokens?: number
+  idleMs?: number
+  /** True when idle past the cache TTL -> a resume re-pays full context. */
+  coldCache?: boolean
+  /** Model/profile expense note, e.g. 'opus'. */
+  model?: string
+  /** Human-facing reason, e.g. 'resumes a 180k-token Opus conv, cold cache'. */
+  note?: string
+}
+
+/** A candidate conversation surfaced for the rich `ask` (conversation_select)
+ *  UX -- rendered as a selectable card with commentary. */
+export interface DispatchCandidate {
+  conversationId: string
+  project?: string
+  title?: string
+  /** One-line commentary: why it matched / what it's doing. */
+  commentary?: string
+  /** status-tool LiveStatus.state when the status feed is available.
+   *  Tighten to `LiveStatus['state']` once that type lands in main. */
+  liveState?: string
+  cost?: DispatchCostSignal
+  /** Classifier score 0..1. */
+  score?: number
+}
+
+/** A conversation a thread has used, with when it was last used. */
+export interface DispatchThreadConversation {
+  conversationId: string
+  /** Display label cached at usage time (the conv may rename/end later). */
+  label?: string
+  lastUsedAt: number
+}
+
+/**
+ * A dispatcher "thread" -- its near-memory (plan-dispatcher-build.md §9.3).
+ *
+ * A thread is a VIEW of context: a super-local, tiny State-of-the-Union board
+ * for one topic the dispatcher is managing right now. It is the dispatcher's
+ * near memory, kept deliberately small (the dispatcher itself holds almost no
+ * context). Each thread carries free TEXT (title + summary) + JSON metadata,
+ * and the conversations it has used WITH the last-used timestamp per
+ * conversation. Viewable so the user can see what the dispatcher remembers.
+ */
+export interface DispatchThread {
+  id: string
+  /** Short human label for the thread. */
+  title: string
+  /** Free-text near-memory: what this thread is about, current state. */
+  summary: string
+  /** Arbitrary structured metadata (entities, tags, status, ...). */
+  metadata?: Record<string, unknown>
+  /** Conversations this thread has used, most-recently-used first. */
+  conversations: DispatchThreadConversation[]
+  createdAt: number
+  updatedAt: number
+}
+
+/** web/MCP -> broker: ask the dispatcher to route an intent. */
+export interface DispatchRequest {
+  type: 'dispatch_request'
+  /** Natural-language intent. */
+  intent: string
+  /** Explicit target (conversationId or project) -> override-first, no LLM. */
+  target?: string
+  /** Explicit disposition override -> honor without re-deciding. */
+  disposition?: DispatchDisposition
+  /** Set once the user confirmed an expensive route (the cost gate). */
+  confirmedExpensive?: boolean
+  /** Correlation id so the resulting decision can be matched back. */
+  requestId?: string
+}
+
+/** broker -> web (broadcast + audit): the routing decision the dispatcher made.
+ *  Emitted for EVERY decision -- including `ask` (unsure) and decisions held at
+ *  the cost-confirmation gate (`awaitingConfirmation`). */
+export interface DispatchDecision {
+  type: 'dispatch_decision'
+  decisionId: string
+  intent: string
+  disposition: DispatchDisposition
+  /** convId (route/revive) or project/profile id (new). */
+  target?: string
+  confidence: number
+  reasoning: string
+  /** Populated when disposition === 'ask' (the conversation_select cards). */
+  candidates?: DispatchCandidate[]
+  /** Cost reading for the chosen target; drives the confirmation gate. */
+  cost?: DispatchCostSignal
+  /** True once the disposition was executed via the underlying handler. */
+  executed: boolean
+  /** Set when execution is held pending an explicit expensive-route confirm. */
+  awaitingConfirmation?: boolean
+  /** The conversation the decision produced/targeted, once known. */
+  resultConversationId?: string
+  traceId: string
+  ts: number
+}
+
 export interface ProjectLinkRequest {
   type: 'channel_link_request'
   fromConversation: string
@@ -1691,6 +1860,7 @@ export type BrokerMessage =
   | TranscriptKick
   | InterConversationDelivery
   | SystemChannelDelivery
+  | DispatchDecision
   | ProjectLinkRequest
   | ProjectLinkGranted
   | InterConversationListResponse
@@ -2542,6 +2712,11 @@ export interface ProjectSettings {
    *  Used only for activity-gating / observability; the window is a fixed
    *  rolling 7d, so this is not a strict watermark. */
   lessonsLastRun?: number
+  /** Dispatcher status-feed opt-in (plan-dispatcher-build.md §9.5). When true,
+   *  this project's conversations are exposed to the dispatcher's routing.
+   *  Default off (opt-in). The dispatcher can flip this itself via the
+   *  subscribe_project tool. [[project_dispatcher_build]] */
+  dispatchSubscribed?: boolean
 }
 
 // File metadata for the file editor
@@ -2636,6 +2811,10 @@ export interface Conversation {
   claudeAuth?: { email?: string; orgId?: string; orgName?: string; subscriptionType?: string }
   startedAt: number
   lastActivity: number
+  /** Last time a MESSAGE was posted to this conversation (a user prompt /
+   *  impulse), distinct from `lastActivity` which ticks on every hook event.
+   *  Stamped on UserPromptSubmit; drives the "impulse age" in list_conversations. */
+  lastInputAt?: number
   status: 'active' | 'idle' | 'ended' | 'starting' | 'booting'
   compacting?: boolean
   compactedAt?: number
@@ -2717,6 +2896,13 @@ export interface Conversation {
     lastEventSeq?: number
     updatedAt: number
   }
+  /**
+   * THE STATUS — the agent's self-reported task state (single live slot; full
+   * history lives in the transcript). Set via the `set_status` MCP tool, RESET
+   * to `working` on every user prompt (old `done` is stale once new work starts).
+   * `state` drives the per-conversation attention badge; the text fields expand.
+   */
+  liveStatus?: LiveStatus
   pendingPlanApproval?: {
     requestId: string
     toolUseId?: string
@@ -3387,6 +3573,7 @@ export type NightshiftOpKind =
   | 'config_write'
   | 'run_start' // create run dir + run.md (status=running) + repoint `latest`
   | 'report' // write one task / blocked / skipped artifact
+  | 'task_patch' // ACT-ON-RESULTS: patch an existing task's frontmatter in place (plan §4)
   | 'run_finalize' // recompute totals, flip run.md to done, stamp digest/cost
 
 /** Dashboard / night-manager -> Broker: one nightshift artifact op. */
@@ -3404,6 +3591,8 @@ export interface NightshiftRequest {
   runStart?: NightshiftRunStartInput
   /** report payload (task | blocked | skipped). */
   report?: NightshiftReportInput
+  /** task_patch payload (ACT-ON-RESULTS in-place frontmatter patch). */
+  taskPatch?: NightshiftTaskPatchInput
   /** run_finalize payload. */
   finalize?: NightshiftFinalizeInput
 }
@@ -3418,6 +3607,7 @@ export interface NightshiftOp {
   config?: NightshiftConfig
   runStart?: NightshiftRunStartInput
   report?: NightshiftReportInput
+  taskPatch?: NightshiftTaskPatchInput
   finalize?: NightshiftFinalizeInput
 }
 
@@ -4621,6 +4811,8 @@ export interface ConversationSummary extends ConversationTaskFields {
   rateLimit?: Conversation['rateLimit']
   planMode?: boolean
   pendingAttention?: Conversation['pendingAttention']
+  /** THE STATUS — agent self-reported task state; drives the attention badge. */
+  liveStatus?: LiveStatus
   /** Mirror of caller.pendingSpawnApproval -- drives the in-panel approval banner. */
   pendingSpawnApproval?: Conversation['pendingSpawnApproval']
   /** Sticky bit: caller has been granted standing spawn approval. */

@@ -7,6 +7,7 @@
 import type { Server } from 'bun'
 import { handleMcpRoute } from '../agent-host-common/mcp-host/mcp-channel'
 import type { AskQuestionItem, AskQuestionRequest, HookEvent, HookEventData, HookEventType } from '../shared/protocol'
+import type { HookDecision } from './hook-processor'
 
 let debugFn: (msg: string) => void = () => {}
 export function setLocalServerDebug(fn: (msg: string) => void) {
@@ -75,7 +76,7 @@ const ASK_TIMEOUT_MS = 90_000 // 90s -- must be under curl's 120s --max-time
 export interface LocalServerOptions {
   conversationId: string
   mcpEnabled: boolean
-  onHookEvent: (event: HookEvent) => void
+  onHookEvent: (event: HookEvent) => HookDecision | void
   onNotify?: (message: string, title?: string) => void
   onAskQuestion?: (request: AskQuestionRequest) => void
   /** Fired when a queued ask request times out -- gives the agent host a chance
@@ -261,13 +262,24 @@ export async function startLocalServer(options: LocalServerOptions): Promise<{ s
               data,
             }
 
+            let decision: HookDecision | void
             try {
-              onHookEvent(event)
+              decision = onHookEvent(event)
               debugFn(`[hook] ${eventType} received (sid=${effectiveSessionId.slice(0, 8)})`)
             } catch (err) {
+              decision = undefined
               debugFn(`[hook] ${eventType} callback error: ${err instanceof Error ? err.message : err}`)
             }
 
+            // A hook decision (e.g. the set_status Stop nudge) is returned to CC
+            // as the hook command's stdout -- a `{decision:'block',reason}` JSON
+            // body re-invokes the agent once. No decision -> empty 200.
+            if (decision) {
+              return new Response(JSON.stringify(decision), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              })
+            }
             return new Response(null, { status: 200 })
           } catch (parseErr) {
             debugFn(`[hook] ${eventType} parse error: ${parseErr instanceof Error ? parseErr.message : parseErr}`)

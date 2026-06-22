@@ -731,6 +731,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
       rateLimit: conv.rateLimit,
       planMode: conv.planMode || undefined,
       pendingAttention: conv.pendingAttention,
+      liveStatus: conv.liveStatus,
       pendingSpawnApproval: conv.pendingSpawnApproval,
       spawnAutoApproved: conv.spawnAutoApproved,
       hasNotification: conv.hasNotification,
@@ -1154,6 +1155,7 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
           lastTurnEndedAt: fullMeta.lastTurnEndedAt as number | undefined,
           pendingDialog: fullMeta.pendingDialog as Conversation['pendingDialog'],
           liveDialog: fullMeta.liveDialog as Conversation['liveDialog'],
+          liveStatus: fullMeta.liveStatus as Conversation['liveStatus'],
           pendingPlanApproval: fullMeta.pendingPlanApproval as Conversation['pendingPlanApproval'],
           pendingPermission: fullMeta.pendingPermission as Conversation['pendingPermission'],
           pendingAskQuestion: fullMeta.pendingAskQuestion as Conversation['pendingAskQuestion'],
@@ -1246,6 +1248,9 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
         // but persisted here so a reconnecting panel replays the current snapshot
         // (read-only if the host is down) after a broker restart.
         liveDialog: conv.liveDialog,
+        // THE STATUS: the agent's self-reported task state, persisted so the
+        // badge survives a broker restart (reset to `working` on next user turn).
+        liveStatus: conv.liveStatus,
         pendingPlanApproval: conv.pendingPlanApproval,
         pendingPermission: conv.pendingPermission,
         pendingAskQuestion: conv.pendingAskQuestion,
@@ -1589,6 +1594,9 @@ export function createConversationStore(options: ConversationStoreOptions = {}):
     conv.pendingPermission = undefined
     conv.pendingAskQuestion = undefined
     conv.pendingAttention = undefined
+    // THE STATUS: the slot is tied to the CC session /clear just killed -- wipe it
+    // so a stale done/blocked doesn't survive into the new session.
+    conv.liveStatus = undefined
     conv.planMode = undefined
     conv.hasNotification = undefined
     // contextMode is CC's runtime state (set by /model or /context commands).

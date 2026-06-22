@@ -17,11 +17,24 @@ import { type HostRpcContext, senderId } from './context'
 export function buildHostLocalCallbacks(ctx: HostRpcContext): McpChannelCallbacks {
   const { transport, diag, sinks } = ctx
 
+  // Host-stamped monotonic seq so the broker can drop out-of-order status writes.
+  let statusSeq = 0
+
   return {
     onNotify(message, title) {
       diag('channel', `Notify: ${title ? `[${title}] ` : ''}${message.slice(0, 80)}`)
       if (transport.isConnected()) {
         transport.send({ type: 'notify', conversationId: ctx.conversationId, message, title })
+      }
+    },
+
+    onSetStatus(input) {
+      const status = { ...input, seq: ++statusSeq, updatedAt: Date.now() }
+      diag('channel', `Status: ${status.state} seq=${status.seq}`)
+      // Tell the host a status was set this turn so the Stop hook doesn't nudge.
+      sinks.noteStatusSet?.()
+      if (transport.isConnected()) {
+        transport.send({ type: 'agent_status', conversationId: ctx.conversationId, status })
       }
     },
 

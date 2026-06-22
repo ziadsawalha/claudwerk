@@ -14,6 +14,8 @@ import { formatTranscriptWindow } from '../../shared/transcript-window-format'
 import { BUILD_VERSION } from '../../shared/version'
 import { resolveAuth } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
+import { runDispatch } from '../desk/runtime'
+import { listThreads } from '../desk/threads'
 import { getGlobalSettings } from '../global-settings'
 import { getProjectSettings } from '../project-settings'
 import { isPushConfigured, sendPushToAll } from '../push'
@@ -367,6 +369,48 @@ export function createMcpServer(
         ],
       }
     },
+  )
+
+  // ─── dispatch (Front Desk routing brain) ─────────────────────────────
+  mcp.tool(
+    'dispatch',
+    'Front Desk dispatcher: hand it an INTENT and it decides the disposition -- spawn a NEW conversation, ROUTE the message into an existing live one, or REVIVE an ended one -- then executes via the existing spawn/route handlers. Returns the structured decision (disposition, target, confidence, reasoning, cost, candidates). Pass only `intent` to let it decide; pass `target`/`disposition` to override. A very-expensive route (large context / cold cache / Opus) is HELD with `awaitingConfirmation` until you re-call with `confirmedExpensive: true`. If unsure it returns disposition `ask` with candidate conversations to choose from. Only projects opted into the dispatcher status feed are considered. A NEW spawn needs `cwd`; with `worktreeName` the worker is placed worktree-correctly (a cwd=main+worktree combo is refused).',
+    {
+      intent: z.string().describe("What you want done, in the user's words."),
+      target: z
+        .string()
+        .optional()
+        .describe('Explicit conversationId or project to force (override-first, no LLM call).'),
+      disposition: z.enum(['new', 'route', 'revive']).optional().describe('Hard override of the routing decision.'),
+      confirmedExpensive: z
+        .boolean()
+        .optional()
+        .describe('Set true to proceed with a route the dispatcher flagged as very expensive.'),
+      cwd: z.string().optional().describe('For a NEW spawn: absolute working directory.'),
+      worktreeName: z
+        .string()
+        .optional()
+        .describe('For a NEW spawn: the worktree/branch to place the worker in (worktree-correct).'),
+    },
+    async ({ intent, target, disposition, confirmedExpensive, cwd, worktreeName }) => {
+      try {
+        const decision = await runDispatch(
+          { intent, target, disposition, confirmedExpensive, cwd, worktreeName },
+          { store: conversationStore, callerConversationId },
+        )
+        return toolText(JSON.stringify(decision))
+      } catch (e) {
+        return toolText(`dispatch failed: ${(e as Error).message}`, true)
+      }
+    },
+  )
+
+  // ─── list_threads (dispatcher near-memory) ───────────────────────────
+  mcp.tool(
+    'list_threads',
+    "List the dispatcher's threads -- its near-memory of what it is managing right now. Each thread is a tiny local State-of-the-Union: a title + summary + the conversations it has used WITH a last-used timestamp per conversation. This is what the dispatcher remembers.",
+    { limit: z.number().int().positive().optional().describe('Max threads (default 50).') },
+    async ({ limit }) => toolText(JSON.stringify(listThreads(limit))),
   )
 
   // ─── list_conversations ─────────────────────────────────────────────

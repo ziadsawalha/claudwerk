@@ -95,6 +95,13 @@ export interface AgentHostContext {
   readonly runningSubagents: Set<string>
   readonly bgTaskOutputWatchers: Map<string, { stop: () => void }>
 
+  // THE STATUS — per-turn flags for the Stop-hook set_status nudge. Reset on
+  // UserPromptSubmit. `statusSetThisTurn` is set when the agent calls set_status;
+  // `didWorkThisTurn` is set on the first real tool use (so a pure-conversation
+  // turn is never nudged). The Stop hook nudges iff worked-but-no-status.
+  statusSetThisTurn: boolean
+  didWorkThisTurn: boolean
+
   // Caches
   readonly pendingEditInputs: Map<string, { oldString: string; newString: string }>
   readonly pendingReadPaths: Map<string, string> // tool_use_id -> file_path for image upload

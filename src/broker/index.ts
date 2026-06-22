@@ -5,6 +5,7 @@
  */
 
 import { checkBunVersion } from '../shared/bun-version'
+import { formatDuration } from '../shared/format-duration'
 
 checkBunVersion()
 
@@ -38,6 +39,8 @@ import {
 import { createConversationStore } from './conversation-store'
 import { type ContextDeps, createContext } from './create-context'
 import { startNightshiftWatchdog } from './nightshift-watchdog'
+import { closeDispatchAudit, initDispatchAudit } from './desk/audit'
+import { closeDispatchThreads, initDispatchThreads } from './desk/threads'
 import { startExternalStatusPolling, stopExternalStatusPolling } from './external-status'
 import { createGatewayRegistry } from './gateway-registry'
 import { initGlobalSettings } from './global-settings'
@@ -237,15 +240,6 @@ EXAMPLES:
 `)
 }
 
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${minutes % 60}m`
-}
-
 async function main() {
   const {
     port,
@@ -313,6 +307,10 @@ async function main() {
 
   // Initialize per-project checklist store (broker-local config DB)
   initChecklistStore(authCacheDir)
+
+  // Initialize dispatcher stores (decision audit log + threads near-memory)
+  initDispatchAudit(authCacheDir)
+  initDispatchThreads(authCacheDir)
 
   // Initialize analytics store (SQLite, non-critical)
   initAnalyticsStore(authCacheDir)
@@ -580,6 +578,8 @@ async function main() {
     closeAnalyticsStore()
     closeProjectStore()
     closeChecklistStore()
+    closeDispatchAudit()
+    closeDispatchThreads()
     store.close()
     process.exit(0)
   })
@@ -589,6 +589,8 @@ async function main() {
     closeAnalyticsStore()
     closeProjectStore()
     closeChecklistStore()
+    closeDispatchAudit()
+    closeDispatchThreads()
     store.close()
     process.exit(0)
   })

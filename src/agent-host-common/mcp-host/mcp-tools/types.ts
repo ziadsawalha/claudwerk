@@ -1,5 +1,6 @@
 import type { DialogOp, DialogSnapshot } from '../../../shared/dialog-live'
 import type { DialogLayout, DialogResult } from '../../../shared/dialog-schema'
+import type { LiveStatus, LiveStatusInput } from '../../../shared/protocol'
 import type { SpawnRequest } from '../../../shared/spawn-schema'
 import type { OpenDialogRegistry } from '../open-dialogs'
 
@@ -48,6 +49,12 @@ export interface ConversationInfo {
   description?: string
   title?: string
   summary?: string
+  /** THE STATUS — the conversation's last self-reported status (include: ['agent_status']). */
+  agentStatus?: LiveStatus
+  /** Relative age of the last status update (e.g. "3m"). With include: ['agent_status']. */
+  statusAge?: string
+  /** Relative age of the last impulse — message posted to the conversation (e.g. "12m"). */
+  lastInputAge?: string
   /** Only set on `status: "spawning"` rows. The job that's bringing this up. */
   spawnJobId?: string
   /** Only set on `status: "spawning"` rows. Last lifecycle step observed. */
@@ -73,6 +80,8 @@ export interface PermissionRequestData {
 
 export interface McpChannelCallbacks {
   onNotify?: (message: string, title?: string) => void
+  /** THE STATUS — agent self-reported task state (set_status tool). */
+  onSetStatus?: (status: LiveStatusInput) => void
   onShareFile?: (filePath: string) => Promise<{ url: string } | { error: string }>
   onListConversations?: (
     status?: string,
