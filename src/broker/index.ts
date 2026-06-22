@@ -5,6 +5,7 @@
  */
 
 import { checkBunVersion } from '../shared/bun-version'
+import { formatDuration } from '../shared/format-duration'
 
 checkBunVersion()
 
@@ -234,15 +235,6 @@ EXAMPLES:
   broker -v                # Start with verbose logging
   broker --clear-cache     # Clear cached conversations
 `)
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${minutes % 60}m`
 }
 
 async function main() {

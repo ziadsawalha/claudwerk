@@ -51,6 +51,10 @@ export interface ConversationInfo {
   summary?: string
   /** THE STATUS — the conversation's last self-reported status (include: ['agent_status']). */
   agentStatus?: LiveStatus
+  /** Relative age of the last status update (e.g. "3m"). With include: ['agent_status']. */
+  statusAge?: string
+  /** Relative age of the last impulse — message posted to the conversation (e.g. "12m"). */
+  lastInputAge?: string
   /** Only set on `status: "spawning"` rows. The job that's bringing this up. */
   spawnJobId?: string
   /** Only set on `status: "spawning"` rows. Last lifecycle step observed. */

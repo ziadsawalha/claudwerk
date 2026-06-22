@@ -45,7 +45,7 @@ export function registerConversationTools(ctx: McpToolContext): Record<string, T
               ],
             },
             description:
-              'Additive field overrides on top of `fields`. Example: `fields: "minimal", include: ["summary","capabilities"]` returns minimal plus those two. `uris` is a pair (projectUri + conversationUri). `metadata` is benevolent-only. `agent_status` returns the conversation’s last self-reported set_status as `agentStatus` (state + detail fields + safe_to_close).',
+              'Additive field overrides on top of `fields`. Example: `fields: "minimal", include: ["summary","capabilities"]` returns minimal plus those two. `uris` is a pair (projectUri + conversationUri). `metadata` is benevolent-only. `agent_status` returns the conversation’s last self-reported set_status as `agentStatus` (state + detail fields + safe_to_close), plus `statusAge` (how old that status is) and `lastInputAge` (time since the last message/impulse posted to the conversation).',
           },
           show_metadata: {
             type: 'boolean',

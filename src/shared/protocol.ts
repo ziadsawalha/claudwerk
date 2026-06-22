@@ -2687,6 +2687,10 @@ export interface Conversation {
   claudeAuth?: { email?: string; orgId?: string; orgName?: string; subscriptionType?: string }
   startedAt: number
   lastActivity: number
+  /** Last time a MESSAGE was posted to this conversation (a user prompt /
+   *  impulse), distinct from `lastActivity` which ticks on every hook event.
+   *  Stamped on UserPromptSubmit; drives the "impulse age" in list_conversations. */
+  lastInputAt?: number
   status: 'active' | 'idle' | 'ended' | 'starting' | 'booting'
   compacting?: boolean
   compactedAt?: number

@@ -96,6 +96,13 @@ describe('the status — reset on user input', () => {
     h.conversationStore.addEvent(convId, userPrompt(convId))
     expect(h.conversationStore.getConversation(convId)!.liveStatus?.safe_to_close).toBeUndefined()
   })
+
+  it('stamps lastInputAt (impulse clock) on a user prompt', () => {
+    const convId = testId('conv')
+    bootActiveAgent(h, convId, PROJECT)
+    h.conversationStore.addEvent(convId, userPrompt(convId))
+    expect(h.conversationStore.getConversation(convId)!.lastInputAt).toBe(2)
+  })
 })
 
 describe('the status — derived needs_you gate', () => {

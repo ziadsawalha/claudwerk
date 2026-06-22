@@ -267,6 +267,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<{ s
               decision = onHookEvent(event)
               debugFn(`[hook] ${eventType} received (sid=${effectiveSessionId.slice(0, 8)})`)
             } catch (err) {
+              decision = undefined
               debugFn(`[hook] ${eventType} callback error: ${err instanceof Error ? err.message : err}`)
             }
 

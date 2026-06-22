@@ -250,6 +250,8 @@ function dispatchResetStatus(
   event: HookEvent,
 ): void {
   rearmAttentionNotify(conversationId)
+  // Stamp the "impulse age" clock — last time a message was posted here.
+  conv.lastInputAt = event.timestamp
   const ls = conv.liveStatus
   const isBareWorking =
     ls?.state === 'working' && !ls.done && !ls.pending && !ls.caveats && !ls.blocked && !ls.notes && !ls.safe_to_close
