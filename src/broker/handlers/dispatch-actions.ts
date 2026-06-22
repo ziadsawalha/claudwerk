@@ -15,6 +15,7 @@
  *   dispatch_list_threads  -> listThreadsForUser   -> dispatch_threads_result
  */
 
+import { runDispatchAgent } from '../desk/agent-runtime'
 import type { DispatchCommand } from '../desk/orchestrate'
 import { type DispatchRuntime, listDispatchRosterCandidates, runDispatch } from '../desk/runtime'
 import { listThreads } from '../desk/threads'
@@ -32,6 +33,7 @@ function listThreadsForUser(_userId: string | null, limit?: number) {
   return listThreads(limit ?? undefined)
 }
 
+// fallow-ignore-next-line complexity
 function buildCommand(data: MessageData): DispatchCommand {
   const intent = typeof data.intent === 'string' ? data.intent.trim() : ''
   if (!intent) throw new GuardError('dispatch_request requires a non-empty intent')
@@ -46,6 +48,64 @@ function buildCommand(data: MessageData): DispatchCommand {
   if (typeof data.project === 'string' && data.project) cmd.project = data.project
   if (typeof data.profile === 'string' && data.profile) cmd.profile = data.profile
   return cmd
+}
+
+/** Run the agent loop, streaming each tool call + result to the requesting
+ *  overlay (rendered dimmed) under one shared traceId. */
+function runAgentTurn(
+  ctx: HandlerContext,
+  intent: string,
+  rt: DispatchRuntime,
+  opts: { model?: string; userId: string | null; requestId?: string },
+) {
+  const { userId, requestId } = opts
+  const traceId = `trc_${crypto.randomUUID()}`
+  return runDispatchAgent(intent, rt, {
+    model: opts.model,
+    traceId,
+    userId,
+    onToolCall: e =>
+      ctx.reply({
+        type: 'dispatch_tool_call',
+        requestId,
+        traceId,
+        userId,
+        callId: e.callId,
+        name: e.name,
+        summary: e.summary,
+        args: e.args,
+        ts: Date.now(),
+      }),
+    onToolResult: e =>
+      ctx.reply({
+        type: 'dispatch_tool_result',
+        requestId,
+        traceId,
+        userId,
+        callId: e.callId,
+        ok: e.ok,
+        summary: e.summary,
+        result: e.result,
+        error: e.error,
+        ts: Date.now(),
+      }),
+  })
+}
+
+/** Resolve a command to a decision. Explicit disposition/target (candidate-pick,
+ *  confirm-expensive) keep the deterministic override path; a free-text intent
+ *  drives the AGENT LOOP (the dispatcher is a controller, tool calls stream out). */
+function resolveDecision(
+  ctx: HandlerContext,
+  data: MessageData,
+  cmd: DispatchCommand,
+  rt: DispatchRuntime,
+  userId: string | null,
+  requestId?: string,
+) {
+  if (cmd.disposition || cmd.target) return runDispatch(cmd, rt)
+  const model = typeof data.model === 'string' && data.model ? data.model : undefined
+  return runAgentTurn(ctx, cmd.intent, rt, { model, userId, requestId })
 }
 
 const dispatchRequest: MessageHandler = async (ctx: HandlerContext, data: MessageData) => {
@@ -64,13 +124,10 @@ const dispatchRequest: MessageHandler = async (ctx: HandlerContext, data: Messag
 
   const rt: DispatchRuntime = { store: ctx.conversations, callerConversationId: null }
   try {
-    const decision = await runDispatch(cmd, rt)
+    const decision = await resolveDecision(ctx, data, cmd, rt, userId, requestId)
     // Stamp the per-user owner on the correlated reply (read-layer scoping).
     ctx.reply({ type: 'dispatch_request_result', requestId, ok: true, decision: { ...decision, userId } })
-    ctx.log.debug(
-      `dispatch_request [${userId ?? 'anon'}] "${cmd.intent.slice(0, 50)}" -> ` +
-        `${decision.disposition}${decision.executed ? ' (executed)' : ''}`,
-    )
+    ctx.log.debug(`dispatch_request [${userId ?? 'anon'}] "${cmd.intent.slice(0, 40)}" -> ${decision.disposition}`)
   } catch (e) {
     ctx.reply({ type: 'dispatch_request_result', requestId, ok: false, error: (e as Error).message })
     ctx.log.debug(`dispatch_request [${userId ?? 'anon'}] refused: ${(e as Error).message}`)

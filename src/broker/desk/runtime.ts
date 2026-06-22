@@ -58,18 +58,19 @@ function toRosterEntry(c: Conversation): DispatchRosterEntry {
   return entry
 }
 
-/** Only conversations whose PROJECT has opted into the dispatcher status feed
- *  are visible to routing (plan §9.5 per-project opt-in). */
+/** The dispatcher sees ALL conversations -- routing visibility is UNGATED
+ *  (Jonas, §11: "list_conversations MUST always be available"). The §9.5
+ *  per-project dispatchSubscribed opt-in is retired as a visibility gate. */
 function dispatchRoster(store: ConversationStore): RosterSource {
   return {
     list: async () => coveredConversations(store).map(toRosterEntry),
   }
 }
 
-/** The covered (dispatch-subscribed, non-share) conversations -- the shared
- *  source for both routing (toRosterEntry) and the visible roster (candidates). */
+/** All conversations -- the shared source for both routing (toRosterEntry) and
+ *  the visible roster (candidates). No longer gated by dispatchSubscribed. */
 function coveredConversations(store: ConversationStore): Conversation[] {
-  return store.getAllConversations().filter(c => getProjectSettings(c.project)?.dispatchSubscribed === true)
+  return store.getAllConversations()
 }
 
 /** A live conversation as a selectable roster card for the overlay. Lighter than
@@ -85,10 +86,11 @@ function toRosterCandidate(c: Conversation): DispatchCandidate {
   return cand
 }
 
-/** The live roster the desk currently covers, as overlay cards (most-recent
- *  activity first). Empty when no project has opted in. */
+/** The live roster as overlay cards (most-recent activity first). "Active right
+ *  now" -> live conversations only; the agent`s list_conversations tool sees all. */
 export function listDispatchRosterCandidates(store: ConversationStore): DispatchCandidate[] {
   return coveredConversations(store)
+    .filter(c => c.status !== 'ended')
     .sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0))
     .map(toRosterCandidate)
 }
