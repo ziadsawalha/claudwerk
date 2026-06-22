@@ -10,6 +10,7 @@ import { matchProjectUri, tryParseProjectUri } from '../../shared/project-uri'
 import type { FetchArtifact, FetchArtifactResult } from '../../shared/protocol'
 import { getAuthenticatedUser } from '../auth-routes'
 import type { ConversationStore } from '../conversation-store'
+import { mintVoiceToken } from '../desk/voice-mint'
 import { getGlobalSettings, updateGlobalSettings } from '../global-settings'
 import { getModels, getModelsFetchedAt } from '../model-pricing'
 import { hasPermissionAnyCwd, resolvePermissions, type UserGrant } from '../permissions'
@@ -164,6 +165,24 @@ export function createApiRouter(
     if (!httpIsAdmin(c.req.raw)) return c.json({ error: 'Forbidden: admin only' }, 403)
     const result = store.transcripts.rebuildIndex()
     return c.json(result)
+  })
+
+  // ─── Jarvis voice: mint an ephemeral OpenAI Realtime token ─────────
+  // The real OPENAI_API_KEY stays server-side; the browser gets only the
+  // short-lived ephemeral secret for its WebRTC offer. Env-gated + graceful:
+  // if the key is unset the route reports voice-unavailable (no crash, no
+  // boot block) -- Jonas flips it on by populating the broker env.
+  app.post('/api/desk/voice/token', async c => {
+    if (!httpHasPermission(c.req.raw, 'spawn', '*'))
+      return c.json({ error: 'Forbidden: dispatch/voice permission required' }, 403)
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) return c.json({ error: 'voice not configured', code: 'voice_unconfigured' }, 503)
+    try {
+      const minted = await mintVoiceToken({ apiKey, safetyId: 'desk-voice' })
+      return c.json(minted)
+    } catch (e) {
+      return c.json({ error: `voice token mint failed: ${(e as Error).message}` }, 502)
+    }
   })
 
   // ─── Transcript context window (sliding) ───────────────────────────

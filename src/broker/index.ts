@@ -37,6 +37,8 @@ import {
 } from './conversation-links'
 import { createConversationStore } from './conversation-store'
 import { type ContextDeps, createContext } from './create-context'
+import { closeDispatchAudit, initDispatchAudit } from './desk/audit'
+import { closeDispatchThreads, initDispatchThreads } from './desk/threads'
 import { startExternalStatusPolling, stopExternalStatusPolling } from './external-status'
 import { createGatewayRegistry } from './gateway-registry'
 import { initGlobalSettings } from './global-settings'
@@ -313,6 +315,10 @@ async function main() {
   // Initialize per-project checklist store (broker-local config DB)
   initChecklistStore(authCacheDir)
 
+  // Initialize dispatcher stores (decision audit log + threads near-memory)
+  initDispatchAudit(authCacheDir)
+  initDispatchThreads(authCacheDir)
+
   // Initialize analytics store (SQLite, non-critical)
   initAnalyticsStore(authCacheDir)
 
@@ -579,6 +585,8 @@ async function main() {
     closeAnalyticsStore()
     closeProjectStore()
     closeChecklistStore()
+    closeDispatchAudit()
+    closeDispatchThreads()
     store.close()
     process.exit(0)
   })
@@ -588,6 +596,8 @@ async function main() {
     closeAnalyticsStore()
     closeProjectStore()
     closeChecklistStore()
+    closeDispatchAudit()
+    closeDispatchThreads()
     store.close()
     process.exit(0)
   })

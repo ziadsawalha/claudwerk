@@ -101,4 +101,30 @@ describe('classifyDispatch -- LLM path', () => {
     const r = await classifyDispatch({ intent: 'x', roster }, chat)
     expect(r.disposition).toBe('ask')
   })
+
+  it('parses markdown-fenced JSON (Haiku wraps it in ```json)', async () => {
+    const chat: ChatFn = async () =>
+      ({
+        content: '```json\n{"disposition":"route","target":"conv_mic","confidence":0.9,"reasoning":"mic"}\n```',
+        raw: {},
+        usage: {} as never,
+        model: 'mock',
+      }) as ChatResponse
+    const r = await classifyDispatch({ intent: 'fix the mic', roster }, chat)
+    expect(r.disposition).toBe('route')
+    expect(r.target).toBe('conv_mic')
+  })
+
+  it('parses JSON embedded in prose', async () => {
+    const chat: ChatFn = async () =>
+      ({
+        content:
+          'Sure! Here is my decision: {"disposition":"new","target":null,"confidence":0.8,"reasoning":"new"} ok?',
+        raw: {},
+        usage: {} as never,
+        model: 'mock',
+      }) as ChatResponse
+    const r = await classifyDispatch({ intent: 'blog', roster }, chat)
+    expect(r.disposition).toBe('new')
+  })
 })

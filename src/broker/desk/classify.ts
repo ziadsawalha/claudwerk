@@ -152,8 +152,20 @@ function buildUserPrompt(input: ClassifyInput): string {
   return `INTENT:\n${input.intent}\n\nROSTER (candidate conversations):\n${JSON.stringify(roster, null, 2)}`
 }
 
+/** Extract the JSON object from a model reply that may wrap it in a ```json
+ *  fence or surround it with prose (Haiku does this even with json_object). */
+function extractJson(content: string): string {
+  const t = content.trim()
+  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fenced?.[1]) return fenced[1].trim()
+  const first = t.indexOf('{')
+  const last = t.lastIndexOf('}')
+  if (first !== -1 && last > first) return t.slice(first, last + 1)
+  return t
+}
+
 function parseDecision(content: string): LlmDecision {
-  const raw = JSON.parse(content) as Partial<LlmDecision>
+  const raw = JSON.parse(extractJson(content)) as Partial<LlmDecision>
   const disposition = raw.disposition
   if (disposition !== 'new' && disposition !== 'route' && disposition !== 'revive' && disposition !== 'ask') {
     throw new Error(`bad disposition: ${String(disposition)}`)
