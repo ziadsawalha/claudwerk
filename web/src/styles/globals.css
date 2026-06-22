@@ -340,6 +340,9 @@ body {
 		margin: 0.75em 0;
 		overflow-x: auto;
 		border-radius: 2px;
+		/* Tight leading so box-drawing chars (┌─┐│└┘) connect vertically.
+		   Inherited prose line-height (1.6) shreds ASCII art. */
+		line-height: 1.15;
 	}
 
 	pre code {
@@ -511,6 +514,23 @@ pre.mermaid {
 .mermaid-container svg {
 	max-width: 100%;
 	height: auto;
+}
+
+/* Commentable diagram (live dialogs): nodes are click targets; commented ones glow. */
+.mermaid-commentable .mermaid-container g.node {
+	cursor: pointer;
+}
+
+.mermaid-commentable .mermaid-container g.node.has-comment {
+	filter: drop-shadow(0 0 4px var(--primary));
+}
+
+.mermaid-commentable .mermaid-container g.node.has-comment > rect,
+.mermaid-commentable .mermaid-container g.node.has-comment > circle,
+.mermaid-commentable .mermaid-container g.node.has-comment > polygon,
+.mermaid-commentable .mermaid-container g.node.has-comment > path {
+	stroke: var(--primary);
+	stroke-width: 2px;
 }
 
 .mermaid-error {
