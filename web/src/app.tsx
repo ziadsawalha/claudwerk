@@ -1,7 +1,6 @@
 import { ChevronLeft, ChevronRight, Command, Crosshair, FileText, Menu } from 'lucide-react'
 import { type ComponentType, lazy, Suspense, useEffect, useState } from 'react'
 import { ActionFab } from '@/components/action-fab'
-import { AgentShellHost } from '@/components/agent-shell-host'
 import { AudioPlayerHost } from '@/components/audio-player-host'
 import { AuthExpiredModal } from '@/components/auth-expired-modal'
 import { AuthGate } from '@/components/auth-gate'
@@ -56,6 +55,7 @@ import { useWebSocket } from '@/hooks/use-websocket'
 import { executeCommand } from '@/lib/commands'
 import { focusInputEditor } from '@/lib/focus-input'
 import { lazyModule, named } from '@/lib/lazy-module'
+import { useAgentShellsStore } from '@/lib/web-control-shells'
 import { clearShareMode, detectShareKind, detectShareMode } from '@/lib/share-mode'
 import { isMobileViewport, isTouchDevice } from '@/lib/utils'
 
@@ -161,6 +161,12 @@ const MermaidLightbox = lazyModule(
 )
 // The per-user dispatch cockpit -- chunk loads only when first summoned.
 const DispatchOverlay = lazyModule(() => import('@/components/dispatch-overlay/dispatch-overlay'), dispatchBus.useArmed)
+// Off-screen agent-attached (debug) shell host -- pulls in @xterm (~458KB), so it
+// stays out of the boot bundle until the agent first attaches a shell.
+const AgentShellHost = lazyModule(
+  named(() => import('@/components/agent-shell-host'), 'AgentShellHost'),
+  () => useAgentShellsStore(s => Object.keys(s.attached).length > 0),
+)
 // Parent-conditional: gated on showBatchPalette below, so plain React.lazy.
 const BatchModeModal = lazy(() =>
   import('@/components/command-palette/batch-mode').then(m => ({ default: m.BatchModeModal })),
