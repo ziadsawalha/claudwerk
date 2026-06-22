@@ -13,6 +13,9 @@ import { DRAW_INLINE_MAX, type DrawValue, isDrawValue } from '@shared/draw'
 import { uploadFile } from '@/lib/upload'
 import { exportScenePng } from './draw-export'
 
+/** Inline drawing kinds that carry a raw `snapshot` (renderable to a PNG thumbnail). */
+type SnapshotValue = Extract<DrawValue, { kind: 'draw' | 'excalidraw' }>
+
 /** Render a scene to a PNG thumbnail and upload it; undefined on any failure. */
 async function renderThumb(snapshot: string, key: string, conversationId?: string): Promise<string | undefined> {
   try {
@@ -40,25 +43,42 @@ export async function materializeDrawValues(
     if (!isDrawValue(v)) continue
     let value: DrawValue = v
 
-    // 1. Thumbnail -- only inline scenes can be rendered here; a draw-ref keeps its
-    // existing thumb from a prior submit.
-    if (value.kind === 'draw' && !value.thumbUrl) {
+    // 1. Thumbnail -- only inline scenes (draw / excalidraw) carry a renderable
+    // snapshot; a *-ref keeps its existing thumb from a prior submit.
+    if ((value.kind === 'draw' || value.kind === 'excalidraw') && !value.thumbUrl) {
       const thumbUrl = await renderThumb(value.snapshot, key, conversationId)
       if (thumbUrl) value = { ...value, thumbUrl }
     }
 
-    // 2. Spill oversize inline scenes to a blob ref, preserving the thumb.
-    if (value.kind === 'draw' && value.bytes > DRAW_INLINE_MAX) {
-      try {
-        const file = new File([value.snapshot], `drawing-${key}.json`, { type: 'application/json' })
-        const { url } = await uploadFile(file, conversationId)
-        value = { kind: 'draw-ref', url, bytes: value.bytes, thumbUrl: value.thumbUrl }
-      } catch (err) {
-        console.error('[draw] snapshot spill upload failed; sending inline', err)
-      }
+    // 2. Spill an oversize raw snapshot to a blob ref. For an excalidraw value the
+    // compact scene+diff stay inline (the round-trip's point); only the heavy raw
+    // snapshot is parked in a file.
+    if ((value.kind === 'draw' || value.kind === 'excalidraw') && value.bytes > DRAW_INLINE_MAX) {
+      value = (await spillSnapshot(value, key, conversationId)) ?? value
     }
 
     out[key] = value
   }
   return out
+}
+
+/** Upload the raw snapshot and swap an inline value for its `-ref` form. */
+async function spillSnapshot(value: SnapshotValue, key: string, conversationId?: string): Promise<DrawValue | null> {
+  try {
+    const file = new File([value.snapshot], `drawing-${key}.json`, { type: 'application/json' })
+    const { url } = await uploadFile(file, conversationId)
+    return value.kind === 'excalidraw'
+      ? {
+          kind: 'excalidraw-ref',
+          url,
+          scene: value.scene,
+          diff: value.diff,
+          bytes: value.bytes,
+          thumbUrl: value.thumbUrl,
+        }
+      : { kind: 'draw-ref', url, bytes: value.bytes, thumbUrl: value.thumbUrl }
+  } catch (err) {
+    console.error('[draw] snapshot spill upload failed; sending inline', err)
+    return null
+  }
 }

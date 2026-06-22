@@ -18,10 +18,13 @@
 import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import { utf8Bytes } from '@shared/draw'
-import { type ComponentProps, useCallback, useMemo, useRef } from 'react'
+import { isDslScene } from '@shared/draw-dsl'
+import { type ComponentProps, useCallback, useEffect, useMemo, useRef } from 'react'
+import { dslToElements } from './excalidraw-dsl-bind'
 
 type ExcalidrawProps = ComponentProps<typeof Excalidraw>
 type ChangeHandler = NonNullable<ExcalidrawProps['onChange']>
+type ExcalidrawAPI = Parameters<NonNullable<ExcalidrawProps['excalidrawAPI']>>[0]
 
 export interface DrawCanvasProps {
   /** Parsed Excalidraw scene to seed the canvas (null = blank). */
@@ -41,15 +44,21 @@ interface SceneSnapshot {
 
 export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot }: DrawCanvasProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const apiRef = useRef<ExcalidrawAPI | null>(null)
 
-  // Seed once from the snapshot. collaborators is a Map (non-serializable) so it never
-  // survives a round-trip -- drop it defensively before handing appState back to Excalidraw.
+  // Seed once from the snapshot. A DSL Scene (v:1 + nodes) is EXPANDED to elements
+  // (compact agent authoring -> sketchy shapes with bound arrows); a raw Excalidraw
+  // scene seeds directly. collaborators is a Map (non-serializable) so it never survives
+  // a round-trip -- drop it defensively before handing appState back to Excalidraw.
   //
   // Theme: seeded through appState (the DEFAULT), not the controlled `theme` prop -- the prop
   // would LOCK the theme and override the user's in-app light/dark toggle on every re-render.
   // claudewerk is a dark app, so we default the canvas to dark; the user can still flip to
   // light from Excalidraw's menu, and that choice persists in appState across the snapshot.
   const initialData = useMemo<ExcalidrawProps['initialData']>(() => {
+    if (isDslScene(initialSnapshot)) {
+      return { elements: dslToElements(initialSnapshot) as never, appState: { theme: 'dark' }, scrollToContent: true }
+    }
     const s = initialSnapshot as SceneSnapshot | undefined
     if (!s) return { appState: { theme: 'dark' }, scrollToContent: true }
     const { collaborators: _drop, ...appState } = s.appState ?? {}
@@ -63,6 +72,20 @@ export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Agent redraw: when the seeded DSL Scene REFERENCE changes (the agent patched the
+  // block via update_dialog), re-expand and push it through the live API -- no remount,
+  // so pan/zoom survive. The first render is already covered by initialData (skip it).
+  const seededOnce = useRef(false)
+  useEffect(() => {
+    if (!seededOnce.current) {
+      seededOnce.current = true
+      return
+    }
+    if (apiRef.current && isDslScene(initialSnapshot)) {
+      apiRef.current.updateScene({ elements: dslToElements(initialSnapshot) as never })
+    }
+  }, [initialSnapshot])
+
   const handleChange = useCallback<ChangeHandler>(
     (elements, appState, files) => {
       if (readOnly || !onSnapshot) return
@@ -75,5 +98,14 @@ export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot
     [readOnly, onSnapshot],
   )
 
-  return <Excalidraw initialData={initialData} viewModeEnabled={readOnly} onChange={handleChange} />
+  return (
+    <Excalidraw
+      initialData={initialData}
+      excalidrawAPI={api => {
+        apiRef.current = api
+      }}
+      viewModeEnabled={readOnly}
+      onChange={handleChange}
+    />
+  )
 }

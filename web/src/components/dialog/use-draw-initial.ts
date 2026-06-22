@@ -50,7 +50,9 @@ export function useDrawInitial(
 
     setState(s => ({ ...s, loading: true }))
     if (isDrawValue(seed)) {
-      if (seed.kind === 'draw') return void done(parseJson(seed.snapshot))
+      // Restore the raw scene the user last had: inline kinds carry it, *-ref kinds
+      // fetch it. (DSL is only the agent's SEED via `content`; a restored edit is raw.)
+      if (seed.kind === 'draw' || seed.kind === 'excalidraw') return void done(parseJson(seed.snapshot))
       void fetchUrl(seed.url)
       return () => {
         cancelled = true

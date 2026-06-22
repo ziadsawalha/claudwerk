@@ -7,6 +7,8 @@
  * and ride as a URL reference so the WS event + persisted scene stay small.
  */
 
+import type { Scene, SceneDiff } from './draw-dsl'
+
 /**
  * A single drawing up to this size rides inline; larger ones spill to a blob
  * file and ride as a URL reference ("256k is okay" inline). It doubles as the
@@ -35,12 +37,41 @@ export interface DrawRefValue {
   thumbUrl?: string
 }
 
-export type DrawValue = DrawInlineValue | DrawRefValue
+/**
+ * A DSL-authored drawing on submit (see draw-dsl.ts). The agent reads the COMPACT
+ * `scene` + `diff` (the round-trip's point: not a 50KB element dump); the raw
+ * Excalidraw `snapshot` rides alongside for fidelity / redraw / the PNG thumbnail,
+ * inline when small and spilled to a blob (`excalidraw-ref`) when large.
+ */
+export interface ExcalidrawInlineValue {
+  kind: 'excalidraw'
+  /** Raw Excalidraw scene JSON (serializeAsJSON; elements carry customData.dslId). */
+  snapshot: string
+  /** Compact DSL reconstruction of the current scene. */
+  scene: Scene
+  /** What the user changed vs the seeded scene (incl the annotation layer). */
+  diff: SceneDiff
+  bytes: number
+  thumbUrl?: string
+}
+
+/** Large DSL drawing: the raw snapshot spilled to a blob; scene+diff stay inline+compact. */
+export interface ExcalidrawRefValue {
+  kind: 'excalidraw-ref'
+  /** Blob URL holding the raw Excalidraw scene JSON. */
+  url: string
+  scene: Scene
+  diff: SceneDiff
+  bytes: number
+  thumbUrl?: string
+}
+
+export type DrawValue = DrawInlineValue | DrawRefValue | ExcalidrawInlineValue | ExcalidrawRefValue
 
 export function isDrawValue(v: unknown): v is DrawValue {
   if (!v || typeof v !== 'object') return false
   const k = (v as { kind?: unknown }).kind
-  return k === 'draw' || k === 'draw-ref'
+  return k === 'draw' || k === 'draw-ref' || k === 'excalidraw' || k === 'excalidraw-ref'
 }
 
 /** UTF-8 byte length of a string (snapshot sizing). */

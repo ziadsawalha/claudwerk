@@ -404,7 +404,7 @@ describe('Draw block', () => {
       title: 'x',
       body: [{ type: 'Draw', id: 'c', content: 42, contentUrl: {}, height: 'tall' }],
     })
-    expect(errors).toContain('Draw.content must be a string (Excalidraw scene JSON)')
+    expect(errors).toContain('Draw.content must be a string (a DSL Scene or raw Excalidraw scene, JSON)')
     expect(errors).toContain('Draw.contentUrl must be a string URL')
     expect(errors).toContain('Draw.height must be a number')
   })

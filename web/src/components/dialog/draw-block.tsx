@@ -1,24 +1,25 @@
 /**
- * Draw block chrome: header (label + size meter + save + fullscreen toggle) wrapping
- * the lazily-loaded Excalidraw canvas. Excalidraw lives in excalidraw-canvas.tsx and
- * is React.lazy'd here so its chunk loads only when a Draw block paints (LAZY LOAD
- * covenant).
+ * Draw block chrome: header (label + size meter + save + fullscreen) wrapping the
+ * lazily-loaded Excalidraw canvas (excalidraw-canvas.tsx, React.lazy'd so its chunk
+ * loads only when a Draw block paints -- LAZY LOAD covenant).
  *
- * Size meter: a drawing over DRAW_INLINE_MAX is flagged ("large -- saved as file"),
- * because on submit draw-spill.ts uploads it to a blob and sends a URL reference
- * instead of inline JSON. The drawing is never lost, just parked in a shareable file.
+ * Two authoring modes, decided by the seed:
+ *   - raw / freehand  -> canvas serializes the scene; submit `{kind:'draw'}` (phase 1).
+ *   - DSL Scene (v:1) -> the agent authored compact shapes; the canvas expands them and
+ *     submit reverses to `{kind:'excalidraw', scene, diff}` (see draw-submit-value).
  *
- * Fullscreen goes TRUE-viewport via `position:fixed` on this same container (see
- * use-fullscreen-escape) -- NOT a portal -- so the canvas never remounts and the
- * toggle is instant with the pan/zoom preserved.
+ * Fullscreen goes TRUE-viewport via `position:fixed` (use-fullscreen-escape) -- NOT a
+ * portal -- so the canvas never remounts and the toggle is instant with pan/zoom kept.
  */
 
-import { DRAW_INLINE_MAX, type DrawValue, isDrawValue } from '@shared/draw'
-import { Download, Maximize2, Minimize2 } from 'lucide-react'
+import { type DrawValue, isDrawValue } from '@shared/draw'
+import { isDslScene, type Scene } from '@shared/draw-dsl'
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { DialogFormState } from './dialog-renderer'
+import { DrawBlockHeader } from './draw-block-header'
 import { downloadScene } from './draw-export'
+import { buildDrawValue } from './draw-submit-value'
 import { useDrawInitial } from './use-draw-initial'
 import { useFullscreenEscape } from './use-fullscreen-escape'
 
@@ -30,10 +31,6 @@ function safeParse(s: string): unknown {
   } catch {
     return null
   }
-}
-
-function sizeLabel(bytes: number): string {
-  return bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 1024)} KB`
 }
 
 export interface DrawBlockProps {
@@ -58,19 +55,35 @@ export function DrawBlock({ id, content, contentUrl, readOnly, height = 420, lab
   const [fullscreen, setFullscreen] = useState(false)
   useFullscreenEscape(containerRef, fullscreen)
 
+  // The reverse baseline is the agent's DSL Scene from `content` (stable across reloads /
+  // restored edits, unlike the canvas seed which becomes a raw snapshot once the user
+  // draws). null = a plain freehand/raw block -> the phase-1 `{kind:'draw'}` path.
+  const dslBase = useMemo<Scene | null>(() => {
+    if (content === undefined) return isDslScene(initial.snapshot) ? (initial.snapshot as Scene) : null
+    const parsed = safeParse(content)
+    return isDslScene(parsed) ? (parsed as Scene) : null
+  }, [content, initial.snapshot])
+
   const onSnapshot = useCallback(
     (json: string, b: number) => {
       latestJson.current = json
       setBytes(b)
-      const value: DrawValue = { kind: 'draw', snapshot: json, bytes: b }
-      formRef.current.setValue(id, value)
+      formRef.current.setValue(id, buildDrawValue(json, b, dslBase))
     },
-    [id],
+    [id, dslBase],
   )
 
-  // Seed the canvas from the freshest local edit, falling back to the resolved
-  // initial. Recomputed only when the agent redraws (initial.snapshot changes) --
-  // NOT on fullscreen toggle (no remount) and not on every keystroke.
+  // When the agent redraws (initial.snapshot reference changes) drop the stale local
+  // edit so the canvas re-seeds from the new content -- the comment->redraw loop.
+  const lastInitial = useRef(initial.snapshot)
+  if (lastInitial.current !== initial.snapshot) {
+    lastInitial.current = initial.snapshot
+    latestJson.current = null
+  }
+
+  // Seed the canvas from the freshest local edit, else the resolved initial (a DSL Scene
+  // expands; a raw scene seeds directly). Recomputed only on redraw -- NOT on fullscreen
+  // toggle or every keystroke.
   const seedSnapshot = useMemo(
     () => (latestJson.current ? safeParse(latestJson.current) : initial.snapshot),
     [initial.snapshot],
@@ -82,7 +95,6 @@ export function DrawBlock({ id, content, contentUrl, readOnly, height = 420, lab
     if (scene) void downloadScene(scene, 'drawing')
   }, [initial.snapshot])
 
-  const over = bytes > DRAW_INLINE_MAX
   const hasScene = bytes > 0 || initial.snapshot != null
   const showChrome = !readOnly && !fullscreen
 
@@ -99,41 +111,16 @@ export function DrawBlock({ id, content, contentUrl, readOnly, height = 420, lab
     </Suspense>
   )
 
-  const header = (
-    <div className="flex items-center justify-between gap-2 px-0.5 pb-1">
-      <span className="text-xs font-medium text-muted-foreground">{label || (readOnly ? 'Drawing' : 'Draw')}</span>
-      <div className="flex items-center gap-2">
-        {bytes > 0 && (
-          <span className={cn('text-[10px] tabular-nums', over ? 'text-amber-500' : 'text-muted-foreground')}>
-            {sizeLabel(bytes)}
-            {over && ' -- saved as file'}
-          </span>
-        )}
-        {hasScene && (
-          <button
-            type="button"
-            onClick={onSave}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            aria-label="Save drawing (.excalidraw + PNG)"
-          >
-            <Download className="size-3.5" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setFullscreen(f => !f)}
-          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-        >
-          {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-        </button>
-      </div>
-    </div>
-  )
-
   return (
     <div ref={containerRef} className={cn(fullscreen && 'fixed inset-0 z-[100] flex flex-col bg-background p-3')}>
-      {header}
+      <DrawBlockHeader
+        label={label || (readOnly ? 'Drawing' : 'Draw')}
+        bytes={bytes}
+        hasScene={hasScene}
+        fullscreen={fullscreen}
+        onSave={onSave}
+        onToggleFullscreen={() => setFullscreen(f => !f)}
+      />
       <div
         className={cn(
           'relative overflow-hidden rounded border border-border/40',
