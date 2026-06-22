@@ -1,6 +1,27 @@
 import { useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { DISPATCH_MODELS } from './dispatch-models'
 import { useDispatchStore } from './dispatch-store'
+
+/** Which model drives the dispatcher agent loop -- switchable per the user. */
+function ModelSelect() {
+  const model = useDispatchStore(s => s.model)
+  const setModel = useDispatchStore(s => s.setModel)
+  return (
+    <select
+      value={model}
+      onChange={e => setModel(e.target.value)}
+      aria-label="Dispatcher model"
+      className="rounded-lg bg-transparent px-1 py-0.5 font-mono text-[11px] text-comment/70 focus-visible:outline-none"
+    >
+      {DISPATCH_MODELS.map(m => (
+        <option key={m.slug} value={m.slug}>
+          {m.label}
+        </option>
+      ))}
+    </select>
+  )
+}
 
 /** The one thing you do: tell the concierge what you need, in your own words.
  *  Pinned at the bottom of the desk. ⌘↵ or the arrow sends. */
@@ -55,6 +76,9 @@ export function DispatchIntentInput() {
         >
           ask
         </button>
+      </div>
+      <div className="mt-1.5 flex items-center px-1">
+        <ModelSelect />
       </div>
     </div>
   )

@@ -19,6 +19,8 @@ import type {
   DispatchCandidate,
   DispatchDecision,
   DispatchThread,
+  DispatchToolCall,
+  DispatchToolResult,
   RecapCompleteMessage,
   RecapCreatedMessage,
   RecapErrorMessage,
@@ -1623,6 +1625,14 @@ function handleDispatchDecision(msg: DashboardMessage) {
   useDispatchStore.getState().onDecisionBroadcast(msg as unknown as DispatchDecision)
 }
 
+function handleDispatchToolCall(msg: DashboardMessage) {
+  useDispatchStore.getState().onToolCall(msg as unknown as DispatchToolCall)
+}
+
+function handleDispatchToolResult(msg: DashboardMessage) {
+  useDispatchStore.getState().onToolResult(msg as unknown as DispatchToolResult)
+}
+
 export const handlers: Record<string, MessageHandler> = {
   // sync
   sync_ok: handleSyncOk,
@@ -1719,4 +1729,6 @@ export const handlers: Record<string, MessageHandler> = {
   dispatch_request_result: handleDispatchRequestResult,
   dispatch_threads_result: handleDispatchThreadsResult,
   dispatch_decision: handleDispatchDecision,
+  dispatch_tool_call: handleDispatchToolCall,
+  dispatch_tool_result: handleDispatchToolResult,
 }

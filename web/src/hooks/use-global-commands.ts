@@ -4,7 +4,8 @@ import {
   openChecklistArchive,
   openChecklistBulkEdit,
 } from '@/components/checklist/checklist-bus'
-import { exposeDispatchControl, useDispatchStore } from '@/components/dispatch-overlay/dispatch-store'
+import { exposeDispatchControl } from '@/components/dispatch-overlay/dispatch-control-bridge'
+import { useDispatchStore } from '@/components/dispatch-overlay/dispatch-store'
 import { openLaunchProfileManager } from '@/components/launch-profiles/manager-state'
 import { openRecapConfigDialog } from '@/components/recap-jobs/recap-config-trigger'
 import { openRecapHistory } from '@/components/recap-jobs/recap-history-trigger'

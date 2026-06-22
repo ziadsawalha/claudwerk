@@ -13,10 +13,17 @@
  * field filters server-side -- drop-in, no client change.
  */
 
-import type { DispatchCandidate, DispatchDecision, DispatchThread } from '@shared/protocol'
+import type {
+  DispatchCandidate,
+  DispatchDecision,
+  DispatchThread,
+  DispatchToolCall,
+  DispatchToolResult,
+} from '@shared/protocol'
 import { create } from 'zustand'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { dispatchBus } from './dispatch-bus'
+import { DISPATCH_MODELS, type DispatchToolEvent } from './dispatch-models'
 
 export type RightPane = 'memory' | 'conversation' | 'workspace'
 
@@ -34,9 +41,17 @@ interface DispatchState {
   threadsLoading: boolean
   activeConvId: string | null
   rightPane: RightPane
+  /** Model the agent loop runs on (slug). User-switchable; sent per request. */
+  model: string
+  /** Streamed tool calls/results keyed by the turn's traceId (the dimmed gears). */
+  toolEvents: Record<string, DispatchToolEvent[]>
+  /** Whether the near-memory threads board is shown (toggle). */
+  showThreads: boolean
 
   // intent / submission
   setIntent(intent: string): void
+  setModel(slug: string): void
+  toggleThreads(): void
   submit(override?: { target?: string; disposition?: 'route' | 'revive' | 'new'; confirmedExpensive?: boolean }): void
   confirmExpensive(decision: DispatchDecision): void
   chooseCandidate(candidate: DispatchCandidate, ended?: boolean): void
@@ -56,6 +71,8 @@ interface DispatchState {
   onRequestResult(msg: { ok?: boolean; error?: string; decision?: DispatchDecision }): void
   onThreadsResult(msg: { threads?: DispatchThread[]; roster?: DispatchCandidate[]; userId?: string | null }): void
   onDecisionBroadcast(decision: DispatchDecision): void
+  onToolCall(msg: DispatchToolCall): void
+  onToolResult(msg: DispatchToolResult): void
 }
 
 let reqSeq = 0
@@ -80,15 +97,21 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   threadsLoading: false,
   activeConvId: null,
   rightPane: 'memory',
+  model: DISPATCH_MODELS[0].slug,
+  toolEvents: {},
+  showThreads: true,
 
   setIntent: intent => set({ intent }),
+  setModel: slug => set({ model: slug }),
+  toggleThreads: () => set(s => ({ showThreads: !s.showThreads })),
 
   submit: override => {
     const intent = get().intent.trim()
     if (!intent || get().pending) return
     const requestId = nextRequestId()
-    set({ pending: true, lastError: null })
-    wsSend('dispatch_request', { intent, requestId, ...override })
+    // Clear the input the moment we send -- "on ask/Enter the input must clear".
+    set({ pending: true, lastError: null, intent: '' })
+    wsSend('dispatch_request', { intent, requestId, model: get().model, ...override })
   },
 
   confirmExpensive: decision => {
@@ -161,47 +184,28 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   // Broadcast frames (every decision, incl. other surfaces). Fold them into the
   // feed so the cockpit reflects dispatcher activity even if it wasn't the caller.
   onDecisionBroadcast: decision => set(s => ({ decisions: mergeDecision(s.decisions, decision) })),
-}))
 
-/**
- * Expose an imperative control surface on `window.__dispatch` so the `web_*`
- * remote-control tools (web_execute_script) can OPEN the cockpit, READ its
- * current state, and SUBMIT an intent for debugging. First-class debug seam.
- */
-export function exposeDispatchControl(): void {
-  if (typeof window === 'undefined') return
-  const api = {
-    open: () => useDispatchStore.getState().openOverlay(),
-    close: () => useDispatchStore.getState().closeOverlay(),
-    submit: (intent: string) => {
-      useDispatchStore.getState().setIntent(intent)
-      useDispatchStore.getState().submit()
-    },
-    setIntent: (intent: string) => useDispatchStore.getState().setIntent(intent),
-    fetchThreads: () => useDispatchStore.getState().fetchThreads(),
-    selectConv: (id: string | null) => useDispatchStore.getState().selectConv(id),
-    /** A JSON-serialisable snapshot of what the cockpit is showing right now. */
-    state: () => {
-      const s = useDispatchStore.getState()
-      return {
-        open: s.open,
-        userId: s.userId,
-        intent: s.intent,
-        pending: s.pending,
-        lastError: s.lastError,
-        rightPane: s.rightPane,
-        activeConvId: s.activeConvId,
-        decisionCount: s.decisions.length,
-        latestDecision: s.decisions[0] ?? null,
-        threads: s.threads.map(t => ({
-          id: t.id,
-          title: t.title,
-          summary: t.summary,
-          conversations: t.conversations.length,
-          updatedAt: t.updatedAt,
-        })),
+  // Streamed gears: append the call (running), then resolve it on its result.
+  onToolCall: msg =>
+    set(s => {
+      const prior = s.toolEvents[msg.traceId] ?? []
+      const event: DispatchToolEvent = {
+        callId: msg.callId,
+        name: msg.name,
+        summary: msg.summary,
+        args: msg.args,
+        status: 'running',
       }
-    },
-  }
-  ;(window as unknown as { __dispatch?: typeof api }).__dispatch = api
-}
+      return { toolEvents: { ...s.toolEvents, [msg.traceId]: [...prior, event] } }
+    }),
+  onToolResult: msg =>
+    set(s => {
+      const prior = s.toolEvents[msg.traceId] ?? []
+      const next = prior.map(e =>
+        e.callId === msg.callId
+          ? { ...e, status: msg.ok ? 'ok' : 'error', resultSummary: msg.summary, error: msg.error }
+          : e,
+      ) as DispatchToolEvent[]
+      return { toolEvents: { ...s.toolEvents, [msg.traceId]: next } }
+    }),
+}))
