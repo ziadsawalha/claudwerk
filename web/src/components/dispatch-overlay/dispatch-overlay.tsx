@@ -3,6 +3,7 @@ import { DispatchConsole } from './dispatch-console'
 import { DispatchHeader } from './dispatch-header'
 import { DispatchRightPane } from './dispatch-right-pane'
 import { DispatchRoster } from './dispatch-roster'
+import { DispatchScopeBar } from './dispatch-scope-bar'
 import { useDispatchStore } from './dispatch-store'
 import './dispatch.css'
 
@@ -38,6 +39,7 @@ export default function DispatchOverlay() {
       <div className="dispatch-deck">
         <div className="dispatch-grid-texture pointer-events-none absolute inset-0" />
         <DispatchHeader />
+        <DispatchScopeBar />
         <div className="relative flex min-h-0 flex-1">
           <DispatchRoster />
           <DispatchConsole />
