@@ -7,7 +7,7 @@ import {
   USAGE_CARRY_FORWARD_MAX_MS,
   type UsageCacheDeps,
 } from './usage-cache'
-import { goodSnapshot as good, NOW, rateLimitedSnapshot as errored } from './usage-test-fixtures'
+import { rateLimitedSnapshot as errored, goodSnapshot as good, NOW } from './usage-test-fixtures'
 
 /** In-memory fs double so the round-trip stays hermetic. */
 function memFs(seed: Record<string, string> = {}) {

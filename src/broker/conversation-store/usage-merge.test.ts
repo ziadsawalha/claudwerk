@@ -90,7 +90,12 @@ describe('mergeProfileUsage', () => {
   })
 
   it('returns the poll snapshot verbatim when neither source has windows', () => {
-    const errored: ProfileUsageSnapshot = { profile: 'default', authed: true, polledAt: NOW, error: { kind: 'no_token' } }
+    const errored: ProfileUsageSnapshot = {
+      profile: 'default',
+      authed: true,
+      polledAt: NOW,
+      error: { kind: 'no_token' },
+    }
     expect(mergeProfileUsage('default', errored, undefined, NOW)).toBe(errored)
   })
 })

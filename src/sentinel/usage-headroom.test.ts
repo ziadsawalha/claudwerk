@@ -4,8 +4,8 @@ import { deriveUsageHeadroom, snapshotHasWindows } from './usage-headroom'
 import {
   authFailedSnapshot as authFailed,
   goodSnapshot as good,
-  noTokenSnapshot as noToken,
   NOW,
+  noTokenSnapshot as noToken,
   rateLimitedSnapshot as rateLimited,
 } from './usage-test-fixtures'
 
