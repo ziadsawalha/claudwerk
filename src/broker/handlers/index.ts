@@ -17,6 +17,7 @@ import { registerGatewayHandlers } from './gateway'
 import { registerInterConversationHandlers } from './inter-conversation'
 import { registerJsonStreamHandlers } from './json-stream'
 import { registerNightshiftHandlers } from './nightshift'
+import { registerNightshiftWatchdogHandlers } from './nightshift-watchdog'
 import { registerPermissionHandlers } from './permissions'
 import { registerPlanApprovalHandlers } from './plan-approval'
 import { registerProjectHandlers } from './project'
@@ -48,6 +49,7 @@ export function registerAllHandlers(): void {
   registerPlanApprovalHandlers()
   registerProjectHandlers()
   registerNightshiftHandlers()
+  registerNightshiftWatchdogHandlers()
   registerRclaudeConfigHandlers()
   registerRecapHandlers()
   registerConversationLifecycleHandlers()
