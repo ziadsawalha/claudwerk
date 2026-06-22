@@ -133,7 +133,7 @@ const SYSTEM_PROMPT = [
   '{ "disposition": "converse"|"new"|"route"|"revive"|"ask",',
   '  "target": <conversationId or null>, "confidence": 0..1, "reasoning": <one sentence> }.',
   'Rules:',
-  "- CONVERSE FIRST: if the user is talking TO you -- a greeting, \"what's going on\",",
+  '- CONVERSE FIRST: if the user is talking TO you -- a greeting, "what\'s going on",',
   '  a status/overview question, thanks, or any chit-chat that does NOT ask to start',
   '  or continue actual coding work -- use "converse". You answer them directly; no',
   '  conversation is spawned or routed.',

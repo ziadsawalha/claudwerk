@@ -55,9 +55,9 @@ import { useWebSocket } from '@/hooks/use-websocket'
 import { executeCommand } from '@/lib/commands'
 import { focusInputEditor } from '@/lib/focus-input'
 import { lazyModule, named } from '@/lib/lazy-module'
-import { useAgentShellsStore } from '@/lib/web-control-shells'
 import { clearShareMode, detectShareKind, detectShareMode } from '@/lib/share-mode'
 import { isMobileViewport, isTouchDevice } from '@/lib/utils'
+import { useAgentShellsStore } from '@/lib/web-control-shells'
 
 const WebTerminal = lazy(() => import('@/components/web-terminal').then(m => ({ default: m.WebTerminal })))
 const ShellPane = lazy(() => import('@/components/shell-pane').then(m => ({ default: m.ShellPane })))
