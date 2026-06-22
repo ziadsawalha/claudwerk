@@ -1139,6 +1139,14 @@ function handleDialogReopen(msg: DashboardMessage) {
   if (a) useLiveDialogsStore.getState().applyReopen(a.sid, a.snapshot)
 }
 
+// A live dialog was authoritatively dismissed (broker dropped the slot) -> drop
+// it from this panel's view too.
+function handleDialogLiveDismissed(msg: DashboardMessage) {
+  const sid = msg.conversationId as string
+  const dialogId = msg.dialogId as string
+  if (sid && dialogId) useLiveDialogsStore.getState().applyDismissed(sid, dialogId)
+}
+
 function handleDialogOrphaned(msg: DashboardMessage) {
   const a = liveSnapshot(msg)
   if (a)
@@ -1667,6 +1675,7 @@ export const handlers: Record<string, MessageHandler> = {
   dialog_patch: handleDialogPatch,
   dialog_reopen: handleDialogReopen,
   dialog_orphaned: handleDialogOrphaned,
+  dialog_live_dismissed: handleDialogLiveDismissed,
   dialog_event_result: handleDialogEventResult,
   plan_approval: handlePlanApproval,
   plan_approval_dismissed: handlePlanApprovalDismissed,

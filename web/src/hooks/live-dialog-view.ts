@@ -28,9 +28,6 @@ export interface DialogViewState {
   activeAction: string | null
   /** Minimized into the bar (manual) or auto-collapsed (agent closed it). */
   collapsed: boolean
-  /** Hard-dismissed from THIS client's view (the x on the bar) -- the mount renders
-   *  nothing. Restored from localStorage so a reload doesn't resurrect it. */
-  dismissed: boolean
   /** epoch ms the agent drove the dialog terminal -- drives the decay + hard hide. */
   closedAt?: number
 }
@@ -49,7 +46,6 @@ export function freshView(snapshot: DialogSnapshot): DialogViewState {
     submitRev: -1,
     activeAction: null,
     collapsed: false,
-    dismissed: false,
   }
 }
 
@@ -79,17 +75,12 @@ export function transitionView(
   return { ...base, values, pending: false, collapsed, closedAt }
 }
 
-/** Fold a persisted per-viewer pref into a freshly-derived view. A pref only
- *  applies to the SAME dialogId (a new dialog supersedes a stale dismiss); the
- *  caller clears the stale pref. A manual minimize OR an agent-close keeps the
- *  view collapsed; a persisted closedAt keeps the decay clock continuous across
- *  reload instead of restarting it. Pure -- prefs I/O lives in the store. */
+/** Fold a persisted per-viewer MINIMIZE pref into a freshly-derived view, so a
+ *  reload restores the user's minimize. A pref only applies to the SAME dialogId
+ *  (a new dialog supersedes a stale minimize); the caller clears the stale pref.
+ *  An agent-close collapse is kept regardless. Pure -- prefs I/O lives in the
+ *  store. (Dismiss is authoritative + broker-side, NOT folded here.) */
 export function foldPrefs(view: DialogViewState, pref: DialogViewPref | undefined): DialogViewState {
   if (!pref || pref.dialogId !== view.dialogId) return view
-  return {
-    ...view,
-    collapsed: view.collapsed || pref.collapsed,
-    dismissed: pref.dismissed,
-    closedAt: view.closedAt ?? pref.closedAt,
-  }
+  return { ...view, collapsed: view.collapsed || pref.collapsed }
 }

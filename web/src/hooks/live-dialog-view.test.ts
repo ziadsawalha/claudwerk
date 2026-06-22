@@ -52,33 +52,19 @@ describe('transitionView', () => {
 
 describe('foldPrefs', () => {
   it('restores a persisted minimize for the same dialog', () => {
-    const view = freshView(snap('open'))
-    const next = foldPrefs(view, { dialogId: 'd1', collapsed: true, dismissed: false })
+    const next = foldPrefs(freshView(snap('open')), { dialogId: 'd1', collapsed: true })
     expect(next.collapsed).toBe(true)
-    expect(next.dismissed).toBe(false)
-  })
-
-  it('restores a persisted dismiss for the same dialog', () => {
-    const next = foldPrefs(freshView(snap('open')), { dialogId: 'd1', collapsed: false, dismissed: true })
-    expect(next.dismissed).toBe(true)
   })
 
   it('ignores a pref for a different (stale) dialogId', () => {
-    const next = foldPrefs(freshView(snap('open')), { dialogId: 'OTHER', collapsed: true, dismissed: true })
+    const next = foldPrefs(freshView(snap('open')), { dialogId: 'OTHER', collapsed: true })
     expect(next.collapsed).toBe(false)
-    expect(next.dismissed).toBe(false)
   })
 
   it('keeps an agent-close collapse even when the pref says not collapsed', () => {
     const closed = transitionView(freshView(snap('open')), snap('closed'), 'open', [], 1000)
-    const next = foldPrefs(closed, { dialogId: 'd1', collapsed: false, dismissed: false })
+    const next = foldPrefs(closed, { dialogId: 'd1', collapsed: false })
     expect(next.collapsed).toBe(true)
-  })
-
-  it('keeps the decay clock continuous via the persisted closedAt', () => {
-    const view = { ...freshView(snap('open')), collapsed: true }
-    const next = foldPrefs(view, { dialogId: 'd1', collapsed: true, dismissed: false, closedAt: 1234 })
-    expect(next.closedAt).toBe(1234)
   })
 
   it('is a no-op without a pref', () => {

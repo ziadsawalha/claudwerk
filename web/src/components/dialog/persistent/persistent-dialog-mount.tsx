@@ -18,27 +18,27 @@ const PersistentDialog = lazy(() => import('./persistent-dialog').then(m => ({ d
 export function PersistentDialogMount({ conversationId }: { conversationId: string }) {
   const entry = useLiveDialogsStore(s => s.byConversation[conversationId])
   const collapsed = useLiveDialogsStore(s => s.viewByConversation[conversationId]?.collapsed ?? false)
-  // A reload's replay snapshot recreates the entry; honor a persisted dismiss so
-  // it stays hidden (the store drops it on a fresh show / agent reopen).
-  const dismissed = useLiveDialogsStore(s => s.viewByConversation[conversationId]?.dismissed ?? false)
   const closedAt = useLiveDialogsStore(s => s.viewByConversation[conversationId]?.closedAt)
   const setCollapsed = useLiveDialogsStore(s => s.setCollapsed)
   const dismiss = useLiveDialogsStore(s => s.dismiss)
+  const hideLocal = useLiveDialogsStore(s => s.hideLocal)
 
-  // Hard-hide an agent-closed dialog once its decay window elapses. Re-derived
-  // from closedAt so it survives a remount (timers don't, the timestamp does).
+  // Hard-hide an agent-closed dialog once its decay window elapses. This is a
+  // CLIENT-only hide (the agent's record stays on the broker for reopen), so it
+  // uses hideLocal -- NOT the authoritative dismiss that drops the broker slot.
+  // Re-derived from closedAt so it survives a remount (timers don't, the stamp does).
   useEffect(() => {
     if (closedAt === undefined) return
     const remaining = closedAt + CLOSED_DECAY_MS - Date.now()
     if (remaining <= 0) {
-      dismiss(conversationId)
+      hideLocal(conversationId)
       return
     }
-    const t = setTimeout(() => dismiss(conversationId), remaining)
+    const t = setTimeout(() => hideLocal(conversationId), remaining)
     return () => clearTimeout(t)
-  }, [closedAt, conversationId, dismiss])
+  }, [closedAt, conversationId, hideLocal])
 
-  if (!entry || dismissed) return null
+  if (!entry) return null
   if (collapsed) {
     return (
       <CollapsedDialogBar

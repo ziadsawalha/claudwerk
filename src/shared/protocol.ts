@@ -1010,6 +1010,7 @@ export type AgentHostMessage =
   | DialogReopenMessage
   | AgentStatusMessage
   | DialogOrphanedMessage
+  | DialogLiveDismissedMessage
   | PlanApprovalRequest
   | PlanModeChanged
   | StreamDelta
@@ -1826,6 +1827,26 @@ export interface DialogEventMessage {
   [key: string]: unknown // WS JSON boundary (requestId echo etc.)
 }
 
+/** Panel -> broker: AUTHORITATIVE dismiss of a live dialog. Unlike minimize (a
+ *  per-viewer client-side preference in localStorage), a dismiss is a real
+ *  decision: the broker DROPS the live slot so it never replays again, for any
+ *  viewer. Gated by `dialog:interact` (read-only viewers cannot dismiss). The
+ *  agent can re-engage by patching/reopening, which recreates the slot. */
+export interface DialogLiveDismissMessage {
+  type: 'dialog_live_dismiss'
+  conversationId: string
+  dialogId: string
+  [key: string]: unknown // WS JSON boundary (requestId echo etc.)
+}
+
+/** Broker -> panels: a live dialog was authoritatively dismissed (slot dropped).
+ *  Every panel removes it from view. */
+export interface DialogLiveDismissedMessage {
+  type: 'dialog_live_dismissed'
+  conversationId: string
+  dialogId: string
+}
+
 // Plan approval relay (headless: ExitPlanMode -> agent host -> broker -> dashboard -> back)
 export interface PlanApprovalRequest {
   type: 'plan_approval'
@@ -1919,6 +1940,7 @@ export type BrokerMessage =
   | ConversationReassigned
   | DialogResultMessage
   | DialogEventMessage
+  | DialogLiveDismissMessage
   | PlanApprovalResponse
   | NotifyConfigUpdated
   | RclaudeConfigGet

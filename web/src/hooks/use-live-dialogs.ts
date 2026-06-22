@@ -46,7 +46,7 @@ interface LiveDialogsState {
   syncView: (conversationId: string, patch: Partial<ViewMirror>) => void
   /** Mark a submit in flight (the wait bar) -- store-side so it persists. */
   markSubmitted: (conversationId: string, submitRev: number) => void
-  /** Minimize / restore the dialog (the user-driven collapse). */
+  /** Minimize / restore the dialog (per-viewer client pref, persisted to localStorage). */
   setCollapsed: (conversationId: string, collapsed: boolean) => void
   /** Emit one dialog_event (the batched "send to agent" submit, or a close). */
   emit: (
@@ -57,7 +57,23 @@ interface LiveDialogsState {
     value: unknown,
     state: Record<string, unknown>,
   ) => boolean
+  /** AUTHORITATIVE dismiss (the x): tell the broker to DROP the slot for everyone,
+   *  then drop it locally. Not a client pref -- dismissed is dismissed. */
   dismiss: (conversationId: string) => void
+  /** Broker confirmed an authoritative dismiss -> drop it from this panel's view. */
+  applyDismissed: (conversationId: string, dialogId: string) => void
+  /** Client-only hide (the agent-close decay timer) -- does NOT touch the broker. */
+  hideLocal: (conversationId: string) => void
+}
+
+/** Drop a conversation's entry + view from both maps (local only). */
+function dropMaps(
+  maps: Pick<LiveDialogsState, 'byConversation' | 'viewByConversation'>,
+  conversationId: string,
+): Pick<LiveDialogsState, 'byConversation' | 'viewByConversation'> {
+  const { [conversationId]: _gone, ...byConversation } = maps.byConversation
+  const { [conversationId]: _goneView, ...viewByConversation } = maps.viewByConversation
+  return { byConversation, viewByConversation }
 }
 
 export const useLiveDialogsStore = create<LiveDialogsState>(set => ({
@@ -129,7 +145,7 @@ export const useLiveDialogsStore = create<LiveDialogsState>(set => ({
       const prev = state.viewByConversation[conversationId]
       if (!prev) return state
       // Persist the minimize so a reload restores it (per-viewer, client-side).
-      setPref(conversationId, { dialogId: prev.dialogId, collapsed, dismissed: false, closedAt: prev.closedAt })
+      setPref(conversationId, { dialogId: prev.dialogId, collapsed })
       return { viewByConversation: { ...state.viewByConversation, [conversationId]: { ...prev, collapsed } } }
     }),
 
@@ -141,12 +157,28 @@ export const useLiveDialogsStore = create<LiveDialogsState>(set => ({
       const view = state.viewByConversation[conversationId]
       const entry = state.byConversation[conversationId]
       if (!entry && !view) return state
-      // Persist the dismiss (keyed to this dialogId) so a reload's replay snapshot
-      // doesn't resurrect it. An agent reopen / a new dialog clears it.
+      // AUTHORITATIVE: tell the broker to drop the slot for everyone. Optimistically
+      // drop locally + clear any minimize pref; the broker's broadcast confirms.
       const dialogId = view?.dialogId ?? entry?.dialogId
-      if (dialogId) setPref(conversationId, { dialogId, collapsed: false, dismissed: true, closedAt: view?.closedAt })
-      const { [conversationId]: _gone, ...rest } = state.byConversation
-      const { [conversationId]: _goneView, ...restView } = state.viewByConversation
-      return { byConversation: rest, viewByConversation: restView }
+      if (dialogId) wsSend('dialog_live_dismiss', { conversationId, dialogId })
+      clearPref(conversationId)
+      return dropMaps(state, conversationId)
+    }),
+
+  applyDismissed: (conversationId, dialogId) =>
+    set(state => {
+      // Broker confirmed an authoritative dismiss. Guard on dialogId so a stale
+      // broadcast can't drop a newer dialog that already replaced the slot.
+      const current =
+        state.byConversation[conversationId]?.dialogId ?? state.viewByConversation[conversationId]?.dialogId
+      if (current && current !== dialogId) return state
+      clearPref(conversationId)
+      return dropMaps(state, conversationId)
+    }),
+
+  hideLocal: conversationId =>
+    set(state => {
+      if (!state.byConversation[conversationId] && !state.viewByConversation[conversationId]) return state
+      return dropMaps(state, conversationId)
     }),
 }))

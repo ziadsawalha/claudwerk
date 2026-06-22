@@ -60,6 +60,15 @@ function setupLive(dialogId = 'd1'): { convId: string; agent: MockWs; dash: Mock
   return { convId, agent, dash }
 }
 
+/** Same, but the dash is a read-only guest (chat only, NO dialog:interact). */
+function setupGuest(dialogId = 'd1'): { convId: string; dash: MockWs } {
+  const convId = testId('conv')
+  const agent = bootActiveAgent(h, convId, PROJECT)
+  showPersistent(agent, convId, dialogId)
+  const dash = h.connectDashboard({ userName: 'guest', grants: [{ scope: '*', permissions: ['chat', 'chat:read'] }] })
+  return { convId, dash }
+}
+
 describe('the dialogue — persistent show', () => {
   it('routes a persistent dialog to the single live slot (not pendingDialog) and broadcasts the show', () => {
     const { convId, dash } = setupLive()
@@ -194,11 +203,7 @@ describe('the dialogue — dialog_event security', () => {
   })
 
   it('denies a principal without dialog:interact (chat is NOT enough)', () => {
-    const convId = testId('conv')
-    const agent = bootActiveAgent(h, convId, PROJECT)
-    showPersistent(agent, convId, 'd1')
-
-    const dash = h.connectDashboard({ userName: 'guest', grants: [{ scope: '*', permissions: ['chat', 'chat:read'] }] })
+    const { convId, dash } = setupGuest()
     h.dashboardSend(dash, {
       type: 'dialog_event',
       conversationId: convId,
@@ -236,6 +241,47 @@ describe('the dialogue — dialog_event security', () => {
       state: {},
     })
     expect(second.messagesOfType('dialog_event_result').pop()).toMatchObject({ ok: false, error: 'locked' })
+  })
+
+  it('authoritatively dismisses: drops the slot, broadcasts, never replays again', () => {
+    const { convId, dash } = setupLive()
+    dash.clearMessages()
+
+    h.dashboardSend(dash, { type: 'dialog_live_dismiss', conversationId: convId, dialogId: 'd1' })
+
+    // Slot dropped + attention cleared + broadcast to panels.
+    const conv = h.conversationStore.getConversation(convId)!
+    expect(conv.liveDialog).toBeUndefined()
+    expect(conv.pendingAttention).toBeUndefined()
+    const dismissed = dash.messagesOfType('dialog_live_dismissed')
+    expect(dismissed.length).toBe(1)
+    expect(dismissed[0]).toMatchObject({ conversationId: convId, dialogId: 'd1' })
+
+    // A freshly-connecting panel gets NO replay (the slot is gone for good).
+    const fresh = h.connectDashboard()
+    expect(fresh.messagesOfType('dialog_patch').find(m => m.replay === true)).toBeUndefined()
+  })
+
+  it('dismisses a CLOSED dialog too (not gated to open, unlike dialog_event)', () => {
+    const { convId, agent, dash } = setupLive()
+    sendPatch(agent, convId, snap('d1', { seq: 1, status: 'closed' }))
+    h.dashboardSend(dash, { type: 'dialog_live_dismiss', conversationId: convId, dialogId: 'd1' })
+    expect(h.conversationStore.getConversation(convId)!.liveDialog).toBeUndefined()
+  })
+
+  it('denies dismiss without dialog:interact (slot survives, no broadcast)', () => {
+    const { convId, dash } = setupGuest()
+    dash.clearMessages()
+
+    h.dashboardSend(dash, { type: 'dialog_live_dismiss', conversationId: convId, dialogId: 'd1' })
+    expect(h.conversationStore.getConversation(convId)!.liveDialog?.dialogId).toBe('d1')
+    expect(dash.messagesOfType('dialog_live_dismissed').length).toBe(0)
+  })
+
+  it('ignores a stale dialogId (a newer dialog already replaced the slot)', () => {
+    const { convId, dash } = setupLive('dNEW')
+    h.dashboardSend(dash, { type: 'dialog_live_dismiss', conversationId: convId, dialogId: 'dOLD' })
+    expect(h.conversationStore.getConversation(convId)!.liveDialog?.dialogId).toBe('dNEW')
   })
 
   it('rate-limits a single principal past the per-minute cap', () => {

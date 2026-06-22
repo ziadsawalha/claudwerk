@@ -18,7 +18,7 @@ import { cancelDialogNotify, scheduleDialogNotify } from '../attention-notify'
 import { initialLiveSlot, jsonBytes, mergeLiveSlot, withinSnapshotCap } from '../dialog-live-store'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, DASHBOARD_ROLES, registerHandlers } from '../message-router'
-import { dialogEvent } from './dialog-event'
+import { dialogEvent, dialogLiveDismiss } from './dialog-event'
 
 type Ctx = Parameters<MessageHandler>[0]
 
@@ -158,5 +158,5 @@ export function registerDialogLiveHandlers(): void {
     { dialog_patch: dialogPatch, dialog_reopen: dialogReopen, dialog_orphaned: dialogOrphaned },
     AGENT_HOST_ONLY,
   )
-  registerHandlers({ dialog_event: dialogEvent }, DASHBOARD_ROLES)
+  registerHandlers({ dialog_event: dialogEvent, dialog_live_dismiss: dialogLiveDismiss }, DASHBOARD_ROLES)
 }

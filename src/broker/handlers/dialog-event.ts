@@ -9,8 +9,10 @@
  * ws-client default and harmlessly drops it. The security is real + tested now.
  */
 
-import { guardDialogEvent } from '../dialog-interact-guard'
-import { withinEventStateCap } from '../dialog-live-store'
+import type { Conversation } from '../../shared/protocol'
+import { cancelDialogNotify } from '../attention-notify'
+import { dialogPrincipal, guardDialogEvent, hasDialogInteract } from '../dialog-interact-guard'
+import { type LiveDialogSlot, withinEventStateCap } from '../dialog-live-store'
 import { DIALOG_EVENT_RATE, SlidingWindowRateLimiter } from '../dialog-rate-limit'
 import { recordDialogTurn } from '../dialog-telemetry'
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
@@ -103,4 +105,50 @@ export const dialogEvent: MessageHandler = (ctx, data) => {
 
   // Forward to the host (routing only; host turn delivery is D2) + ack the panel.
   forwardEvent(ctx, data, { conversationId, dialogId, on, seq, principal: guard.principal })
+}
+
+/** Parse + authorize a dismiss, then locate the matching live slot. Returns null
+ *  (bad input / no conversation / no permission / wrong-or-missing slot) so the
+ *  handler stays a thin mutate-and-broadcast. Split out to keep both small. */
+function resolveDismiss(
+  ctx: HandlerContext,
+  data: MessageData,
+): { conv: Conversation; slot: LiveDialogSlot; dialogId: string; principal: string } | null {
+  const conversationId = (data.conversationId || ctx.ws.data.conversationId) as string
+  const dialogId = data.dialogId as string
+  if (!conversationId || !dialogId) return null
+  const conv = ctx.conversations.getConversation(conversationId)
+  if (!conv) return null
+  const principal = dialogPrincipal(ctx.ws.data)
+  if (!hasDialogInteract(ctx.ws.data, conv.project ?? '*')) {
+    ctx.log.info(
+      `[dialog-live] dismiss DENIED (permission) dialog=${dialogId.slice(0, 8)} conv=${conversationId.slice(0, 8)} principal=${principal}`,
+    )
+    return null
+  }
+  const slot = conv.liveDialog
+  // Idempotent: already gone, or a newer dialog replaced the slot -> no-op.
+  if (!slot || slot.dialogId !== dialogId) return null
+  return { conv, slot, dialogId, principal }
+}
+
+/** Panel -> broker: AUTHORITATIVE dismiss. Minimize is a per-viewer client pref;
+ *  a dismiss DROPS the broker's single live slot so it never replays again, for
+ *  any viewer. The agent can re-engage later by patching/reopening (recreates it). */
+export const dialogLiveDismiss: MessageHandler = (ctx, data) => {
+  const r = resolveDismiss(ctx, data)
+  if (!r) return
+  const { conv, slot, dialogId, principal } = r
+  const prevStatus = slot.snapshot.status
+  delete conv.liveDialog
+  if (conv.pendingAttention?.type === 'dialog') delete conv.pendingAttention
+  cancelDialogNotify(conv.id)
+  ctx.conversations.persistConversationById(conv.id)
+  ctx.conversations.broadcastConversationUpdate(conv.id)
+  if (conv.project) {
+    ctx.broadcastScoped({ type: 'dialog_live_dismissed', conversationId: conv.id, dialogId }, conv.project)
+  }
+  ctx.log.info(
+    `[dialog-live] dismissed dialog=${dialogId.slice(0, 8)} conv=${conv.id.slice(0, 8)} status=${prevStatus}->dropped principal=${principal}`,
+  )
 }

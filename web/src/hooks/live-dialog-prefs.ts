@@ -1,10 +1,12 @@
 /**
- * THE DIALOGUE (D2) — per-viewer view prefs for a live dialog, persisted to
- * localStorage. Minimize/dismiss/collapse is a PER-VIEWER UI preference, not
- * shared dialog state: the broker's single `conv.liveDialog` slot is seen by
- * every panel, so persisting "dismissed" server-side would hide the dialog for
- * everyone. We keep it client-side + per-device, scoped to the current dialogId
- * (a new dialogId supersedes a stale dismiss).
+ * THE DIALOGUE (D2) — per-viewer MINIMIZE pref for a live dialog, persisted to
+ * localStorage. Minimize is a PER-VIEWER UI preference ("get it out of my face
+ * for now"), not shared dialog state: the broker's single `conv.liveDialog` slot
+ * is seen by every panel, so it stays client-side + per-device, scoped to the
+ * current dialogId (a new dialogId supersedes a stale minimize).
+ *
+ * DISMISS is the opposite — an authoritative decision that DROPS the broker slot
+ * (see handlers/dialog-live.ts `dialog_live_dismiss`). It is NOT stored here.
  */
 
 const KEY = 'claudewerk.dialogView.v1'
@@ -14,10 +16,6 @@ export interface DialogViewPref {
   dialogId: string
   /** Minimized into the bar (manual) -- survives reload. */
   collapsed: boolean
-  /** Hard-dismissed from this client's view -- survives reload. */
-  dismissed: boolean
-  /** epoch ms the agent closed it (drives decay continuity across reload). */
-  closedAt?: number
 }
 
 type PrefsMap = Record<string, DialogViewPref>
