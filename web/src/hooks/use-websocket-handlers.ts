@@ -207,6 +207,11 @@ function toConversation(summary: ConversationSummary): Conversation {
     rateLimit: summary.rateLimit,
     planMode: summary.planMode,
     pendingAttention: summary.pendingAttention,
+    // THE STATUS: the agent's self-reported set_status slot drives the per-
+    // conversation attention badge (StatusBadge). Easy to miss in this explicit
+    // whitelist -- omitting it silently drops the field client-side so the card
+    // badge never renders even though the broker serializes + broadcasts it.
+    liveStatus: summary.liveStatus,
     pendingSpawnApproval: summary.pendingSpawnApproval,
     spawnAutoApproved: summary.spawnAutoApproved,
     hasNotification: summary.hasNotification,
