@@ -16,6 +16,7 @@
  */
 
 import { runDispatchAgent } from '../desk/agent-runtime'
+import { readMemory } from '../desk/memory'
 import type { DispatchCommand } from '../desk/orchestrate'
 import { type DispatchRuntime, listDispatchRosterCandidates, runDispatch } from '../desk/runtime'
 import { listThreads } from '../desk/threads'
@@ -141,7 +142,8 @@ const dispatchListThreads: MessageHandler = (ctx: HandlerContext, data: MessageD
   const userId = ctx.ws.data.userName ?? null
   const threads = listThreadsForUser(userId, limit)
   const roster = listDispatchRosterCandidates(ctx.conversations)
-  ctx.reply({ type: 'dispatch_threads_result', requestId, threads, roster, userId })
+  const memory = readMemory(userId)
+  ctx.reply({ type: 'dispatch_threads_result', requestId, threads, roster, memory, userId })
 }
 
 export function registerDispatchHandlers(): void {

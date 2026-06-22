@@ -1618,6 +1618,9 @@ export interface DispatchThreadsResult {
   /** Active conversations in dispatch-covered projects, as selectable cards.
    *  Absent on older brokers -> the overlay just shows threads. */
   roster?: DispatchCandidate[]
+  /** The dispatcher's durable memory file (markdown), so the overlay can show
+   *  what it remembers long-term. Absent on older brokers. */
+  memory?: string
   /** The authed user the threads were scoped to (null when single-user). */
   userId?: string | null
 }

@@ -38,8 +38,8 @@ import {
 } from './conversation-links'
 import { createConversationStore } from './conversation-store'
 import { type ContextDeps, createContext } from './create-context'
-import { startNightshiftWatchdog } from './nightshift-watchdog'
 import { closeDispatchAudit, initDispatchAudit } from './desk/audit'
+import { initDispatchMemory } from './desk/memory'
 import { closeDispatchThreads, initDispatchThreads } from './desk/threads'
 import { startExternalStatusPolling, stopExternalStatusPolling } from './external-status'
 import { createGatewayRegistry } from './gateway-registry'
@@ -62,6 +62,7 @@ import {
 import { drain, enqueue, getQueueSize, initMessageQueue } from './message-queue'
 import { routeMessage } from './message-router'
 import { initModelPricing } from './model-pricing'
+import { startNightshiftWatchdog } from './nightshift-watchdog'
 import { addAllowedRoot, addPathMapping, getAllowedRoots } from './path-jail'
 import { allGrantsExpired } from './permissions'
 import {
@@ -308,9 +309,10 @@ async function main() {
   // Initialize per-project checklist store (broker-local config DB)
   initChecklistStore(authCacheDir)
 
-  // Initialize dispatcher stores (decision audit log + threads near-memory)
+  // Initialize dispatcher stores (decision audit log + threads near-memory + durable memory file)
   initDispatchAudit(authCacheDir)
   initDispatchThreads(authCacheDir)
+  initDispatchMemory(authCacheDir)
 
   // Initialize analytics store (SQLite, non-critical)
   initAnalyticsStore(authCacheDir)

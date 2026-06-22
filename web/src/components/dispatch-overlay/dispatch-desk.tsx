@@ -1,16 +1,18 @@
 import { formatAge, truncate } from '@/lib/utils'
+import { MemorySection } from './dispatch-memory-section'
 import { useDispatchStore } from './dispatch-store'
 
 /** What the concierge is holding right now: the LIVE roster it covers ("active
- *  right now" -- tap to open) plus its near-memory threads ("on my desk"). Light,
- *  not a fleet dashboard; renders nothing when there's nothing to show. */
+ *  right now" -- tap to open), its near-memory threads ("on my desk"), and its
+ *  durable memory. Light, not a fleet dashboard; renders nothing when empty. */
 export function DispatchDesk() {
   const roster = useDispatchStore(s => s.roster)
   const threads = useDispatchStore(s => s.threads)
   const routeTo = useDispatchStore(s => s.routeTo)
   const showThreads = useDispatchStore(s => s.showThreads)
   const toggleThreads = useDispatchStore(s => s.toggleThreads)
-  if (roster.length === 0 && threads.length === 0) return null
+  const memory = useDispatchStore(s => s.memory)
+  if (roster.length === 0 && threads.length === 0 && !memory.trim()) return null
 
   return (
     <div className="flex flex-col gap-7 px-6 pt-8">
@@ -64,6 +66,8 @@ export function DispatchDesk() {
           )}
         </div>
       )}
+
+      <MemorySection />
     </div>
   )
 }

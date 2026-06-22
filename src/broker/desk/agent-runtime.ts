@@ -14,6 +14,7 @@ import { chat } from '../recap/shared/openrouter-client'
 import { type AgentToolCallEvent, type AgentToolResultEvent, DISPATCHER_MODEL, runAgent } from './agent'
 import { buildControlDeps } from './control-deps'
 import { buildControlToolset } from './control-tools'
+import { appendMemoryFacts, digestTurn, readMemory } from './memory'
 import type { DispatchRuntime } from './runtime'
 import { listThreads, upsertThread } from './threads'
 import { defineTool, type Toolset } from './tool-def'
@@ -85,10 +86,13 @@ export async function runDispatchAgent(
   opts: RunDispatchAgentOpts = {},
 ): Promise<DispatchDecision> {
   const model = opts.model || DISPATCHER_MODEL
+  // Read the tiny durable memory file -- the loop's only carried context.
+  const memory = readMemory(opts.userId)
   const result = await runAgent(
     {
       intent,
       system: DISPATCHER_SYSTEM,
+      context: memory ? `DURABLE MEMORY (your long-term notes -- trust these):\n${memory}` : undefined,
       model,
       toolset: buildAgentToolset(rt),
       signal: opts.signal,
@@ -98,6 +102,13 @@ export async function runDispatchAgent(
     },
     req => chat(req),
   )
+  // Post-turn digest: decide what (if anything) durable to remember, fire-and-
+  // forget so the user's reply is never blocked. Tool calls are NEVER recorded.
+  if (result.reply) {
+    digestTurn({ intent, reply: result.reply, existingMemory: memory }, req => chat(req))
+      .then(facts => appendMemoryFacts(facts, Date.now(), opts.userId))
+      .catch(() => {})
+  }
   const decision: DispatchDecision = {
     type: 'dispatch_decision',
     decisionId: `dec_${crypto.randomUUID()}`,

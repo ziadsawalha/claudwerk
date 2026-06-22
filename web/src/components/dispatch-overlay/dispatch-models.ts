@@ -19,3 +19,35 @@ export interface DispatchToolEvent {
   resultSummary?: string
   error?: string
 }
+
+type ToolEventMap = Record<string, DispatchToolEvent[]>
+
+/** Append a freshly-streamed (running) tool call under its turn's traceId. */
+export function appendToolCall(
+  map: ToolEventMap,
+  msg: { traceId: string; callId: string; name: string; summary?: string; args?: Record<string, unknown> },
+): ToolEventMap {
+  const prior = map[msg.traceId] ?? []
+  const event: DispatchToolEvent = {
+    callId: msg.callId,
+    name: msg.name,
+    summary: msg.summary,
+    args: msg.args,
+    status: 'running',
+  }
+  return { ...map, [msg.traceId]: [...prior, event] }
+}
+
+/** Resolve a streamed tool call's result (ok/error) by callId. */
+export function resolveToolResult(
+  map: ToolEventMap,
+  msg: { traceId: string; callId: string; ok: boolean; summary?: string; error?: string },
+): ToolEventMap {
+  const prior = map[msg.traceId] ?? []
+  const next = prior.map(e =>
+    e.callId === msg.callId
+      ? { ...e, status: msg.ok ? 'ok' : 'error', resultSummary: msg.summary, error: msg.error }
+      : e,
+  ) as DispatchToolEvent[]
+  return { ...map, [msg.traceId]: next }
+}

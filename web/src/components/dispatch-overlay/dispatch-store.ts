@@ -23,7 +23,7 @@ import type {
 import { create } from 'zustand'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { dispatchBus } from './dispatch-bus'
-import { DISPATCH_MODELS, type DispatchToolEvent } from './dispatch-models'
+import { appendToolCall, DISPATCH_MODELS, type DispatchToolEvent, resolveToolResult } from './dispatch-models'
 
 export type RightPane = 'memory' | 'conversation' | 'workspace'
 
@@ -47,6 +47,8 @@ interface DispatchState {
   toolEvents: Record<string, DispatchToolEvent[]>
   /** Whether the near-memory threads board is shown (toggle). */
   showThreads: boolean
+  /** The dispatcher's durable memory file (markdown), for inspection. */
+  memory: string
 
   // intent / submission
   setIntent(intent: string): void
@@ -69,7 +71,12 @@ interface DispatchState {
 
   // inbound (called by the WS handlers)
   onRequestResult(msg: { ok?: boolean; error?: string; decision?: DispatchDecision }): void
-  onThreadsResult(msg: { threads?: DispatchThread[]; roster?: DispatchCandidate[]; userId?: string | null }): void
+  onThreadsResult(msg: {
+    threads?: DispatchThread[]
+    roster?: DispatchCandidate[]
+    memory?: string
+    userId?: string | null
+  }): void
   onDecisionBroadcast(decision: DispatchDecision): void
   onToolCall(msg: DispatchToolCall): void
   onToolResult(msg: DispatchToolResult): void
@@ -100,6 +107,7 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   model: DISPATCH_MODELS[0].slug,
   toolEvents: {},
   showThreads: true,
+  memory: '',
 
   setIntent: intent => set({ intent }),
   setModel: slug => set({ model: slug }),
@@ -178,6 +186,7 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
       threadsLoading: false,
       threads: msg.threads ?? [],
       roster: msg.roster ?? [],
+      memory: msg.memory ?? '',
       userId: msg.userId ?? s.userId,
     })),
 
@@ -186,26 +195,6 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   onDecisionBroadcast: decision => set(s => ({ decisions: mergeDecision(s.decisions, decision) })),
 
   // Streamed gears: append the call (running), then resolve it on its result.
-  onToolCall: msg =>
-    set(s => {
-      const prior = s.toolEvents[msg.traceId] ?? []
-      const event: DispatchToolEvent = {
-        callId: msg.callId,
-        name: msg.name,
-        summary: msg.summary,
-        args: msg.args,
-        status: 'running',
-      }
-      return { toolEvents: { ...s.toolEvents, [msg.traceId]: [...prior, event] } }
-    }),
-  onToolResult: msg =>
-    set(s => {
-      const prior = s.toolEvents[msg.traceId] ?? []
-      const next = prior.map(e =>
-        e.callId === msg.callId
-          ? { ...e, status: msg.ok ? 'ok' : 'error', resultSummary: msg.summary, error: msg.error }
-          : e,
-      ) as DispatchToolEvent[]
-      return { toolEvents: { ...s.toolEvents, [msg.traceId]: next } }
-    }),
+  onToolCall: msg => set(s => ({ toolEvents: appendToolCall(s.toolEvents, msg) })),
+  onToolResult: msg => set(s => ({ toolEvents: resolveToolResult(s.toolEvents, msg) })),
 }))
