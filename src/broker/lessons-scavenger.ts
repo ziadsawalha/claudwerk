@@ -61,31 +61,13 @@ export interface ScavengeResult {
  * pass continues.
  */
 export async function scavengeOnce(deps: LessonsScavengerDeps): Promise<ScavengeResult> {
-  const windowMs = (deps.windowDays ?? 7) * DAY_MS
-  const since = deps.now() - windowMs
+  const windowDays = deps.windowDays ?? 7
+  const since = deps.now() - windowDays * DAY_MS
   const result: ScavengeResult = { considered: 0, enabled: 0, skippedIdle: 0, started: 0, cached: 0, failed: 0 }
 
   for (const projectUri of deps.listProjectUris()) {
     result.considered++
-    if (!deps.isEnabled(projectUri)) continue
-    result.enabled++
-
-    if (!deps.hasActivitySince(projectUri, since)) {
-      result.skippedIdle++
-      deps.log(`[lessons] skip idle: ${shortUri(projectUri)} (no activity in ${deps.windowDays ?? 7}d)`)
-      continue
-    }
-
-    try {
-      const { recapId, cached } = await deps.startLessons(projectUri)
-      result.started++
-      if (cached) result.cached++
-      deps.markRun(projectUri, deps.now())
-      deps.log(`[lessons] ${cached ? 'cached' : 'started'} ${recapId} for ${shortUri(projectUri)}`)
-    } catch (err) {
-      result.failed++
-      deps.log(`[lessons] FAILED ${shortUri(projectUri)}: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    await scavengeProject(deps, projectUri, since, windowDays, result)
   }
 
   deps.log(
@@ -93,6 +75,35 @@ export async function scavengeOnce(deps: LessonsScavengerDeps): Promise<Scavenge
       `${result.failed} failed, of ${result.enabled} enabled / ${result.considered} projects`,
   )
   return result
+}
+
+/** One project's scavenge: opt-in gate -> activity gate -> kick. Mutates `result`. */
+async function scavengeProject(
+  deps: LessonsScavengerDeps,
+  projectUri: string,
+  since: number,
+  windowDays: number,
+  result: ScavengeResult,
+): Promise<void> {
+  if (!deps.isEnabled(projectUri)) return
+  result.enabled++
+
+  if (!deps.hasActivitySince(projectUri, since)) {
+    result.skippedIdle++
+    deps.log(`[lessons] skip idle: ${shortUri(projectUri)} (no activity in ${windowDays}d)`)
+    return
+  }
+
+  try {
+    const { recapId, cached } = await deps.startLessons(projectUri)
+    result.started++
+    if (cached) result.cached++
+    deps.markRun(projectUri, deps.now())
+    deps.log(`[lessons] ${cached ? 'cached' : 'started'} ${recapId} for ${shortUri(projectUri)}`)
+  } catch (err) {
+    result.failed++
+    deps.log(`[lessons] FAILED ${shortUri(projectUri)}: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /** ms from `now` until the next local occurrence of `hour`:00:00. Always > 0. */
