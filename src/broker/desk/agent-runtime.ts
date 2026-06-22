@@ -12,8 +12,10 @@ import { z } from 'zod'
 import type { DispatchDecision } from '../../shared/protocol'
 import { chat } from '../recap/shared/openrouter-client'
 import { type AgentToolCallEvent, type AgentToolResultEvent, DISPATCHER_MODEL, runAgent } from './agent'
-import { buildDispatchToolset } from './dispatch-tools'
+import { assembleContext } from './context-assembly'
+import { buildDispatchToolset, projectOverviewRows } from './dispatch-tools'
 import { appendMemoryFacts, digestTurn, readMemory } from './memory'
+import { recentTurns, recordDispatchTurn } from './recent-window'
 import type { DispatchRuntime } from './runtime'
 import { listThreads, upsertThread } from './threads'
 import { defineTool, type Toolset } from './tool-def'
@@ -92,13 +94,21 @@ export async function runDispatchAgent(
   opts: RunDispatchAgentOpts = {},
 ): Promise<DispatchDecision> {
   const model = opts.model || DISPATCHER_MODEL
-  // Read the tiny durable memory file -- the loop's only carried context.
-  const memory = readMemory(opts.userId)
+  const now = Date.now()
+  const durableMemory = readMemory(opts.userId)
+  // ASSEMBLE the per-turn context FRESH (P6): universe (fleet by project) +
+  // condensed project memory + durable notes + the short recent window. The
+  // dispatcher carries almost no raw context; this IS its working knowledge.
+  const context = assembleContext({
+    rows: projectOverviewRows(rt),
+    durableMemory,
+    recent: recentTurns(opts.userId, now),
+  })
   const result = await runAgent(
     {
       intent,
       system: DISPATCHER_SYSTEM,
-      context: memory ? `DURABLE MEMORY (your long-term notes -- trust these):\n${memory}` : undefined,
+      context: context || undefined,
       model,
       toolset: buildAgentToolset(rt),
       signal: opts.signal,
@@ -108,10 +118,13 @@ export async function runDispatchAgent(
     },
     req => chat(req),
   )
+  // PRUNE + maintain: keep the dispatch session short-lived -- record this turn
+  // into the rolling recent window (durable load lives in condensed memory).
+  if (result.reply) recordDispatchTurn(opts.userId, { ts: now, intent, reply: result.reply })
   // Post-turn digest: decide what (if anything) durable to remember, fire-and-
   // forget so the user's reply is never blocked. Tool calls are NEVER recorded.
   if (result.reply) {
-    digestTurn({ intent, reply: result.reply, existingMemory: memory }, req => chat(req))
+    digestTurn({ intent, reply: result.reply, existingMemory: durableMemory }, req => chat(req))
       .then(facts => appendMemoryFacts(facts, Date.now(), opts.userId))
       .catch(() => {})
   }

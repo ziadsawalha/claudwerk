@@ -17,7 +17,7 @@ import { buildControlDeps } from './control-deps'
 import { buildControlToolset } from './control-tools'
 import { condenseProjectNow } from './desk-memory-service'
 import type { DispatchCommand } from './orchestrate'
-import { composeProjectsOverview, type OverviewConv } from './overview'
+import { composeProjectsOverview, type OverviewConv, type ProjectOverviewRow } from './overview'
 import { getBrief, recallBriefs } from './project-memory'
 import { listDeskProjects, projectKeyOf, resolveDeskProject } from './projects'
 import { type DispatchRuntime, runDispatch } from './runtime'
@@ -42,6 +42,15 @@ function summarizeDecision(d: DispatchDecision) {
   return out
 }
 
+/** The fleet by project, with condensed briefs + live counts. Shared by the
+ *  projects_overview tool AND the per-turn context assembly (P6). */
+export function projectOverviewRows(rt: DispatchRuntime): ProjectOverviewRow[] {
+  const projects = listDeskProjects()
+  const briefByKey = new Map(projects.map(p => [p.key, getBrief(p.key)?.brief ?? '']))
+  const convs = rt.store.getAllConversations().map(toOverviewConv)
+  return composeProjectsOverview(projects, briefByKey, convs, Date.now())
+}
+
 /** The project-anchored tools -- the dispatcher's primary surface. */
 function projectTools(rt: DispatchRuntime): Toolset {
   return {
@@ -50,12 +59,7 @@ function projectTools(rt: DispatchRuntime): Toolset {
         'The fleet BY PROJECT: every known project with its condensed brief and live / working / needs-you counts. This is what to call for "what is going on" or a status overview -- prefer it over list_conversations.',
       inputSchema: z.object({}),
       idempotent: true,
-      execute: () => {
-        const projects = listDeskProjects()
-        const briefByKey = new Map(projects.map(p => [p.key, getBrief(p.key)?.brief ?? '']))
-        const convs = rt.store.getAllConversations().map(toOverviewConv)
-        return composeProjectsOverview(projects, briefByKey, convs, Date.now())
-      },
+      execute: () => projectOverviewRows(rt),
     }),
 
     project_brief: defineTool({
