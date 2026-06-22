@@ -20,8 +20,24 @@
 // Task lifecycle vocabulary
 // ---------------------------------------------------------------------------
 
-/** Terminal (or near-terminal) state of a single nightshift task. */
-export type NightshiftTaskStatus = 'queued' | 'running' | 'done' | 'blocked' | 'errored' | 'skipped' | 'spinning'
+/**
+ * Terminal (or near-terminal) state of a single nightshift task.
+ *
+ * `integrated` / `discarded` are ACT-ON-RESULTS outcomes (plan §4): the morning
+ * act agents patch a `ready-to-review` task to `integrated` once it lands on main,
+ * or to `discarded` when Jonas rejects it. They are post-run states the act layer
+ * writes back, never states a night-run worker reports for itself.
+ */
+export type NightshiftTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'done'
+  | 'blocked'
+  | 'errored'
+  | 'skipped'
+  | 'spinning'
+  | 'integrated'
+  | 'discarded'
 
 /** What the morning report should DO with this task. */
 export type NightshiftVerdict = 'ready-to-review' | 'needs-you' | 'declined'
@@ -228,6 +244,30 @@ export interface NightshiftReportInput {
   body?: string
   // skipped lane (the safe-to-do gate verdict + why)
   reason?: string
+}
+
+/**
+ * Patch an EXISTING task artifact in place (ACT-ON-RESULTS, plan §4). The act
+ * agents need to write an outcome back -- `status: integrated` after a merge,
+ * `tests: pass|fail` after re-running acceptance, `status: discarded` on reject --
+ * WITHOUT clobbering the fields a night-run worker already wrote (branch,
+ * diffstat, recap, ...). Unlike `report` (which rewrites the whole file), a patch
+ * reads the file, merges only the provided scalars, optionally appends a one-line
+ * audit note to the "Notes / decisions" body section, and rewrites. `id` selects
+ * the task; absent fields are left untouched.
+ */
+export interface NightshiftTaskPatchInput {
+  /** Task ordinal selecting the file to patch, e.g. "002". */
+  id: string
+  status?: NightshiftTaskStatus
+  verdict?: NightshiftVerdict
+  tests?: NightshiftTests
+  diffstat?: string
+  commits?: number
+  reroutes?: number
+  attempts?: number
+  /** One-line audit note appended to the task body's "Notes / decisions". */
+  note?: string
 }
 
 /** Flip a run to done + stamp digest/runtime/cost. Totals are recomputed from disk. */

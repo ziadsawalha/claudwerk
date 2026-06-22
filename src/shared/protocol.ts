@@ -16,6 +16,7 @@ import type {
   NightshiftRunStartInput,
   NightshiftSkipped,
   NightshiftTaskMeta,
+  NightshiftTaskPatchInput,
 } from './nightshift-types'
 import type { ProjectTask, ProjectTaskManifestEntry, ProjectTaskMeta, ProjectTaskRef } from './project-task-types'
 import type { SpawnRequest } from './spawn-schema'
@@ -3561,6 +3562,7 @@ export type NightshiftOpKind =
   | 'config_write'
   | 'run_start' // create run dir + run.md (status=running) + repoint `latest`
   | 'report' // write one task / blocked / skipped artifact
+  | 'task_patch' // ACT-ON-RESULTS: patch an existing task's frontmatter in place (plan §4)
   | 'run_finalize' // recompute totals, flip run.md to done, stamp digest/cost
 
 /** Dashboard / night-manager -> Broker: one nightshift artifact op. */
@@ -3578,6 +3580,8 @@ export interface NightshiftRequest {
   runStart?: NightshiftRunStartInput
   /** report payload (task | blocked | skipped). */
   report?: NightshiftReportInput
+  /** task_patch payload (ACT-ON-RESULTS in-place frontmatter patch). */
+  taskPatch?: NightshiftTaskPatchInput
   /** run_finalize payload. */
   finalize?: NightshiftFinalizeInput
 }
@@ -3592,6 +3596,7 @@ export interface NightshiftOp {
   config?: NightshiftConfig
   runStart?: NightshiftRunStartInput
   report?: NightshiftReportInput
+  taskPatch?: NightshiftTaskPatchInput
   finalize?: NightshiftFinalizeInput
 }
 
