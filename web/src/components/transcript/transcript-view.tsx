@@ -176,11 +176,27 @@ function defaultWindowStart(len: number): number {
 /** The window boundary as a SEQ rather than an absolute index. Returns the seq
  *  of the entry at the default window start, or null when the transcript is
  *  short enough that no window applies (show all). Anchoring by seq keeps the
- *  window pinned to the same logical entry across a live head-prune. */
-function defaultAnchorSeq(entries: TranscriptEntry[]): number | null {
+ *  window pinned to the same logical entry across a live head-prune.
+ *
+ *  Resilient to a SEQLESS boundary entry: `seq` is undefined on entries read
+ *  from raw JSONL before the broker's cache-insert stamps it (protocol.ts), and
+ *  the control panel does receive such entries (use-websocket-handlers dedupes on
+ *  `e.seq === undefined`). If the ideal boundary entry has no seq we scan FORWARD
+ *  (toward the tail, never widening the window past WINDOW_SIZE) for the nearest
+ *  entry that carries one, so the window still anchors instead of collapsing to
+ *  show-all. Returns null only when NO entry from the boundary onward has a seq.
+ *  This also keeps the render-phase re-anchor convergent: returning the bare
+ *  `?? null` of a seqless boundary made the re-anchor branch re-fire forever
+ *  (React #301 -- it kept setting the anchor back to null while
+ *  `windowAnchorSeq === null` stayed true). */
+export function defaultAnchorSeq(entries: TranscriptEntry[]): number | null {
   const idx = defaultWindowStart(entries.length)
   if (idx <= 0) return null
-  return entries[idx]?.seq ?? null
+  for (let i = idx; i < entries.length; i++) {
+    const s = entries[i]?.seq
+    if (s !== undefined && s !== null) return s
+  }
+  return null
 }
 
 /** Stable virtualizer key for a group. Prefers the group's reconciled `id`
@@ -303,6 +319,17 @@ export const TranscriptView = memo(function TranscriptView({
     const idx = entries.findIndex(e => (e.seq ?? 0) >= windowAnchorSeq)
     return idx < 0 ? 0 : idx
   }, [entries, windowAnchorSeq])
+  // Render-phase anchor setter with a CONVERGENCE GUARD. The reset block below
+  // adjusts state during render (the documented "adjust state on prop change"
+  // pattern), but the recovery branches re-test a condition that can stay true
+  // after the set -- if defaultAnchorSeq cannot produce a DIFFERENT anchor (a
+  // seqless boundary made it return null/the same value), calling the setter
+  // again on every render-phase pass re-arms React's render-phase update and
+  // throws #301 ("too many re-renders"). Only fire when the anchor actually
+  // changes, which guarantees the guard goes false within a single pass.
+  const reanchorTo = (next: number | null) => {
+    if (next !== windowAnchorSeq) setWindowAnchorSeq(next)
+  }
   // Derived-state reset (the documented "adjust state on prop change in render"
   // pattern -- re-renders before commit, no flash, no full-render paint):
   if (cacheKey !== prevCacheKeyRef.current) {
@@ -311,11 +338,11 @@ export const TranscriptView = memo(function TranscriptView({
     prevCacheKeyRef.current = cacheKey
     windowInitRef.current = entries.length > 0
     backfillBreaksRef.current = new Set()
-    setWindowAnchorSeq(defaultAnchorSeq(entries))
+    reanchorTo(defaultAnchorSeq(entries))
   } else if (!windowInitRef.current && entries.length > 0) {
     // Cold-open transcript just arrived (MISS -> fetch). Size the window now.
     windowInitRef.current = true
-    setWindowAnchorSeq(defaultAnchorSeq(entries))
+    reanchorTo(defaultAnchorSeq(entries))
   } else if (
     windowAnchorSeq !== null &&
     entries.length > 0 &&
@@ -323,7 +350,7 @@ export const TranscriptView = memo(function TranscriptView({
   ) {
     // Anchor slid past the end of a shrunk/replaced array (e.g. /clear creating a
     // new transcript whose seqs are all below the old anchor). Re-default.
-    setWindowAnchorSeq(defaultAnchorSeq(entries))
+    reanchorTo(defaultAnchorSeq(entries))
   } else if (
     follow &&
     entries.length > WINDOW_THRESHOLD &&
@@ -340,10 +367,20 @@ export const TranscriptView = memo(function TranscriptView({
     // Gated on `follow` (viewport at the bottom) so dropping the now-offscreen
     // older entries is invisible -- and so a scrollback reader, where the prune is
     // deferred and windowStart wouldn't shrink anyway, is never yanked.
-    console.debug(
-      `[window] re-anchor reason=${windowAnchorSeq === null ? 'post-scrollback-show-all' : 'near-pruned-head'} entries=${entries.length} windowStart=${windowStart} -> last-${WINDOW_SIZE}`,
-    )
-    setWindowAnchorSeq(defaultAnchorSeq(entries))
+    //
+    // Compute the target first and only act when it CHANGES the anchor: with a
+    // seqless transcript defaultAnchorSeq stays null and this branch's condition
+    // (windowAnchorSeq === null) stays true every render -- logging + setting
+    // unconditionally would both spam the console and loop the render phase
+    // (#301). reanchorTo's guard already blocks the loop; gating the log keeps it
+    // from firing once per streamed tick in the steady seqless show-all state.
+    const reanchored = defaultAnchorSeq(entries)
+    if (reanchored !== windowAnchorSeq) {
+      console.debug(
+        `[window] re-anchor reason=${windowAnchorSeq === null ? 'post-scrollback-show-all' : 'near-pruned-head'} entries=${entries.length} windowStart=${windowStart} -> last-${WINDOW_SIZE}`,
+      )
+      reanchorTo(reanchored)
+    }
   }
   const windowed = useMemo(() => (windowStart > 0 ? entries.slice(windowStart) : entries), [entries, windowStart])
   // Live windowStart for the scroll handler (infinite scrollback trigger).
