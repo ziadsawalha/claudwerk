@@ -1548,6 +1548,47 @@ export interface DispatchDecision {
   userId?: string | null
 }
 
+/** One dialogue turn in the dispatcher's history (a user impulse or its reply). */
+export interface DispatchHistoryTurn {
+  role: string
+  content: string
+  ts: number
+}
+
+/** One addressable XML STATE BLOCK in the dispatcher's living history. */
+export interface DispatchHistoryBlock {
+  id: string
+  tag: string
+  content: string
+  ts: number
+}
+
+/**
+ * A full, inspectable snapshot of one user's dispatcher LIVING HISTORY -- the
+ * SOLE SOURCE OF TRUTH the overlay renders. `transcript` is the viewable 100-turn
+ * ring (decoupled from LLM-window pruning, A0); `turns` is the live LLM window
+ * (consolidation prunes these); `blocks` is the mutable state the agent reads.
+ * The broker computes this (broker `HistoryDump` is this shape); the web consumes it.
+ */
+export interface DispatchHistoryDump {
+  exists: boolean
+  userKey: string
+  blocks: DispatchHistoryBlock[]
+  turns: DispatchHistoryTurn[]
+  transcript: DispatchHistoryTurn[]
+  estimatedTokens: number
+  lastConsolidatedAt: number | null
+}
+
+/** broker -> ALL of a user's open overlays (userId-scoped broadcast): the current
+ *  dispatcher history, pushed live on EVERY mutation. Each device is a window onto
+ *  the same continuously-updating state -- never its own copy, never a reset. */
+export interface DispatchHistoryMessage {
+  type: 'dispatch_history'
+  userId: string | null
+  history: DispatchHistoryDump
+}
+
 /** Control-panel -> broker: fetch the current user's dispatcher near-memory
  *  threads. A thin request/response over the dashboard WS (the `dispatch`/
  *  `list_threads` MCP tools have no authed-user identity; the WS connection
@@ -2023,6 +2064,7 @@ export type BrokerMessage =
   | DispatchToolCall
   | DispatchToolResult
   | DispatchThreadsResult
+  | DispatchHistoryMessage
   | ProjectLinkRequest
   | ProjectLinkGranted
   | InterConversationListResponse

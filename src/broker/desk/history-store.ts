@@ -14,6 +14,7 @@
  * `<findings>` blocks are NOT touched here -- they mutate on their own triggers.
  */
 
+import type { DispatchHistoryDump, DispatchHistoryTurn } from '../../shared/protocol'
 import type { ChatFn } from './classify'
 import { type ConsolidateResult, consolidate } from './consolidate'
 import {
@@ -44,6 +45,15 @@ const lastConsolidatedAt = new Map<string, number>()
 /** The disk-backed saver, wired at boot via initHistoryPersistence. Null in unit
  *  tests / pre-boot -- markDirty is then a no-op so the store never touches disk. */
 let saver: HistorySaver | null = null
+/** Live-stream notifier, armed at boot (Slice B). Pushes the fresh history to ALL
+ *  of a user's open overlays on every mutation. Null pre-boot/in tests -> no-op. */
+let notifier: ((userId: string | null | undefined) => void) | null = null
+
+/** Arm the live-stream broadcaster (Slice B). The closure (built at boot, where
+ *  the ConversationStore is available) dumps + broadcasts to the user's devices. */
+export function setHistoryNotifier(fn: (userId: string | null | undefined) => void): void {
+  notifier = fn
+}
 
 export function userKey(userId: string | null | undefined): string {
   return userId && userId.trim() ? userId : ANON_KEY
@@ -95,12 +105,15 @@ function currentState(key: string): PersistableState {
   }
 }
 
-/** Schedule a debounced persist of this user's state. A no-op until boot wiring
- *  arms the saver, so unit tests never touch disk. Call from EVERY mutation. */
+/**
+ * Mark a user's state changed: broadcast it LIVE to all their devices (immediate,
+ * Slice B) and schedule a debounced persist (Slice A). Called from EVERY mutation
+ * entry point. Both seams no-op until boot arms them, so unit tests stay offline.
+ */
 export function markDirty(userId: string | null | undefined): void {
+  notifier?.(userId) // live stream now (not debounced -- devices must stay in lockstep)
   if (!saver) return
-  const key = userKey(userId)
-  saver.scheduleSave(key, () => currentState(key))
+  saver.scheduleSave(userKey(userId), () => currentState(userKey(userId)))
 }
 
 /**
@@ -140,25 +153,11 @@ export async function consolidateIfDue(
   return res
 }
 
-export interface DumpTurn {
-  role: string
-  content: string
-  ts: number
-}
+/** The wire shape lives in shared/protocol (single source of truth, web-shared). */
+export type HistoryDump = DispatchHistoryDump
 
-export interface HistoryDump {
-  exists: boolean
-  userKey: string
-  blocks: Array<{ id: string; tag: string; content: string; ts: number }>
-  /** The LLM context-window turns (consolidation prunes these). */
-  turns: DumpTurn[]
-  /** The VIEWABLE transcript ring (last <=100), decoupled from pruning (A0). */
-  transcript: DumpTurn[]
-  estimatedTokens: number
-  lastConsolidatedAt: number | null
-}
-
-const dumpTurns = (turns: Turn[]): DumpTurn[] => turns.map(t => ({ role: t.role, content: t.content, ts: t.ts }))
+const dumpTurns = (turns: Turn[]): DispatchHistoryTurn[] =>
+  turns.map(t => ({ role: t.role, content: t.content, ts: t.ts }))
 
 /** Full, inspectable snapshot of a user's living history (the debug harness reads
  *  this so the dispatcher's state/context/memory can be dumped over REST). The

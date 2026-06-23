@@ -11,6 +11,7 @@ import {
   recordTurn,
   refreshLiveBlocks,
   resetUserHistory,
+  setHistoryNotifier,
   userKey,
 } from './history-store'
 import { appendTurn, getBlock, ONE_HOUR_MS, toMessages } from './living-history'
@@ -201,6 +202,17 @@ describe('persistence wiring (Slice A)', () => {
 
     expect(getUserHistory('persist-u').turns.map(t => t.content)).toEqual(['durable turn'])
     expect(getUserTranscript('persist-u').map(t => t.content)).toEqual(['viewable turn'])
+  })
+
+  test('markDirty fires the live-stream notifier immediately (Slice B)', () => {
+    const seen: Array<string | null | undefined> = []
+    setHistoryNotifier(userId => seen.push(userId))
+    try {
+      markDirty('stream-u')
+      expect(seen).toEqual(['stream-u']) // pushed live, no debounce
+    } finally {
+      setHistoryNotifier(() => {}) // disarm so other tests stay quiet
+    }
   })
 
   test('resetUserHistory deletes the persisted file', () => {

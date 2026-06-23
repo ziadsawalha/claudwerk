@@ -220,3 +220,24 @@ export function broadcastToSubscribers(conversationStore: ConversationStore, mes
     }
   }
 }
+
+/** Broadcast to ONLY the given user's connected control panels (every device they
+ *  have open), matched on the authed `ws.data.userName`. The per-user dispatcher is
+ *  one-per-user; this keeps the live stream scoped to its owner. A null userId
+ *  matches nobody (anon dispatcher state stays local). */
+export function broadcastToUser(
+  conversationStore: ConversationStore,
+  userId: string | null | undefined,
+  message: Record<string, unknown>,
+) {
+  if (!userId) return
+  const json = JSON.stringify(message)
+  for (const ws of conversationStore.getSubscribers()) {
+    if ((ws.data as { userName?: string }).userName !== userId) continue
+    try {
+      ws.send(json)
+    } catch {
+      /* dead socket */
+    }
+  }
+}

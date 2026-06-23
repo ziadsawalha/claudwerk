@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { Hono } from 'hono'
 import { handleAuthRoute, requireAuth } from './auth-routes'
 import type { ConversationStore } from './conversation-store'
-import { initHistoryPersistence } from './desk/history-store'
+import { dumpUserHistory, initHistoryPersistence, setHistoryNotifier } from './desk/history-store'
 import { startFileReaper } from './file-reaper'
 import type { GatewayRegistry } from './gateway-registry'
 import { createLaunchProfilesRouter } from './launch-profiles/routes'
@@ -24,7 +24,7 @@ import { createMcpRouter } from './routes/mcp-server'
 import { createNightshiftRouter } from './routes/nightshift'
 import { createRecapsRouter } from './routes/recaps'
 import { createSentinelRouter } from './routes/sentinels'
-import { createRouteHelpers } from './routes/shared'
+import { broadcastToUser, createRouteHelpers } from './routes/shared'
 import { createSheafRouter } from './routes/sheaf'
 import { createSpawnRouter } from './routes/spawn'
 import { createStatsRouter } from './routes/stats'
@@ -123,6 +123,17 @@ export function createRouter(options: RouteOptions): Hono {
     // truth) survives a broker restart (plan-dispatcher-persistence.md Slice A).
     initHistoryPersistence(cacheDir)
   }
+
+  // Arm the LIVE STREAM (Slice B): every history mutation pushes the fresh dump to
+  // ALL of that user's open overlays, so each device is a window onto the same
+  // continuously-updating state -- never its own copy, never a reset.
+  setHistoryNotifier(userId =>
+    broadcastToUser(conversationStore, userId, {
+      type: 'dispatch_history',
+      userId: userId ?? null,
+      history: dumpUserHistory(userId),
+    }),
+  )
 
   const helpers = createRouteHelpers(rclaudeSecret)
 
