@@ -1,5 +1,5 @@
-import { useRef } from 'react'
 import { cn } from '@/lib/utils'
+import { InputEditor } from '../input-editor'
 import { DISPATCH_MODELS } from './dispatch-models'
 import { useDispatchStore } from './dispatch-store'
 
@@ -24,18 +24,15 @@ function ModelSelect() {
 }
 
 /** The one thing you do: tell the concierge what you need, in your own words.
- *  Pinned at the bottom of the desk. ⌘↵ or the arrow sends. */
+ *  Pinned at the bottom of the desk. Reuses the SAME InputEditor as the main
+ *  transcript (Slice E) -- so keybindings, sizing, and PASTE-TO-UPLOAD (an image/
+ *  file paste lands as a `![](url)` markdown ref via the CM6 backend) all match.
+ *  ⌘↵ / ↵ sends; the CM6 chunk is lazy-loaded only when that backend is enabled. */
 export function DispatchIntentInput() {
   const intent = useDispatchStore(s => s.intent)
   const pending = useDispatchStore(s => s.pending)
   const setIntent = useDispatchStore(s => s.setIntent)
   const submit = useDispatchStore(s => s.submit)
-  const ref = useRef<HTMLTextAreaElement>(null)
-
-  const send = () => {
-    submit()
-    ref.current?.focus()
-  }
 
   return (
     <div className="flex-none border-t border-border/60 px-5 py-4">
@@ -47,25 +44,19 @@ export function DispatchIntentInput() {
             : 'border-border focus-within:border-[color-mix(in_oklch,var(--accent)_45%,transparent)]',
         )}
       >
-        <textarea
-          ref={ref}
-          value={intent}
-          onChange={e => setIntent(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
-              e.preventDefault()
-              send()
-            }
-          }}
-          rows={1}
-          // biome-ignore lint/a11y/noAutofocus: the desk's single input -- focus on open is the point
-          autoFocus
-          placeholder="tell me in your own words…"
-          className="max-h-32 min-h-[2.25rem] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-[15px] leading-relaxed text-foreground placeholder:text-comment focus-visible:outline-none"
-        />
+        <div className="min-w-0 flex-1">
+          <InputEditor
+            value={intent}
+            onChange={setIntent}
+            onSubmit={submit}
+            placeholder="tell me in your own words…"
+            autoFocus
+            inline
+          />
+        </div>
         <button
           type="button"
-          onClick={send}
+          onClick={() => submit()}
           disabled={pending || !intent.trim()}
           aria-label="Send"
           className={cn(
