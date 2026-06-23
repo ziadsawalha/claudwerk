@@ -17,6 +17,7 @@
 
 import { runDispatchAgent } from '../desk/agent-runtime'
 import { projectOverviewRows } from '../desk/dispatch-tools'
+import { dumpUserHistory } from '../desk/history-store'
 import { readMemory } from '../desk/memory'
 import type { DispatchCommand } from '../desk/orchestrate'
 import { type DispatchRuntime, listDispatchRosterCandidates, runDispatch } from '../desk/runtime'
@@ -166,7 +167,20 @@ const dispatchListThreads: MessageHandler = (ctx: HandlerContext, data: MessageD
     .slice(0, 12)
   const memory = readMemory(userId)
   const workspaces = workspaceSnapshot()
-  ctx.reply({ type: 'dispatch_threads_result', requestId, threads, projects, roster, memory, workspaces, userId })
+  // The living conversation itself (transcript + state blocks) so opening the
+  // overlay loads the persistent dispatcher, not a blank feed (Slice C).
+  const history = dumpUserHistory(userId)
+  ctx.reply({
+    type: 'dispatch_threads_result',
+    requestId,
+    threads,
+    projects,
+    roster,
+    memory,
+    workspaces,
+    history,
+    userId,
+  })
 }
 
 export function registerDispatchHandlers(): void {

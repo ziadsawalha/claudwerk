@@ -18,6 +18,7 @@ import type {
   ConversationSummary,
   DispatchCandidate,
   DispatchDecision,
+  DispatchHistoryDump,
   DispatchThread,
   DispatchToolCall,
   DispatchToolResult,
@@ -1614,11 +1615,20 @@ function handleDispatchRequestResult(msg: DashboardMessage) {
 }
 
 function handleDispatchThreadsResult(msg: DashboardMessage) {
+  useDispatchStore.getState().onThreadsResult(
+    msg as DashboardMessage & {
+      threads?: DispatchThread[]
+      roster?: DispatchCandidate[]
+      history?: DispatchHistoryDump
+      userId?: string | null
+    },
+  )
+}
+
+function handleDispatchHistory(msg: DashboardMessage) {
   useDispatchStore
     .getState()
-    .onThreadsResult(
-      msg as DashboardMessage & { threads?: DispatchThread[]; roster?: DispatchCandidate[]; userId?: string | null },
-    )
+    .onHistory(msg as DashboardMessage & { history?: DispatchHistoryDump; userId?: string | null })
 }
 
 function handleDispatchDecision(msg: DashboardMessage) {
@@ -1728,6 +1738,7 @@ export const handlers: Record<string, MessageHandler> = {
   // dispatch cockpit (per-user Front Desk overlay)
   dispatch_request_result: handleDispatchRequestResult,
   dispatch_threads_result: handleDispatchThreadsResult,
+  dispatch_history: handleDispatchHistory,
   dispatch_decision: handleDispatchDecision,
   dispatch_tool_call: handleDispatchToolCall,
   dispatch_tool_result: handleDispatchToolResult,

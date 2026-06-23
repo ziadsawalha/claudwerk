@@ -1681,6 +1681,10 @@ export interface DispatchThreadsResult {
   memory?: string
   /** The dispatcher's virtual-fs scratch workspaces (/work/<x>), for inspection. */
   workspaces?: { workspace: string; files: string[] }[]
+  /** The current LIVING HISTORY (conversation transcript + state blocks), so opening
+   *  the overlay loads the persistent conversation, not blank (Slice C). Absent on
+   *  older brokers -> the overlay falls back to the live decision feed. */
+  history?: DispatchHistoryDump
   /** The authed user the threads were scoped to (null when single-user). */
   userId?: string | null
 }

@@ -11,6 +11,7 @@
 import type {
   DispatchCandidate,
   DispatchDecision,
+  DispatchHistoryDump,
   DispatchProjectMemory,
   DispatchThread,
   DispatchToolCall,
@@ -19,23 +20,23 @@ import type {
 import { create } from 'zustand'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { dispatchBus } from './dispatch-bus'
-import {
-  appendToolCall,
-  DISPATCH_MODELS,
-  type DispatchToolEvent,
-  mergeDecision,
-  resolveToolResult,
-  type WorkspaceInfo,
-} from './dispatch-models'
+import { createInbound, type ThreadsResultMsg } from './dispatch-inbound'
+import { DISPATCH_MODELS, type DispatchToolEvent, type WorkspaceInfo } from './dispatch-models'
 
 export type RightPane = 'memory' | 'conversation' | 'workspace'
 
-interface DispatchState {
+export interface DispatchState {
   open: boolean
   userId: string | null
   intent: string
-  /** Session feed of decisions, most-recent first. */
+  /** The streamed living HISTORY -- the SOURCE OF TRUTH for the conversation
+   *  (persistent transcript + state blocks). Seeded on open, replaced live. */
+  history: DispatchHistoryDump | null
+  /** Session feed of decisions, most-recent first. Kept for in-flight tool gears
+   *  + interactive affordances (candidate pick / expensive confirm), not the feed. */
   decisions: DispatchDecision[]
+  /** The trace id of the in-flight turn, so the flow can show its live gears. */
+  activeTraceId: string | null
   pending: boolean
   lastError: string | null
   threads: DispatchThread[]
@@ -76,16 +77,10 @@ interface DispatchState {
   /** "Take me here": hand off to the conversation in the app, close the desk. */
   routeTo(id: string): void
 
-  // inbound (called by the WS handlers)
+  // inbound (called by the WS handlers; implemented in dispatch-inbound)
   onRequestResult(msg: { ok?: boolean; error?: string; decision?: DispatchDecision }): void
-  onThreadsResult(msg: {
-    threads?: DispatchThread[]
-    projects?: DispatchProjectMemory[]
-    roster?: DispatchCandidate[]
-    memory?: string
-    workspaces?: WorkspaceInfo[]
-    userId?: string | null
-  }): void
+  onThreadsResult(msg: ThreadsResultMsg): void
+  onHistory(msg: { history?: DispatchHistoryDump; userId?: string | null }): void
   onDecisionBroadcast(decision: DispatchDecision): void
   onToolCall(msg: DispatchToolCall): void
   onToolResult(msg: DispatchToolResult): void
@@ -98,7 +93,9 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   open: false,
   userId: null,
   intent: '',
+  history: null,
   decisions: [],
+  activeTraceId: null,
   pending: false,
   lastError: null,
   threads: [],
@@ -170,37 +167,6 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
     set({ open: false })
   },
 
-  onRequestResult: msg => {
-    if (msg.ok && msg.decision) {
-      set(s => ({
-        pending: false,
-        lastError: null,
-        userId: msg.decision?.userId ?? s.userId,
-        decisions: mergeDecision(s.decisions, msg.decision as DispatchDecision),
-      }))
-      // A resolved decision may have produced a conversation -- pull fresh memory.
-      if (msg.decision.executed) get().fetchThreads()
-    } else {
-      set({ pending: false, lastError: msg.error ?? 'dispatch failed' })
-    }
-  },
-
-  onThreadsResult: msg =>
-    set(s => ({
-      threadsLoading: false,
-      threads: msg.threads ?? [],
-      projects: msg.projects ?? [],
-      roster: msg.roster ?? [],
-      memory: msg.memory ?? '',
-      workspaces: msg.workspaces ?? [],
-      userId: msg.userId ?? s.userId,
-    })),
-
-  // Broadcast frames (every decision, incl. other surfaces). Fold them into the
-  // feed so the cockpit reflects dispatcher activity even if it wasn't the caller.
-  onDecisionBroadcast: decision => set(s => ({ decisions: mergeDecision(s.decisions, decision) })),
-
-  // Streamed gears: append the call (running), then resolve it on its result.
-  onToolCall: msg => set(s => ({ toolEvents: appendToolCall(s.toolEvents, msg) })),
-  onToolResult: msg => set(s => ({ toolEvents: resolveToolResult(s.toolEvents, msg) })),
+  // inbound WS reducers (history seed/stream, decision feed, tool gears)
+  ...createInbound(set, get),
 }))
