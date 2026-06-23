@@ -163,6 +163,10 @@ export function requireAuth(req: Request): Response | null {
   // Crash reports are public (errors can happen before/during auth)
   if (url.pathname === '/api/crash') return null
 
+  // Statuspage webhook receiver: Statuspage can't send an auth header, so the
+  // route is public and self-guards via an unguessable secret in the path.
+  if (url.pathname.startsWith('/webhooks/statuspage/')) return null
+
   // Static assets must be public - SPA handles auth UI client-side
   if (
     url.pathname === '/manifest.json' ||

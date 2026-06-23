@@ -28,6 +28,7 @@ import { broadcastToUser, createRouteHelpers } from './routes/shared'
 import { createSheafRouter } from './routes/sheaf'
 import { createSpawnRouter } from './routes/spawn'
 import { createStatsRouter } from './routes/stats'
+import { createStatuspageWebhookRouter } from './routes/statuspage-webhook'
 import type { SentinelRegistry } from './sentinel-registry'
 import type { StoreDriver } from './store/types'
 import type { TerminationLog } from './termination-log'
@@ -275,6 +276,7 @@ export function createRouter(options: RouteOptions): Hono {
     createApiRouter(conversationStore, store, helpers, rclaudeSecret, cacheDir, blobDir, publicOrigin, vapidPublicKey),
   )
   app.route('/', createStatsRouter(conversationStore, store, helpers, serverStartTime))
+  app.route('/', createStatuspageWebhookRouter(store, rclaudeSecret))
   app.route('/', createSheafRouter(store, conversationStore, helpers, terminationLog))
   app.route('/', createAdminRouter(conversationStore, helpers, rclaudeSecret))
   app.route('/', createDeskDebugRouter(conversationStore, store, rclaudeSecret))
