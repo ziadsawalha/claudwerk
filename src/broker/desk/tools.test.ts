@@ -23,11 +23,10 @@ interface Calls {
   screen: unknown[]
   threads: unknown[]
   commit: unknown[]
-  subscribe: unknown[]
 }
 
 function makeDeps(): { deps: DispatchToolDeps; calls: Calls } {
-  const calls: Calls = { dispatch: [], confirm: [], screen: [], threads: [], commit: [], subscribe: [] }
+  const calls: Calls = { dispatch: [], confirm: [], screen: [], threads: [], commit: [] }
   const deps: DispatchToolDeps = {
     dispatch: async cmd => {
       calls.dispatch.push(cmd)
@@ -49,10 +48,6 @@ function makeDeps(): { deps: DispatchToolDeps; calls: Calls } {
       calls.commit.push(input)
       return 'thr_1'
     },
-    subscribeProject: async (project, subscribe) => {
-      calls.subscribe.push({ project, subscribe })
-      return { ok: true }
-    },
   }
   return { deps, calls }
 }
@@ -60,7 +55,7 @@ function makeDeps(): { deps: DispatchToolDeps; calls: Calls } {
 const ctx = {}
 
 describe('dispatchToolSchemas', () => {
-  it('is the single source -- 7 named tools', () => {
+  it('is the single source -- 6 named tools', () => {
     expect(Object.keys(dispatchToolSchemas).sort()).toEqual([
       'commit_thread',
       'confirm_expensive',
@@ -68,7 +63,6 @@ describe('dispatchToolSchemas', () => {
       'conversation_select',
       'dispatch',
       'list_threads',
-      'subscribe_project',
     ])
   })
 })
@@ -95,17 +89,15 @@ describe('buildDispatchToolset -- execute routes to deps', () => {
     expect(calls.confirm).toEqual([{ id: 'dec_9', confirm: true }])
   })
 
-  it('list_threads + commit_thread + control_screen + subscribe_project route through', async () => {
+  it('list_threads + commit_thread + control_screen route through', async () => {
     const { deps, calls } = makeDeps()
     const set = buildDispatchToolset(deps)
     await set.list_threads!.execute({ limit: 5 }, ctx)
     await set.commit_thread!.execute({ id: null, title: 'T', summary: 's' }, ctx)
     await set.control_screen!.execute({ action: 'open_modal', target: 'audit' }, ctx)
-    await set.subscribe_project!.execute({ project: 'rc', subscribe: true }, ctx)
     expect(calls.threads).toEqual([{ limit: 5 }])
     expect(calls.commit).toEqual([{ id: null, title: 'T', summary: 's' }])
     expect(calls.screen).toEqual([{ action: 'open_modal', target: 'audit' }])
-    expect(calls.subscribe).toEqual([{ project: 'rc', subscribe: true }])
   })
 
   it('each tool input schema parses a valid example', () => {

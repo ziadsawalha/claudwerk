@@ -6,9 +6,9 @@
  * logic and slug resolution are NOT duplicated. The rest (list / interrupt /
  * terminate / configure / link / events) are thin, direct store operations.
  *
- * `list_conversations` is UNGATED here -- it reads the whole store, never the
- * per-project dispatchSubscribed flag. Jonas: "list_conversations MUST always be
- * available."
+ * `list_conversations` is UNGATED here -- the dispatcher is GLOBAL (one per user,
+ * fronts ALL projects), so it reads the whole store with no per-project opt-in.
+ * Jonas: "list_conversations MUST always be available."
  */
 
 import type { Conversation } from '../../shared/protocol'

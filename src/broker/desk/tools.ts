@@ -48,10 +48,6 @@ const commitThreadInput = z.object({
   title: z.string().describe('Short label for the thread.'),
   summary: z.string().nullable().describe('Near-memory text: what this thread is about / current state.'),
 })
-const subscribeProjectInput = z.object({
-  project: z.string().describe('Project to (un)subscribe to the status feed.'),
-  subscribe: z.boolean().describe('true to subscribe (expose to dispatch), false to unsubscribe.'),
-})
 
 const DESCRIPTIONS = {
   dispatch:
@@ -64,7 +60,6 @@ const DESCRIPTIONS = {
   list_threads:
     "List the dispatcher's threads -- its near-memory of what it is managing (topic, summary, conversations used + when).",
   commit_thread: 'Create or update a thread in the near-memory with a title and summary.',
-  subscribe_project: "Subscribe (or unsubscribe) a project to the dispatcher's status feed.",
 } as const
 
 export type DispatchToolName = keyof typeof DESCRIPTIONS
@@ -77,7 +72,6 @@ export const dispatchToolSchemas: Record<DispatchToolName, ToolSchema> = {
   control_screen: { description: DESCRIPTIONS.control_screen, inputSchema: controlScreenInput },
   list_threads: { description: DESCRIPTIONS.list_threads, inputSchema: listThreadsInput },
   commit_thread: { description: DESCRIPTIONS.commit_thread, inputSchema: commitThreadInput },
-  subscribe_project: { description: DESCRIPTIONS.subscribe_project, inputSchema: subscribeProjectInput },
 }
 
 // ─── Bound toolset (agent-core-shaped) ──────────────────────────────
@@ -93,7 +87,6 @@ export interface DispatchToolDeps {
   controlScreen(action: 'open_modal' | 'close_modal' | 'navigate', target: string | null): Promise<unknown>
   listThreads(limit: number | null): DispatchThread[]
   commitThread(input: { id: string | null; title: string; summary: string | null }): string
-  subscribeProject(project: string, subscribe: boolean): Promise<unknown>
 }
 
 /** Bind the schema set to signal-aware executors over `deps`. The result is an
@@ -140,11 +133,6 @@ export function buildDispatchToolset(deps: DispatchToolDeps): Toolset {
       description: DESCRIPTIONS.commit_thread,
       inputSchema: commitThreadInput,
       execute: args => deps.commitThread({ id: args.id, title: args.title, summary: args.summary }),
-    }),
-    subscribe_project: defineTool({
-      description: DESCRIPTIONS.subscribe_project,
-      inputSchema: subscribeProjectInput,
-      execute: args => deps.subscribeProject(args.project, args.subscribe),
     }),
   }
 }

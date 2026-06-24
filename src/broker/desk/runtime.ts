@@ -11,12 +11,12 @@
  * status-tool's LiveStatus feed (when it lands) is a one-line change.
  */
 
-import type { Conversation, DispatchCandidate, DispatchDecision, ProjectSettings } from '../../shared/protocol'
+import type { Conversation, DispatchCandidate, DispatchDecision } from '../../shared/protocol'
 import type { SpawnCallerContext } from '../../shared/spawn-permissions'
 import { buildReviveMessage } from '../build-revive'
 import type { ConversationStore } from '../conversation-store'
 import { getGlobalSettings } from '../global-settings'
-import { getProjectSettings, setProjectSettings } from '../project-settings'
+import { getProjectSettings } from '../project-settings'
 import { chat } from '../recap/shared/openrouter-client'
 import { broadcastToSubscribers } from '../routes/shared'
 import { dispatchSpawn, type SpawnDispatchDeps } from '../spawn-dispatch'
@@ -247,11 +247,5 @@ export function buildDispatchRuntimeToolDeps(rt: DispatchRuntime): DispatchToolD
         summary: input.summary ?? undefined,
         now: Date.now(),
       }),
-    subscribeProject: async (project, subscribe) => {
-      const cur: ProjectSettings = getProjectSettings(project) ?? {}
-      setProjectSettings(project, { ...cur, dispatchSubscribed: subscribe })
-      broadcastToSubscribers(rt.store, { type: 'project_settings_updated', project, dispatchSubscribed: subscribe })
-      return { project, subscribed: subscribe }
-    },
   }
 }

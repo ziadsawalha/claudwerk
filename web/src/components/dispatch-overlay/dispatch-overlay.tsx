@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect } from 'react'
 import { DispatchFlow } from './dispatch-flow'
 import { DispatchHeader } from './dispatch-header'
 import { DispatchIntentInput } from './dispatch-intent-input'
-import { DispatchScopeNote } from './dispatch-scope-note'
 import { useDispatchStore } from './dispatch-store'
 import './dispatch.css'
 
@@ -50,7 +49,6 @@ export default function DispatchOverlay() {
         )}
         <DispatchFlow />
         <DispatchIntentInput />
-        <DispatchScopeNote />
       </div>
     </div>
   )

@@ -2921,11 +2921,6 @@ export interface ProjectSettings {
    *  Used only for activity-gating / observability; the window is a fixed
    *  rolling 7d, so this is not a strict watermark. */
   lessonsLastRun?: number
-  /** Dispatcher status-feed opt-in (plan-dispatcher-build.md §9.5). When true,
-   *  this project's conversations are exposed to the dispatcher's routing.
-   *  Default off (opt-in). The dispatcher can flip this itself via the
-   *  subscribe_project tool. [[project_dispatcher_build]] */
-  dispatchSubscribed?: boolean
 }
 
 // File metadata for the file editor
