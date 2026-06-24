@@ -27,67 +27,87 @@ The text fields are ALL OPTIONAL and render as MARKDOWN in the control panel (th
 - \`blocked\` — what you tried and could NOT finish, and why (the error / dead-end). Not "things I chose not to do."
 - \`notes\`   — FYI asides that are NOT todos. Test: "is this still true even though the task IS complete?" e.g. "didn't commit", "didn't deploy", "left the dev server running" → ALWAYS a note, never pending or blocked. Don't nag the user with routine hygiene.
 - \`safe_to_close\` (boolean) — set true ONLY when this conversation is genuinely disposable: no uncommitted/unpushed work, no pending interaction, nothing the user still needs from it. It surfaces as a visible marker so the user can spot which conversations they can just close. When unsure, leave it off.
+- \`notify\` (plain text) — USE SPARINGLY. A short one-line message that physically BUZZES the user's phone and browser right now (a real push, same as the \`notify\` tool). Set this ONLY when you genuinely need to grab their attention away from whatever they're doing — never for routine status. The badge \`state\` is the quiet signal; \`notify\` is the loud one. Most set_status calls MUST omit it. Plain text, not markdown.
 
 THIS CALL IS THE HANDOFF. When you set \`done\`, the control panel renders it as the conversation's final, user-visible result — you do NOT need to call set_status again, and a separate written summary afterward is redundant noise. Put the substance IN the fields (they're markdown) and let the card speak. At most a single short sign-off line; never re-explain what the card already shows.`
+
+const INPUT_SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    state: {
+      type: 'string',
+      enum: STATES,
+      description: 'Required triage signal: working | done | needs_you | blocked',
+    },
+    done: { type: 'string', description: 'What FINISHED (markdown)' },
+    pending: { type: 'string', description: 'What still must happen to be COMPLETE, blocks "done" (markdown)' },
+    caveats: { type: 'string', description: 'Done-but-watch (markdown)' },
+    blocked: { type: 'string', description: 'What did NOT get done + why, error / dead-end (markdown)' },
+    notes: { type: 'string', description: 'FYI asides that are NOT todos, e.g. "did not commit" (markdown)' },
+    safe_to_close: {
+      type: 'boolean',
+      description: 'True only when the conversation is disposable: no uncommitted work, nothing pending',
+    },
+    notify: {
+      type: 'string',
+      description:
+        "USE SPARINGLY — short plain-text line that physically buzzes the user's phone/browser (a real push). Only to grab attention, never for routine status.",
+    },
+  },
+  required: ['state'],
+}
+
+/** Collect the non-empty status fields — "empty is signal". */
+function buildStatus(params: Record<string, unknown>, state: LiveStatusState): LiveStatusInput {
+  const status: LiveStatusInput = { state }
+  for (const key of ['done', 'pending', 'caveats', 'blocked', 'notes'] as const) {
+    const v = (params[key] as string | undefined)?.trim()
+    if (v) status[key] = v
+  }
+  // safe_to_close arrives as a real boolean (or "true" string via some clients).
+  const safe = params.safe_to_close
+  if (safe === true || safe === 'true') status.safe_to_close = true
+  return status
+}
+
+/** Reinforce that this call IS the handoff — no re-report or redundant summary after. */
+function resultTail(state: LiveStatusState, buzzed: boolean): string {
+  const tail =
+    state === 'done'
+      ? " — this is the conversation's handoff and renders as the user-visible result. No further set_status or summary needed."
+      : state === 'working'
+        ? '.'
+        : ' — no further set_status needed this turn unless your state changes.'
+  return `${tail}${buzzed ? ' Push sent to the user.' : ''}`
+}
+
+const errorResult = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true })
 
 export function registerStatusTool(ctx: McpToolContext): Record<string, ToolDef> {
   return {
     set_status: {
       description: DESCRIPTION,
-      inputSchema: {
-        type: 'object' as const,
-        properties: {
-          state: {
-            type: 'string',
-            enum: STATES,
-            description: 'Required triage signal: working | done | needs_you | blocked',
-          },
-          done: { type: 'string', description: 'What FINISHED (markdown)' },
-          pending: { type: 'string', description: 'What still must happen to be COMPLETE, blocks "done" (markdown)' },
-          caveats: { type: 'string', description: 'Done-but-watch (markdown)' },
-          blocked: { type: 'string', description: 'What did NOT get done + why, error / dead-end (markdown)' },
-          notes: { type: 'string', description: 'FYI asides that are NOT todos, e.g. "did not commit" (markdown)' },
-          safe_to_close: {
-            type: 'boolean',
-            description: 'True only when the conversation is disposable: no uncommitted work, nothing pending',
-          },
-        },
-        required: ['state'],
-      },
+      inputSchema: INPUT_SCHEMA,
       async handle(params) {
         const state = params.state as LiveStatusState
-        if (!STATES.includes(state)) {
-          return {
-            content: [{ type: 'text', text: `Error: state must be one of ${STATES.join(', ')}` }],
-            isError: true,
-          }
-        }
-        // Only forward non-empty text fields — "empty is signal".
-        const status: LiveStatusInput = { state }
-        for (const key of ['done', 'pending', 'caveats', 'blocked', 'notes'] as const) {
-          const v = params[key]?.trim()
-          if (v) status[key] = v
-        }
-        // safe_to_close arrives as a real boolean (or "true" string via some clients).
-        const safe = params.safe_to_close as unknown
-        if (safe === true || safe === 'true') status.safe_to_close = true
-        if (!ctx.callbacks.onSetStatus) {
-          return {
-            content: [{ type: 'text', text: 'set_status is not available in this conversation.' }],
-            isError: true,
-          }
-        }
-        ctx.callbacks.onSetStatus(status)
+        if (!STATES.includes(state)) return errorResult(`Error: state must be one of ${STATES.join(', ')}`)
+        if (!ctx.callbacks.onSetStatus) return errorResult('set_status is not available in this conversation.')
+
+        ctx.callbacks.onSetStatus(buildStatus(params, state))
         debug(`[channel] set_status: ${state}`)
-        // The result reinforces that this call IS the handoff — don't keep
-        // re-reporting status or writing a redundant summary after it.
-        const tail =
-          state === 'done'
-            ? " — this is the conversation's handoff and renders as the user-visible result. No further set_status or summary needed."
-            : state === 'working'
-              ? '.'
-              : ' — no further set_status needed this turn unless your state changes.'
-        return { content: [{ type: 'text', text: `Status recorded: ${state}${tail}` }] }
+
+        // Optional attention-grab: a `notify` line shortcuts the `notify` tool,
+        // firing a real push (phone/browser) via the same callback. The badge
+        // `state` is the quiet signal; this is the loud one. Reuses the notify
+        // wire+broker path wholesale.
+        const buzz = (params.notify as string | undefined)?.trim()
+        const buzzed = Boolean(buzz && ctx.callbacks.onNotify)
+        if (buzz && ctx.callbacks.onNotify) {
+          ctx.callbacks.onNotify(buzz)
+          debug(`[channel] set_status notify: ${buzz.slice(0, 80)}`)
+        }
+
+        return { content: [{ type: 'text', text: `Status recorded: ${state}${resultTail(state, buzzed)}` }] }
       },
     },
   }
