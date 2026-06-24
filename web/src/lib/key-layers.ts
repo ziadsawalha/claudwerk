@@ -214,6 +214,16 @@ function dispatch(e: KeyboardEvent) {
   const inTextInput = isTextInput(e.target as Element)
   const inTerminal = isTerminal(e.target as Element)
 
+  // Inside an xterm, a PHYSICAL Ctrl+<key> combo (Mac: Ctrl held, Cmd not) is a
+  // terminal control code -- Ctrl+C, Ctrl+D (EOF), Ctrl+Z, Ctrl+K... -- and MUST
+  // reach the PTY. It is NEVER a dashboard shortcut. The dashboard's primary
+  // modifier is `mod` (Cmd on Mac), which stays interceptable in the terminal so
+  // Cmd+K / Cmd+D etc. still work. By construction `normalize` only emits 'ctrl'
+  // for a physical Ctrl on Mac (off-Mac, Ctrl IS 'mod'), so this is Mac-only.
+  // Without this, findBinding() cross-matches 'ctrl+d' -> the 'mod+d' dispatch
+  // shortcut and Ctrl+D opens the dispatcher instead of EOF'ing the shell.
+  const terminalPassThrough = inTerminal && normalized.includes('ctrl') && !normalized.includes('mod')
+
   // ── Chord mode: consume next key in sequence ──────────────────────────────
   if (activeChord) {
     e.preventDefault()
@@ -295,8 +305,9 @@ function dispatch(e: KeyboardEvent) {
   const isModified = hasModifier(normalized)
   const isNonPrintable = e.key.length > 1
 
-  // Modifier shortcuts (CMD+K, CMD+G…) are intercepted even inside the terminal
-  if (isModified && isChordPrefix(normalized)) {
+  // Modifier shortcuts (CMD+K, CMD+G…) are intercepted even inside the terminal,
+  // but a physical Ctrl combo inside a terminal belongs to the PTY (see above).
+  if (isModified && !terminalPassThrough && isChordPrefix(normalized)) {
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
@@ -310,8 +321,9 @@ function dispatch(e: KeyboardEvent) {
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i]
     if (layer.options.enabled === false) continue
-    // Modifier shortcuts fire even inside the terminal (CMD+K etc. are dashboard-level)
-    if (inTerminal && !layer.options.captureTerminal && !isModified) continue
+    // Modifier shortcuts fire even inside the terminal (CMD+K etc. are dashboard-level),
+    // EXCEPT a physical Ctrl combo, which is a terminal control code bound for the PTY.
+    if (inTerminal && !layer.options.captureTerminal && (!isModified || terminalPassThrough)) continue
 
     // Skip double-tap bindings in single-key dispatch
     const handler = !isDoubleTapBinding(normalized) ? findBinding(layer.bindings, normalized) : undefined
