@@ -1869,7 +1869,11 @@ export async function fetchProjectOrder(): Promise<ProjectOrder> {
   if (!res.ok) return { tree: [] }
   const data = await res.json()
   if (!data || !Array.isArray(data.tree)) return { tree: [] }
-  return { tree: data.tree }
+  return {
+    tree: data.tree,
+    ...(Array.isArray(data.workspaces) ? { workspaces: data.workspaces } : {}),
+    ...(data.assignments && typeof data.assignments === 'object' ? { assignments: data.assignments } : {}),
+  }
 }
 
 export function saveProjectOrder(order: ProjectOrder): void {

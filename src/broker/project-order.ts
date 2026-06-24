@@ -10,23 +10,39 @@
 import { cwdToProjectUri, projectIdentityKey } from '../shared/project-uri'
 import type { KVStore } from './store/types'
 
-export interface ProjectOrderGroup {
-  id: string
-  type: 'group'
-  name: string
-  children: ProjectOrderNode[]
-  isOpen?: boolean
+// Types live in the shared module so the broker + web never drift. Only
+// ProjectOrder is re-exported (the rest are imported where consumers use them
+// directly from the shared module).
+export type { ProjectOrder } from '../shared/project-order-types'
+
+import type { ProjectOrder, ProjectOrderNode, Workspace } from '../shared/project-order-types'
+
+// Guard-heavy input validator: cyclomatic is driven entirely by inherent type
+// guards (cognitively trivial), and fallow's CRAP threshold grandfathers the far
+// more complex normalize() in this same file. Kept as one readable function.
+// fallow-ignore-next-line complexity
+function sanitizeWorkspaces(raw: unknown): Workspace[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: Workspace[] = []
+  const seen = new Set<string>()
+  for (const w of raw) {
+    if (!w || typeof w !== 'object') continue
+    const o = w as Record<string, unknown>
+    if (typeof o.id !== 'string' || typeof o.name !== 'string' || seen.has(o.id)) continue
+    seen.add(o.id)
+    out.push({ id: o.id, name: o.name, ...(typeof o.color === 'string' ? { color: o.color } : {}) })
+  }
+  return out.length > 0 ? out : undefined
 }
 
-export interface ProjectOrderProject {
-  id: string // project URI (e.g. claude:///path)
-  type: 'project'
-}
-
-export type ProjectOrderNode = ProjectOrderGroup | ProjectOrderProject
-
-export interface ProjectOrder {
-  tree: ProjectOrderNode[]
+/** Keep only assignments that point at a real workspace id. */
+function sanitizeAssignments(raw: unknown, validWs: Set<string>): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && validWs.has(v)) out[k] = v
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 const KV_KEY = 'project-order'
@@ -88,7 +104,17 @@ function normalize(raw: unknown): { order: ProjectOrder; migrated: boolean } {
     return out
   }
 
-  return { order: { tree: walk(obj.tree) }, migrated }
+  // Workspaces tier (additive, migration-safe): old data has neither field.
+  const workspaces = sanitizeWorkspaces(obj.workspaces)
+  const assignments = sanitizeAssignments(obj.assignments, new Set((workspaces ?? []).map(w => w.id)))
+  return {
+    order: {
+      tree: walk(obj.tree),
+      ...(workspaces ? { workspaces } : {}),
+      ...(assignments ? { assignments } : {}),
+    },
+    migrated,
+  }
 }
 
 export function initProjectOrder(store: KVStore): void {

@@ -216,27 +216,13 @@ export interface Conversation extends ConversationTaskFields {
   nightshift?: { runId: string; taskId: string }
 }
 
-// Project order tree types -- each leaf is a project keyed by project URI
-// (e.g. "claude:///Users/jonas/projects/foo"). Legacy entries may still use
-// "cwd:<path>" format; consumers should handle both (legacy compat).
-export interface ProjectOrderGroup {
-  id: string
-  type: 'group'
-  name: string
-  children: ProjectOrderNode[]
-  isOpen?: boolean
-}
+// Project order tree types live in the shared module (single source of truth,
+// shared with the broker so the two layers never drift). Re-exported here so the
+// many `@/lib/types` import sites are unchanged. Each leaf is a project keyed by
+// project URI (legacy "cwd:<path>" entries are migrated broker-side).
+export type { ProjectOrder, ProjectOrderGroup, ProjectOrderNode } from '@shared/project-order-types'
 
-interface ProjectOrderProject {
-  id: string // project URI (e.g. "claude:///path") or legacy "cwd:<path>" (compat)
-  type: 'project'
-}
-
-export type ProjectOrderNode = ProjectOrderGroup | ProjectOrderProject
-
-export interface ProjectOrder {
-  tree: ProjectOrderNode[]
-}
+import type { ProjectOrderGroup, ProjectOrderNode } from '@shared/project-order-types'
 
 // Nested groups aren't supported by the renderer. Flatten any group nested inside
 // another group by hoisting it to root and promoting its own children. Idempotent.
