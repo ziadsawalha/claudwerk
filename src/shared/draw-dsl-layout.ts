@@ -99,23 +99,25 @@ export function placeScene(scene: Scene): Placed[] {
   return placed
 }
 
-/** Layered top-down placement of edge-connected leaf nodes (rank = longest path from a root). */
+/** Layered top-down placement of edge-connected leaf nodes (rank = longest path from a root).
+ * Each rank is packed by its boxes' ACTUAL widths and the whole row is centred on the diagram
+ * mid-line, so single-box ranks stack on one straight spine (no zig-zag) and sibling rows stay
+ * tight + symmetric instead of being flung to fixed max-width column slots. */
 function placeFlow(leaves: DslNode[], edges: Edge[], y0: number): Placed[] {
   const rank = computeRanks(leaves, edges)
-  const cw = max(leaves.map(n => measure(n).w))
   const ch = max(leaves.map(n => measure(n).h))
   const hGap = 60
   const vGap = 80
   const byRank = groupByRank(leaves, rank)
-  const widest = max([...byRank.values()].map(row => row.length))
-  const fullW = widest * cw + (widest - 1) * hGap
+  const rowWidth = (row: DslNode[]): number => row.reduce((w, n) => w + measure(n).w, 0) + (row.length - 1) * hGap
+  const fullW = max([...byRank.values()].map(rowWidth))
   const out: Placed[] = []
   for (const [r, row] of [...byRank.entries()].sort((a, b) => a[0] - b[0])) {
-    const rowW = row.length * cw + (row.length - 1) * hGap
-    const startX = (fullW - rowW) / 2
-    row.forEach((n, i) => {
-      out.push(placeNode(n, startX + i * (cw + hGap), y0 + r * (ch + vGap)))
-    })
+    let x = (fullW - rowWidth(row)) / 2
+    for (const n of row) {
+      out.push(placeNode(n, x, y0 + r * (ch + vGap)))
+      x += measure(n).w + hGap
+    }
   }
   return out
 }
