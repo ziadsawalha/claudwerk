@@ -338,9 +338,7 @@ function dispatch(e: KeyboardEvent) {
     // Skip double-tap bindings in single-key dispatch. Inside a terminal, match
     // EXACTLY (no ctrl<->mod cross-match) so a physical Ctrl combo can't trigger
     // a Cmd-bound captureTerminal exception.
-    const handler = !isDoubleTapBinding(normalized)
-      ? findBinding(layer.bindings, normalized, inTerminal)
-      : undefined
+    const handler = !isDoubleTapBinding(normalized) ? findBinding(layer.bindings, normalized, inTerminal) : undefined
     if (handler) {
       e.preventDefault()
       e.stopPropagation()
