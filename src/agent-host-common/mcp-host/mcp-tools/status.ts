@@ -12,6 +12,8 @@ const STATES: readonly LiveStatusState[] = ['working', 'done', 'needs_you', 'blo
  */
 const DESCRIPTION = `Report what THIS conversation is doing, so the user can triage many conversations at a glance. The control panel shows ONE badge per conversation keyed off \`state\`; the text fields are detail shown on expand. Call this when your state meaningfully changes (you start real work, you finish, you get stuck, you need the user) — not on every message.
 
+USE YOUR JUDGMENT — this is a subjective call. A small step, a quick lookup, a one-off command, or routine back-and-forth that does NOT change how the user would triage this conversation does NOT need a status; skip it. Reserve the call for moments that actually move the triage signal: you finished (\`done\`), you're blocked on the user (\`needs_you\`), you're stuck (\`blocked\`), or you genuinely want to surface progress detail mid-work (\`working\`). When in doubt, fewer is better — an over-reported conversation is noise.
+
 \`state\` (REQUIRED) is the one signal that matters:
 - \`working\`  — actively doing the task. (This is also the default at the start of every turn; you don't need to set it just to confirm you're working, but do set it if you want to show progress detail.)
 - \`done\`     — the task the user asked for is COMPLETE. Nothing remains that blocks completion.

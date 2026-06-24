@@ -5,13 +5,21 @@ import { cn } from '@/lib/utils'
 import type { ToolCaseInput, ToolCaseResult } from './tool-case-types'
 
 /**
- * THE STATUS in the transcript — the agent's `set_status` self-report is the
- * conversation's FINAL HANDOFF signal, so it renders as a prominent always-on
- * card (inlineContent, never tucked behind the "output" expander): a state-
- * colored header + each populated field rendered as Markdown. The collapsed row
- * `summary` is just the state pill — everything else lives in the card, so there
- * is no row/card duplication. Shares STATUS_META with the conversation-list badge.
+ * THE STATUS in the transcript. A TERMINAL self-report (`done` / `needs_you` /
+ * `blocked`) is the conversation's HANDOFF, so it renders as a prominent always-on
+ * card (inlineContent, never tucked behind the "output" expander): a state-colored
+ * header + each populated field rendered as Markdown. A mid-work `working` report
+ * is a progress ping, NOT a handoff — it renders as a QUIET muted note (just the
+ * populated fields, no card) so it doesn't shout, matching the conversation list
+ * where `working` shows no badge at all. The collapsed row `summary` is the state
+ * pill. Shares STATUS_META with the conversation-list badge.
  */
+
+const DETAIL_KEYS = ['done', 'pending', 'blocked', 'caveats', 'notes'] as const
+
+function hasDetail(input: Record<string, unknown>): boolean {
+  return DETAIL_KEYS.some(k => typeof input[k] === 'string' && (input[k] as string).trim() !== '')
+}
 
 function resolveState(raw: unknown): LiveStatusState {
   return typeof raw === 'string' && raw in STATUS_META ? (raw as LiveStatusState) : 'working'
@@ -58,5 +66,15 @@ export function renderMcpSetStatus({ input }: ToolCaseInput): ToolCaseResult {
       {meta.label}
     </span>
   )
-  return { summary, inlineContent: <HandoffCard input={input} state={state} />, details: null }
+  // `working` is a progress ping: quiet muted note (or nothing). Terminal states
+  // are the handoff: the prominent card.
+  const inlineContent =
+    state === 'working' ? (
+      hasDetail(input) ? (
+        <StatusDetailFields source={input} className="mt-1.5 pl-0.5 opacity-70" />
+      ) : null
+    ) : (
+      <HandoffCard input={input} state={state} />
+    )
+  return { summary, inlineContent, details: null }
 }

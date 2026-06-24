@@ -95,12 +95,16 @@ export interface AgentHostContext {
   readonly runningSubagents: Set<string>
   readonly bgTaskOutputWatchers: Map<string, { stop: () => void }>
 
-  // THE STATUS — per-turn flags for the Stop-hook set_status nudge. Reset on
-  // UserPromptSubmit. `statusSetThisTurn` is set when the agent calls set_status;
-  // `didWorkThisTurn` is set on the first real tool use (so a pure-conversation
-  // turn is never nudged). The Stop hook nudges iff worked-but-no-status.
+  // THE STATUS — per-turn counters for the Stop-hook set_status nudge. Reset on
+  // UserPromptSubmit. `statusSetThisTurn` is set when the agent calls set_status.
+  // `mutatedThisTurn` flips on the first file-mutating tool (Edit/Write/...);
+  // `toolCallsThisTurn` counts every tool use. The Stop hook only nudges when the
+  // turn was SUBSTANTIAL (a mutation, or a busy multi-tool turn) and no status was
+  // set — small read/lookup/chatter turns are never nudged. And even then the
+  // nudge is a non-coercive reminder: the agent makes the judgment call.
   statusSetThisTurn: boolean
-  didWorkThisTurn: boolean
+  mutatedThisTurn: boolean
+  toolCallsThisTurn: number
 
   // Caches
   readonly pendingEditInputs: Map<string, { oldString: string; newString: string }>

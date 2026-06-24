@@ -131,7 +131,8 @@ async function main() {
     runningSubagents: new Set(),
     bgTaskOutputWatchers: new Map(),
     statusSetThisTurn: false,
-    didWorkThisTurn: false,
+    mutatedThisTurn: false,
+    toolCallsThisTurn: 0,
 
     pendingEditInputs: new Map(),
     pendingReadPaths: new Map(),
