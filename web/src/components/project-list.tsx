@@ -1,5 +1,3 @@
-import { closestCenter, DndContext, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { projectIdentityKey } from '@shared/project-uri'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -10,12 +8,11 @@ import {
   wsSend,
 } from '@/hooks/use-conversations'
 import type { ProjectOrder, ProjectOrderNode } from '@/lib/types'
-import { cn, parseWorktreeUri } from '@/lib/utils'
+import { parseWorktreeUri } from '@/lib/utils'
 import { MaybeProfiler } from './perf-profiler'
 import { ConversationCompactPeek, InactiveProjectItem } from './project-list/conversation-item'
-import { GroupNode, NewGroupDropTarget, SortableNode } from './project-list/conversation-sorting'
+import { GroupNode } from './project-list/conversation-sorting'
 import { PinnedProjectNode, ProjectNode } from './project-list/project-node'
-import { useProjectDragDrop } from './project-list/use-project-drag-drop'
 
 // ─── Main ProjectList ──────────────────────────────────────────────
 
@@ -310,29 +307,6 @@ export function ProjectList() {
     [projectOrder],
   )
 
-  // Flatten tree + unorganized into sortable IDs
-  const sortableIds = useMemo(() => {
-    const ids: string[] = []
-    for (const node of projectOrder.tree) {
-      ids.push(node.id) // group or root conversation
-      if (node.type === 'group' && !collapsedGroups.has(node.id)) {
-        for (const child of node.children) ids.push(child.id)
-      }
-    }
-    for (const { project } of unorganized) ids.push(project)
-    for (const uri of pinnedNotInTree) ids.push(uri)
-    return ids
-  }, [projectOrder, unorganized, pinnedNotInTree, collapsedGroups])
-
-  // Sensors: mouse (8px) + touch (300ms long-press)
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 5 } }),
-  )
-  const [isDragging, setIsDragging] = useState(false)
-
-  const handleDragEnd = useProjectDragDrop({ tree: projectOrder.tree, setIsDragging })
-
   if (structure.length === 0) {
     return (
       <div className="text-muted-foreground text-center py-10">
@@ -361,149 +335,115 @@ export function ProjectList() {
   return (
     <MaybeProfiler id="ProjectList">
       <div className="space-y-2 overflow-y-auto" data-perf-region="sidebar">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={() => setIsDragging(true)}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => setIsDragging(false)}
-        >
-          <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            {/* Organized tree */}
-            {projectOrder.tree.map(node => {
-              if (node.type === 'group') {
-                const isCollapsed = collapsedGroups.has(node.id)
-                return (
-                  <SortableNode key={node.id} id={node.id}>
-                    <GroupNode
-                      group={node}
-                      idsByProject={visibleIdsByProject}
-                      collapsed={isCollapsed}
-                      onToggle={() => toggleGroup(node.id)}
-                      onRename={name => handleRename(node.id, name)}
-                    />
-                    {!isCollapsed ? (
-                      <div className="space-y-1">
-                        {node.children.map(child => {
-                          if (child.type === 'group') return null
-                          const childProject = child.id
-                          const childIds = visibleIdsByProject.get(childProject)
-                          if (!childIds || childIds.length === 0) {
-                            if (projectSettings[projectIdentityKey(childProject)]?.pinned) {
-                              return (
-                                <SortableNode key={child.id} id={child.id}>
-                                  <PinnedProjectNode project={childProject} />
-                                </SortableNode>
-                              )
-                            }
-                            return null
-                          }
-                          return (
-                            <SortableNode key={child.id} id={child.id}>
-                              <ProjectNode
-                                project={childProject}
-                                conversationIds={childIds}
-                                crossProjectStubIds={stubIdsByProject.get(childProject)}
-                              />
-                            </SortableNode>
-                          )
-                        })}
-                      </div>
-                    ) : // Peek: show selected conversation even when group is collapsed.
-                    // Use a per-id subscribed wrapper so the peek re-renders
-                    // independently of ProjectList.
-                    selectedConversationId && selectedProject && node.children.some(c => c.id === selectedProject) ? (
-                      <div className="opacity-80">
-                        <ConversationCompactPeek conversationId={selectedConversationId} />
-                      </div>
-                    ) : null}
-                  </SortableNode>
-                )
-              }
-              // Root-level conversation node
-              const nodeProject = node.id
-              const nodeIds = visibleIdsByProject.get(nodeProject)
-              if (!nodeIds || nodeIds.length === 0) {
-                if (projectSettings[projectIdentityKey(nodeProject)]?.pinned) {
-                  return (
-                    <SortableNode key={node.id} id={node.id}>
-                      <PinnedProjectNode project={nodeProject} />
-                    </SortableNode>
-                  )
-                }
-                return null
-              }
-              return (
-                <SortableNode key={node.id} id={node.id}>
-                  <ProjectNode
-                    project={nodeProject}
-                    conversationIds={nodeIds}
-                    crossProjectStubIds={stubIdsByProject.get(nodeProject)}
-                  />
-                </SortableNode>
-              )
-            })}
-
-            {/* Drop target for new group */}
-            <div
-              className={cn(
-                'mt-2 transition-all',
-                isDragging ? 'opacity-100 max-h-16' : 'opacity-0 max-h-0 overflow-hidden',
-              )}
-            >
-              <NewGroupDropTarget />
-            </div>
-
-            {/* Unorganized section */}
-            {(unorganized.length > 0 || pinnedNotInTree.length > 0) && (
-              <div>
-                {hasOrganized && (
-                  <div className="text-[10px] text-muted-foreground/50 font-bold uppercase tracking-wider px-1 mb-1 flex items-center gap-2">
-                    <span>Unorganized</span>
-                    <span className="flex-1 h-px bg-border" />
-                  </div>
-                )}
-                <div className="space-y-1">
-                  {pinnedNotInTree.map(uri => (
-                    <SortableNode key={uri} id={uri}>
-                      <PinnedProjectNode project={uri} />
-                    </SortableNode>
-                  ))}
-                  {unorganized.map(({ project, conversationIds }, i) => {
-                    // Insert separator before first ad-hoc-only group
-                    const isAllAdHoc = conversationIds.every(id =>
-                      structureById.get(id)?.capabilities?.includes('ad-hoc'),
-                    )
-                    const prevIsRegular =
-                      i > 0 &&
-                      !unorganized[i - 1].conversationIds.every(id =>
-                        structureById.get(id)?.capabilities?.includes('ad-hoc'),
+        {/* Organized tree. Reordering happens in the Organize Projects modal
+            (the '> Organize projects' command / sidebar button) -- the list
+            itself is no longer drag-and-droppable. */}
+        {projectOrder.tree.map(node => {
+          if (node.type === 'group') {
+            const isCollapsed = collapsedGroups.has(node.id)
+            return (
+              <div key={node.id}>
+                <GroupNode
+                  group={node}
+                  idsByProject={visibleIdsByProject}
+                  collapsed={isCollapsed}
+                  onToggle={() => toggleGroup(node.id)}
+                  onRename={name => handleRename(node.id, name)}
+                />
+                {!isCollapsed ? (
+                  <div className="space-y-1">
+                    {node.children.map(child => {
+                      if (child.type === 'group') return null
+                      const childProject = child.id
+                      const childIds = visibleIdsByProject.get(childProject)
+                      if (!childIds || childIds.length === 0) {
+                        if (projectSettings[projectIdentityKey(childProject)]?.pinned) {
+                          return <PinnedProjectNode key={child.id} project={childProject} />
+                        }
+                        return null
+                      }
+                      return (
+                        <ProjectNode
+                          key={child.id}
+                          project={childProject}
+                          conversationIds={childIds}
+                          crossProjectStubIds={stubIdsByProject.get(childProject)}
+                        />
                       )
-                    const showAdHocSeparator = isAllAdHoc && (i === 0 || prevIsRegular)
-                    return (
-                      <div key={project}>
-                        {showAdHocSeparator && (
-                          <div className="flex items-center gap-2 px-1 pt-2 pb-1">
-                            <span className="flex-1 h-px bg-border" />
-                            <span className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">ad-hoc</span>
-                            <span className="flex-1 h-px bg-border" />
-                          </div>
-                        )}
-                        <SortableNode id={project}>
-                          <ProjectNode
-                            project={project}
-                            conversationIds={conversationIds}
-                            crossProjectStubIds={stubIdsByProject.get(project)}
-                          />
-                        </SortableNode>
-                      </div>
-                    )
-                  })}
-                </div>
+                    })}
+                  </div>
+                ) : // Peek: show selected conversation even when group is collapsed.
+                // Use a per-id subscribed wrapper so the peek re-renders
+                // independently of ProjectList.
+                selectedConversationId && selectedProject && node.children.some(c => c.id === selectedProject) ? (
+                  <div className="opacity-80">
+                    <ConversationCompactPeek conversationId={selectedConversationId} />
+                  </div>
+                ) : null}
+              </div>
+            )
+          }
+          // Root-level conversation node
+          const nodeProject = node.id
+          const nodeIds = visibleIdsByProject.get(nodeProject)
+          if (!nodeIds || nodeIds.length === 0) {
+            if (projectSettings[projectIdentityKey(nodeProject)]?.pinned) {
+              return <PinnedProjectNode key={node.id} project={nodeProject} />
+            }
+            return null
+          }
+          return (
+            <ProjectNode
+              key={node.id}
+              project={nodeProject}
+              conversationIds={nodeIds}
+              crossProjectStubIds={stubIdsByProject.get(nodeProject)}
+            />
+          )
+        })}
+
+        {/* Unorganized section */}
+        {(unorganized.length > 0 || pinnedNotInTree.length > 0) && (
+          <div>
+            {hasOrganized && (
+              <div className="text-[10px] text-muted-foreground/50 font-bold uppercase tracking-wider px-1 mb-1 flex items-center gap-2">
+                <span>Unorganized</span>
+                <span className="flex-1 h-px bg-border" />
               </div>
             )}
-          </SortableContext>
-        </DndContext>
+            <div className="space-y-1">
+              {pinnedNotInTree.map(uri => (
+                <PinnedProjectNode key={uri} project={uri} />
+              ))}
+              {unorganized.map(({ project, conversationIds }, i) => {
+                // Insert separator before first ad-hoc-only group
+                const isAllAdHoc = conversationIds.every(id => structureById.get(id)?.capabilities?.includes('ad-hoc'))
+                const prevIsRegular =
+                  i > 0 &&
+                  !unorganized[i - 1].conversationIds.every(id =>
+                    structureById.get(id)?.capabilities?.includes('ad-hoc'),
+                  )
+                const showAdHocSeparator = isAllAdHoc && (i === 0 || prevIsRegular)
+                return (
+                  <div key={project}>
+                    {showAdHocSeparator && (
+                      <div className="flex items-center gap-2 px-1 pt-2 pb-1">
+                        <span className="flex-1 h-px bg-border" />
+                        <span className="text-[9px] text-muted-foreground/40 uppercase tracking-wider">ad-hoc</span>
+                        <span className="flex-1 h-px bg-border" />
+                      </div>
+                    )}
+                    <ProjectNode
+                      project={project}
+                      conversationIds={conversationIds}
+                      crossProjectStubIds={stubIdsByProject.get(project)}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Inactive section */}
         {inactive.length > 0 && (

@@ -1,43 +1,10 @@
-import { useDroppable } from '@dnd-kit/core'
-import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProjectOrderGroup } from '@/lib/types'
-import { cn, haptic } from '@/lib/utils'
-
-// ─── Sortable agent host ──────────────────────────────────────────────
-
-export function SortableNode({ id, children }: { id: string; children: ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className={cn(isDragging && 'z-10 relative')}
-    >
-      {children}
-    </div>
-  )
-}
-
-export function NewGroupDropTarget() {
-  const { isOver, setNodeRef } = useDroppable({ id: '__new_group__' })
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        'border-2 border-dashed rounded py-2 px-3 text-center text-[11px] font-mono transition-colors',
-        isOver ? 'border-accent text-accent bg-accent/10' : 'border-border/50 text-muted-foreground/50',
-      )}
-    >
-      + new group
-    </div>
-  )
-}
+import { haptic } from '@/lib/utils'
 
 // ─── Group node (collapsible folder) ───────────────────────────────
+// Read-only in the sidebar: collapse + double-click rename only. Structural
+// edits (reorder, group membership) live in the Organize Projects modal.
 
 export function GroupNode({
   group,

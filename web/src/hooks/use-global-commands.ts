@@ -7,6 +7,7 @@ import {
 import { exposeDispatchControl } from '@/components/dispatch-overlay/dispatch-control-bridge'
 import { useDispatchStore } from '@/components/dispatch-overlay/dispatch-store'
 import { openLaunchProfileManager } from '@/components/launch-profiles/manager-state'
+import { openOrganizeProjects } from '@/components/organize-projects/organize-state'
 import { openRecapConfigDialog } from '@/components/recap-jobs/recap-config-trigger'
 import { openRecapHistory } from '@/components/recap-jobs/recap-history-trigger'
 import { openRenameModal } from '@/components/rename-modal-trigger'
@@ -525,6 +526,11 @@ export function useGlobalCommands(toggleSidebar: () => void) {
   useCommand('manage-launch-profiles', () => openLaunchProfileManager(), {
     label: 'Manage Launch Profiles',
     group: 'Launch',
+  })
+
+  useCommand('organize-projects', () => openOrganizeProjects(), {
+    label: 'Organize projects & groups',
+    group: 'Navigation',
   })
 
   // Quick task opener. Registered HERE (eager, app-shell level) and NOT inside
