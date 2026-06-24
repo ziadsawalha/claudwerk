@@ -12,8 +12,6 @@ import type {
   DispatchCandidate,
   DispatchDecision,
   DispatchHistoryDump,
-  DispatchProjectMemory,
-  DispatchThread,
   DispatchToolCall,
   DispatchToolResult,
 } from '@shared/protocol'
@@ -39,9 +37,6 @@ export interface DispatchState {
   activeTraceId: string | null
   pending: boolean
   lastError: string | null
-  threads: DispatchThread[]
-  /** The fleet by project + condensed memory (the project-anchored brain view). */
-  projects: DispatchProjectMemory[]
   /** Live conversations the desk currently covers (shown as "active right now"). */
   roster: DispatchCandidate[]
   threadsLoading: boolean
@@ -51,8 +46,6 @@ export interface DispatchState {
   model: string
   /** Streamed tool calls/results keyed by the turn's traceId (the dimmed gears). */
   toolEvents: Record<string, DispatchToolEvent[]>
-  /** Whether the near-memory threads board is shown (toggle). */
-  showThreads: boolean
   /** VERBOSE view (Slice D): expose the dispatcher's full internal state -- the
    *  live XML state blocks, decision metadata, and per-turn tool frames. */
   verbose: boolean
@@ -64,7 +57,6 @@ export interface DispatchState {
   // intent / submission
   setIntent(intent: string): void
   setModel(slug: string): void
-  toggleThreads(): void
   toggleVerbose(): void
   submit(override?: { target?: string; disposition?: 'route' | 'revive' | 'new'; confirmedExpensive?: boolean }): void
   confirmExpensive(decision: DispatchDecision): void
@@ -102,15 +94,12 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   activeTraceId: null,
   pending: false,
   lastError: null,
-  threads: [],
-  projects: [],
   roster: [],
   threadsLoading: false,
   activeConvId: null,
   rightPane: 'memory',
   model: DISPATCH_MODELS[0].slug,
   toolEvents: {},
-  showThreads: true,
   verbose: false,
   memory: '',
   workspaces: [],
@@ -122,7 +111,6 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   // on the next `intent.trim()` (dispatch-intent-input + desk + memory section).
   setIntent: intent => set({ intent: intent ?? '' }),
   setModel: slug => set({ model: slug }),
-  toggleThreads: () => set(s => ({ showThreads: !s.showThreads })),
   toggleVerbose: () => set(s => ({ verbose: !s.verbose })),
 
   submit: override => {

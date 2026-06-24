@@ -13,8 +13,6 @@ import type {
   DispatchCandidate,
   DispatchDecision,
   DispatchHistoryDump,
-  DispatchProjectMemory,
-  DispatchThread,
   DispatchToolCall,
   DispatchToolResult,
 } from '@shared/protocol'
@@ -25,8 +23,6 @@ type Set = (partial: Partial<DispatchState> | ((s: DispatchState) => Partial<Dis
 type Get = () => DispatchState
 
 export interface ThreadsResultMsg {
-  threads?: DispatchThread[]
-  projects?: DispatchProjectMemory[]
   roster?: DispatchCandidate[]
   memory?: string
   workspaces?: WorkspaceInfo[]
@@ -55,8 +51,6 @@ export function createInbound(set: Set, get: Get) {
     onThreadsResult: (msg: ThreadsResultMsg) =>
       set(s => ({
         threadsLoading: false,
-        threads: msg.threads ?? [],
-        projects: msg.projects ?? [],
         roster: msg.roster ?? [],
         memory: msg.memory ?? '',
         workspaces: msg.workspaces ?? [],

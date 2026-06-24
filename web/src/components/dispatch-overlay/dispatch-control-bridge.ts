@@ -33,13 +33,7 @@ export function exposeDispatchControl(): void {
         model: s.model,
         decisionCount: s.decisions.length,
         latestDecision: s.decisions[0] ?? null,
-        threads: s.threads.map(t => ({
-          id: t.id,
-          title: t.title,
-          summary: t.summary,
-          conversations: t.conversations.length,
-          updatedAt: t.updatedAt,
-        })),
+        rosterCount: s.roster.length,
       }
     },
   }

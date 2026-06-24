@@ -16,26 +16,13 @@
  */
 
 import { runDispatchAgent } from '../desk/agent-runtime'
-import { projectOverviewRows } from '../desk/dispatch-tools'
 import { dumpUserHistory } from '../desk/history-store'
 import { readMemory } from '../desk/memory'
 import type { DispatchCommand } from '../desk/orchestrate'
 import { type DispatchRuntime, listDispatchRosterCandidates, runDispatch } from '../desk/runtime'
-import { listThreads } from '../desk/threads'
 import { workspaceSnapshot } from '../desk/workspace'
 import { GuardError, type HandlerContext, type MessageData, type MessageHandler } from '../handler-context'
 import { CONTROL_PANEL_ONLY, registerHandlers } from '../message-router'
-
-/**
- * Per-user read seam for the dispatcher near-memory. The threads store has no
- * `user_id` column yet (single-user reality), so today every thread is the one
- * user's and this returns them all. When the backend per-user increment lands
- * (`listThreads({ userId })` + a `user_id` column), this becomes the ONE place
- * to pass the authed user through -- the overlay already scopes on `userId`.
- */
-function listThreadsForUser(_userId: string | null, limit?: number) {
-  return listThreads(limit ?? undefined)
-}
 
 // fallow-ignore-next-line complexity
 function buildCommand(data: MessageData): DispatchCommand {
@@ -152,35 +139,22 @@ const dispatchRequest: MessageHandler = async (ctx: HandlerContext, data: Messag
   }
 }
 
+// Loads the GLOBAL dispatcher's desk state on overlay-open: the live roster
+// ("active right now"), durable memory, scratch workspaces, and the living
+// history. The dispatcher fronts ALL projects -- there is no per-project view --
+// and THREADS are short-term memory folded into the dispatcher's context, not a
+// surfaced panel, so neither is sent to the overlay.
 const dispatchListThreads: MessageHandler = (ctx: HandlerContext, data: MessageData) => {
   ctx.requirePermission('spawn')
   const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
-  const limit = typeof data.limit === 'number' && data.limit > 0 ? data.limit : undefined
   const userId = ctx.ws.data.userName ?? null
-  const threads = listThreadsForUser(userId, limit)
   const roster = listDispatchRosterCandidates(ctx.conversations)
-  // The project-anchored memory view: every project + its condensed brief +
-  // live counts. Only projects with a brief OR a live conversation are useful
-  // to surface; cap so the overlay stays light.
-  const projects = projectOverviewRows({ store: ctx.conversations })
-    .filter(p => p.brief || p.live > 0)
-    .slice(0, 12)
   const memory = readMemory(userId)
   const workspaces = workspaceSnapshot()
   // The living conversation itself (transcript + state blocks) so opening the
   // overlay loads the persistent dispatcher, not a blank feed (Slice C).
   const history = dumpUserHistory(userId)
-  ctx.reply({
-    type: 'dispatch_threads_result',
-    requestId,
-    threads,
-    projects,
-    roster,
-    memory,
-    workspaces,
-    history,
-    userId,
-  })
+  ctx.reply({ type: 'dispatch_threads_result', requestId, roster, memory, workspaces, history, userId })
 }
 
 export function registerDispatchHandlers(): void {

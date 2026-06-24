@@ -33,13 +33,15 @@ function run(type: string, data: MessageData, wsData: Partial<WsData>): Record<s
 const CONTROL_PANEL: Partial<WsData> = { userName: 'jonas', isControlPanel: true }
 
 describe('dispatch_list_threads handler', () => {
-  it('returns the near-memory threads stamped with the authed user', () => {
+  it('returns the global desk state stamped with the authed user (no threads/projects panel)', () => {
     const replies = run('dispatch_list_threads', { requestId: 'r1' }, CONTROL_PANEL)
     expect(replies[0]).toMatchObject({ type: 'dispatch_threads_result', requestId: 'r1', userId: 'jonas' })
-    const threads = replies[0].threads as Array<{ title: string }>
-    expect(threads.some(t => t.title === 'Broker perf sweep')).toBe(true)
     // The live roster rides along so the overlay can show "active right now".
     expect(Array.isArray(replies[0].roster)).toBe(true)
+    // Threads are SHORT-TERM memory folded into the dispatcher's context, not a
+    // surfaced panel; the project-anchored memory view is gone (global dispatcher).
+    expect(replies[0].threads).toBeUndefined()
+    expect(replies[0].projects).toBeUndefined()
   })
 
   it('is rejected for a non-control-panel caller (role gate, default-deny)', () => {
