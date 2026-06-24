@@ -22,12 +22,29 @@ type Ref<T> = { current: T }
 
 export type FollowTransition = 'engage' | 'disengage' | 'engage-suppressed' | 'disengage-suppressed' | null
 
-/** Classify a scroll event. `unstable` = layout shifted or a backfill is in
- *  flight -> the would-be transition is SUPPRESSED. Engage band: drift < 40px.
- *  Disengage: user-driven scroll with drift > 120px (hysteresis gap between). */
+/** Classify a scroll event. Engage band: drift < 40px. Disengage: user-driven
+ *  scroll with drift > 120px (hysteresis gap between).
+ *
+ *  `unstable` (layout shifted OR a backfill in flight) suppresses ENGAGE ONLY.
+ *  An ENGAGE rides on raw drift < 40 with no proof of user intent, so a
+ *  layout-collapse frame can fake one -- that was the HEAD of the 2026-06-10
+ *  oscillator, so it stays gated.
+ *
+ *  DISENGAGE is NEVER suppressed by instability. It already requires
+ *  `userScrolling` (set only by real wheel/touch) AND drift > 120 -- proof of
+ *  intent on its own. Suppressing it during a backfill DEADLOCKED the reader:
+ *  scrolling up to read history is the very gesture that fires the backfill
+ *  (loadEarlier/fetchOlder only trigger on a user scroll-up near the top), so
+ *  `backfilling` was true exactly when the user-driven disengage needed to fire
+ *  -> follow stuck ON -> the follow-gated window re-anchor ("post-scrollback-
+ *  show-all") snapped the window back to the last page and the pin effect yanked
+ *  the viewport to the bottom. Symptom: can't break through to load more; follow
+ *  re-engages unless you keep fighting downward. The oscillator's disengage was
+ *  only ever a downstream symptom of the bogus ENGAGE, which is still gated --
+ *  so dropping the disengage suppression cannot revive it. */
 export function classifyFollowTransition(drift: number, userScrolling: boolean, unstable: boolean): FollowTransition {
   if (drift < 40) return unstable ? 'engage-suppressed' : 'engage'
-  if (userScrolling && drift > 120) return unstable ? 'disengage-suppressed' : 'disengage'
+  if (userScrolling && drift > 120) return 'disengage'
   return null
 }
 
