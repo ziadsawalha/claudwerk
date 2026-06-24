@@ -32,6 +32,9 @@ const DISPATCHER_SYSTEM = [
   '',
   'Your message history carries live XML STATE BLOCKS you can read directly:',
   '  <fleet> -- the fleet by project (live/working/needs-you counts), refreshed each turn.',
+  '  <threads> -- your SHORT-TERM memory: what you are doing RIGHT NOW (most-recent',
+  '  first). This is your nearest, freshest memory -- trust it over older context.',
+  '  Keep it current with commit_thread; full detail is in list_threads.',
   '  <briefs> -- condensed per-project memory (detail via project_brief / recall).',
   '  <notes> -- durable facts about the user. <memory> -- your rolling recollection.',
   '  <pending id=..> -- async work you dispatched and are awaiting; when it reports',
@@ -143,11 +146,17 @@ export async function runDispatchAgent(
   const model = opts.model || DISPATCHER_MODEL
   const now = Date.now()
   const history = getUserHistory(opts.userId)
-  // REFRESH the live blocks in place (fleet/briefs/notes), then append the impulse.
-  // Decay prune: stale quiet projects fade OUT of the per-turn window (still in
-  // storage + reachable via projects_overview / project_brief / recall).
+  // REFRESH the live blocks in place (fleet/threads/briefs/notes), then append the
+  // impulse. Decay prune: stale quiet projects fade OUT of the per-turn window
+  // (still in storage + reachable via projects_overview / project_brief / recall).
+  // Threads = short-term memory ("what we're doing now"), folded into context here.
   const contextRows = activeContextRows(projectOverviewRows(rt))
-  refreshLiveBlocks(history, { rows: contextRows, durableNotes: readMemory(opts.userId), now })
+  refreshLiveBlocks(history, {
+    rows: contextRows,
+    threads: listThreads(),
+    durableNotes: readMemory(opts.userId),
+    now,
+  })
   appendTurn(history, 'user', intent, now)
   // Mirror the real user turn into the viewable transcript ring (A0). The async
   // impulse opts out -- its intent is a synthetic report-back trigger, not a turn.

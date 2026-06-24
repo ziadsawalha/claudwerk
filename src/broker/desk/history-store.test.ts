@@ -87,6 +87,27 @@ describe('refreshLiveBlocks', () => {
     expect(briefs).toContain('## p1')
     expect(briefs).toContain('+1 more in memory')
   })
+
+  test('folds near-memory threads into a <threads> block, ahead of <briefs>', () => {
+    resetUserHistory('u3')
+    const h = getUserHistory('u3')
+    const rows = [row({ project: 'arr', live: 1, brief: 'tracker' })]
+    const threads = [
+      { id: 't1', title: 'ship decay', summary: 'wiring the half-life', conversations: [], createdAt: 1, updatedAt: 9 },
+      { id: 't2', title: 'no summary here', summary: '', conversations: [], createdAt: 1, updatedAt: 8 },
+    ]
+    refreshLiveBlocks(h, { rows, threads, durableNotes: '', now: 1 })
+    const block = getBlock(h, 'threads')?.content ?? ''
+    expect(block).toContain('- ship decay: wiring the half-life')
+    expect(block).toContain('- no summary here')
+    // threads render ahead of briefs in the serialized state.
+    const ids = [...h.blocks.keys()]
+    expect(ids.indexOf('threads')).toBeLessThan(ids.indexOf('briefs'))
+
+    // empty threads -> block dropped (no accumulation).
+    refreshLiveBlocks(h, { rows, threads: [], durableNotes: '', now: 2 })
+    expect(getBlock(h, 'threads')).toBeUndefined()
+  })
 })
 
 describe('consolidateIfDue', () => {
