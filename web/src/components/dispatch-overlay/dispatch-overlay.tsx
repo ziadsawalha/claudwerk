@@ -35,8 +35,11 @@ export default function DispatchOverlay() {
 
   if (!open) return null
 
+  // data-state="open" makes key-layers.ts yield Escape to us (its dialog-dismiss
+  // guard matches [role="dialog"][data-state="open"]); without it the global
+  // Escape->go-home command eats the key and the overlay never closes.
   return (
-    <div role="dialog" aria-modal="true" aria-label="Dispatch">
+    <div role="dialog" aria-modal="true" aria-label="Dispatch" data-state="open">
       <button type="button" aria-label="Close dispatch" tabIndex={-1} className="dispatch-scrim" onClick={close} />
       <div className="dispatch-deck">
         <DispatchHeader />
