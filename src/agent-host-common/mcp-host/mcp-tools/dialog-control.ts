@@ -31,7 +31,7 @@ function patchSummary(dialogId: string, snapshot: DialogSnapshot, conflicts: OpC
   const lines = [
     `Dialog ${dialogId} patched. New seq=${snapshot.seq}.`,
     `Current state: ${JSON.stringify(snapshot.state)}`,
-    `Reminder: once the work this dialog covers is complete, close it with close_dialog("${dialogId}") -- do not leave a live dialog open at the end of the task.`,
+    `Reminder: keep this dialog SMALL so it does not overwhelm the user. As topics resolve, REMOVE the blocks that no longer matter (op:'remove' by id -- answered questions, locked-in decisions, finished sections) so only the live, still-actionable part remains. The instant the work it covers is RESOLVED (answer delivered, decision locked, nothing left to iterate on), CLOSE it with close_dialog("${dialogId}") -- NEVER leave a resolved dialog open. For a mere "working on it / wait while I do X" beat, do not keep a half-open dialog hanging with a Send-to-agent button: trim it to the single status line, or close it and report progress with set_status instead.`,
   ]
   if (conflicts.length > 0) {
     lines.push('Conflicts (NOT applied):')
@@ -43,7 +43,7 @@ function patchSummary(dialogId: string, snapshot: DialogSnapshot, conflicts: OpC
 function registerUpdate(ctx: McpToolContext): ToolDef {
   return {
     description:
-      'Patch a live (persistent) dialog in place. Pass the dialogId and an ordered list of ops: replace/append/remove blocks (by stable id), setState/unsetState values, busy (wait hint), or close. Optional baseSeq guards against applying onto a stale snapshot.',
+      'Patch a live (persistent) dialog in place. Pass the dialogId and an ordered list of ops: replace/append/remove blocks (by stable id), setState/unsetState values, busy (wait hint), or close. Optional baseSeq guards against applying onto a stale snapshot. Keep the dialog SMALL: as a topic resolves, REMOVE (op:"remove") the blocks the user no longer needs (locked decisions, answered questions, finished sections) so only the live part shows -- a growing wall of resolved content overwhelms the user. To restart from scratch you do NOT need a clear op: close_dialog and open a fresh dialog. When the whole thing is RESOLVED, close it with close_dialog.',
     inputSchema: {
       type: 'object' as const,
       properties: {

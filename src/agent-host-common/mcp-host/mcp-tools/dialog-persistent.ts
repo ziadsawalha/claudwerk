@@ -20,7 +20,7 @@ export function showPersistentDialog(ctx: McpToolContext, dialogId: string, layo
     content: [
       {
         type: 'text',
-        text: `Live dialog "${layout.title}" shown. It persists across turns -- patch it with update_dialog(dialogId, ops), close it with close_dialog(dialogId), reopen with reopen_dialog(dialogId). Dialog ID: ${dialogId}. IMPORTANT: when the work this dialog covers is finished (you've delivered the plan/recap/answer and there is nothing left to iterate on), you MUST close it with close_dialog("${dialogId}") -- a live dialog left open keeps demanding the user's attention. Do not leave it open at the end of the task.`,
+        text: `Live dialog "${layout.title}" shown. It persists across turns -- patch it with update_dialog(dialogId, ops), close it with close_dialog(dialogId), reopen with reopen_dialog(dialogId). Dialog ID: ${dialogId}. KEEP IT SMALL: as you patch, REMOVE (op:"remove") blocks the user no longer needs (answered questions, locked-in decisions, finished sections) so the dialog never grows into a wall that overwhelms -- only the live, still-actionable part should show. IMPORTANT: when the work this dialog covers is RESOLVED (you've delivered the plan/recap/answer and there is nothing left to iterate on), you MUST close it with close_dialog("${dialogId}") -- a live dialog left open keeps demanding the user's attention. Do not leave it open at the end of the task. For a transient "wait while I do X" status, don't leave a half-open dialog hanging: trim to that one line or close it and use set_status to report progress.`,
       },
     ],
   }

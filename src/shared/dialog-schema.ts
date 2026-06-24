@@ -666,7 +666,7 @@ export function dialogToolInputSchema(): Record<string, unknown> {
       persistent: {
         type: 'boolean',
         description:
-          'Make this a LIVE dialog that survives across turns instead of a one-shot. The user interacts locally (instant, no agent turns) and hits one "Send to agent" button; you receive the full form state in ONE turn and patch the dialog in place with update_dialog(dialogId, ops) -- it stays open. Reopen a closed one with reopen_dialog. Use ONLY when the artifact must persist AND you will re-derive content from interaction (e.g. comment-on-a-design -> redraw); for plain multi-step collection use "pages" (instant). Every block MUST have a stable "id" so patches reconcile without losing input.',
+          'Make this a LIVE dialog that survives across turns instead of a one-shot. The user interacts locally (instant, no agent turns) and hits one "Send to agent" button; you receive the full form state in ONE turn and patch the dialog in place with update_dialog(dialogId, ops) -- it stays open. Reopen a closed one with reopen_dialog. Use ONLY when the artifact must persist AND you will re-derive content from interaction (e.g. comment-on-a-design -> redraw); for plain multi-step collection use "pages" (instant). Every block MUST have a stable "id" so patches reconcile without losing input. KEEP IT SMALL across its life: as topics resolve, remove (op:"remove") the blocks that no longer matter so the user only ever sees the live part; and the moment it is RESOLVED, close it with close_dialog -- never leave a resolved dialog open.',
       },
       timeout: {
         type: 'number',
