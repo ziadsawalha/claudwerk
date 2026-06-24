@@ -19,9 +19,14 @@ interface CapturedError {
 
 type Listener = (e: CapturedError) => void
 const listeners = new Set<Listener>()
+// Buffer captures that arrive before any ErrorSurface has subscribed -- notably
+// a boundary `componentDidCatch`, which fires during commit BEFORE the parent's
+// `useEffect` registers its listener. Flushed on mount so nothing is lost.
+const buffer: CapturedError[] = []
 
 /** Feed an error into the surface (boundary + window listeners). */
 function reportHarnessError(e: CapturedError): void {
+  if (listeners.size === 0) buffer.push(e)
   for (const l of listeners) l(e)
 }
 
@@ -61,6 +66,12 @@ export function ErrorSurface({ children }: { children: ReactNode }) {
       })
     const onEmit: Listener = e => setErrors(prev => [...prev, e])
     listeners.add(onEmit)
+    // Drain anything captured before we subscribed (e.g. a boundary catch on
+    // the initial commit).
+    if (buffer.length) {
+      const drained = buffer.splice(0)
+      setErrors(prev => [...prev, ...drained])
+    }
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onRej)
     return () => {
