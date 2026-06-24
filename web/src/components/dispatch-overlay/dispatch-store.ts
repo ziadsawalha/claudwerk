@@ -126,12 +126,20 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   toggleVerbose: () => set(s => ({ verbose: !s.verbose })),
 
   submit: override => {
-    const intent = get().intent.trim()
-    if (!intent || get().pending) return
-    const requestId = nextRequestId()
-    // Clear the input the moment we send -- "on ask/Enter the input must clear".
-    set({ pending: true, lastError: null, intent: '' })
-    wsSend('dispatch_request', { intent, requestId, model: get().model, ...override })
+    try {
+      // Guard the draft: a missing `intent` (e.g. an un-initialized store in a
+      // stale bundle) must not throw on `.trim()` before we ever wsSend.
+      const intent = (get().intent ?? '').trim()
+      if (!intent || get().pending) return
+      const requestId = nextRequestId()
+      // Clear the input the moment we send -- "on ask/Enter the input must clear".
+      set({ pending: true, lastError: null, intent: '' })
+      wsSend('dispatch_request', { intent, requestId, model: get().model, ...override })
+    } catch (err) {
+      // Defect #2: never die silently before wsSend. Surface the throw as
+      // lastError so a broken submit is visible instead of vanishing.
+      set({ pending: false, lastError: err instanceof Error ? err.message : String(err) })
+    }
   },
 
   confirmExpensive: decision => {
@@ -147,7 +155,7 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   },
 
   chooseCandidate: (candidate, ended) => {
-    const intent = get().intent.trim() || get().decisions[0]?.intent
+    const intent = (get().intent ?? '').trim() || get().decisions[0]?.intent
     if (!intent) return
     const requestId = nextRequestId()
     set({ pending: true, lastError: null })

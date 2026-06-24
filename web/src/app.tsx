@@ -441,11 +441,7 @@ function Dashboard() {
 
       {/* Main content */}
       <div className="flex gap-4 flex-1 min-h-0 relative">
-        <DesktopSidebar
-          collapsed={sidebarCollapsed}
-          onToggle={toggleSidebar}
-          canLocate={!!selectedConversationId}
-        />
+        <DesktopSidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} canLocate={!!selectedConversationId} />
 
         <div className="flex-1 border border-border overflow-hidden flex flex-col min-w-0">
           <PanelBoundary name="Conversation">
@@ -684,8 +680,23 @@ function useHash(): string {
   return hash
 }
 
+// Dev-only component harness. The ternary keeps the dynamic import inside a
+// `import.meta.env.DEV` branch, so Vite dead-code-eliminates it (chunk + route)
+// from production builds entirely.
+const DevHarnessRoute = import.meta.env.DEV ? lazy(() => import('./dev/harness/dev-harness-route')) : null
+
 export function App() {
   const hash = useHash()
+
+  // /dev/harness?mount=<id>&key=<devToken> -- mount one component against the
+  // real broker, bypassing the full app shell. Dev builds only.
+  if (DevHarnessRoute && window.location.pathname === '/dev/harness') {
+    return (
+      <Suspense fallback={null}>
+        <DevHarnessRoute />
+      </Suspense>
+    )
+  }
 
   // Phase 11: /r/:token redirected here as ?share=TOKEN&kind=recap. The SPA
   // serves a standalone public recap viewer (no project chrome, no auth gate).
