@@ -51,6 +51,16 @@ export function projectNameStrength(query: string, label: string | undefined, ur
   return Math.max(matchStrength(query, label || ''), matchStrength(query, projectBasename(uri)))
 }
 
+/**
+ * A match counts as "strong" only at a word boundary or better (exact / prefix / word-start,
+ * strength >= 2). A strength-1 mid-word substring is incidental, not an intentional hit:
+ * searching "nsf" lands inside "tra-NSF-orms", so a conversation titled "...transforms..."
+ * must NOT be promoted to a strong tier above an exact match on the "nsf" project. Weak
+ * substrings fall to the fuzzy tier, where their higher fzf score still floats them above
+ * scattered chaff. Without this gate, fuzzy noise buries perfect prefix matches (the user's bug).
+ */
+const STRONG_MATCH = 2
+
 /** Legacy soft boosts for the fuzzy tier: +50% top MRU, +30% hottest project, +30% live. */
 export function fuzzyMultiplier(opts: {
   mruRank: number
@@ -63,17 +73,21 @@ export function fuzzyMultiplier(opts: {
   return 1 + 0.5 * mruBoost + 0.3 * freqBoost + 0.3 * (opts.isActive ? 1 : 0)
 }
 
-/** Tier for a fzf-matched conversation given how it matched its own name vs its project name. */
+/**
+ * Tier for a fzf-matched conversation given how it matched its own name vs its project name.
+ * Only a STRONG (word-boundary-or-better) match earns NAME/PROJECT_CONV; a weak mid-word
+ * substring drops to FUZZY so an exact project match always outranks incidental letters.
+ */
 export function conversationTier(opts: { nameStrength: number; projStrength: number; isActive: boolean }): number {
-  if (opts.nameStrength >= 1) return RANK_TIER.NAME
-  if (opts.projStrength >= 1 && opts.isActive) return RANK_TIER.PROJECT_CONV
+  if (opts.nameStrength >= STRONG_MATCH) return RANK_TIER.NAME
+  if (opts.projStrength >= STRONG_MATCH && opts.isActive) return RANK_TIER.PROJECT_CONV
   return RANK_TIER.FUZZY
 }
 
 /** Tier for a fzf-matched project node. The node only surfaces strongly when the project has
- *  no active conversation representing it; otherwise it is fuzzy chaff. */
+ *  no active conversation representing it AND the query strongly matches it; else fuzzy chaff. */
 export function projectNodeTier(projStrength: number, hasActiveConv: boolean): number {
-  if (projStrength >= 1 && !hasActiveConv) return RANK_TIER.PROJECT_NODE
+  if (projStrength >= STRONG_MATCH && !hasActiveConv) return RANK_TIER.PROJECT_NODE
   return RANK_TIER.FUZZY
 }
 

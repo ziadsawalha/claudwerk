@@ -40,8 +40,18 @@ describe('projectBasename', () => {
 })
 
 describe('conversationTier', () => {
-  it('a conversation-name match is always T1', () => {
-    expect(conversationTier({ nameStrength: 1, projStrength: 4, isActive: true })).toBe(RANK_TIER.NAME)
+  it('a STRONG conversation-name match (>= word-start) is T1', () => {
+    expect(conversationTier({ nameStrength: 2, projStrength: 0, isActive: true })).toBe(RANK_TIER.NAME)
+    expect(conversationTier({ nameStrength: 4, projStrength: 0, isActive: true })).toBe(RANK_TIER.NAME)
+  })
+
+  it('a WEAK mid-word name substring loses to an exact project match (the "nsf" bug)', () => {
+    // "nsf" inside "tra-NSF-orms" is strength 1; the exact "nsf" project (strength 4) must win.
+    expect(conversationTier({ nameStrength: 1, projStrength: 4, isActive: true })).toBe(RANK_TIER.PROJECT_CONV)
+  })
+
+  it('a weak mid-word substring with no project match falls to fuzzy, not NAME', () => {
+    expect(conversationTier({ nameStrength: 1, projStrength: 0, isActive: true })).toBe(RANK_TIER.FUZZY)
   })
 
   it('an active conversation in a name-matched project is T2', () => {
