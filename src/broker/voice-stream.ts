@@ -27,6 +27,14 @@ interface VoiceSession {
   timeoutTimer: ReturnType<typeof setTimeout>
   keepaliveTimer: ReturnType<typeof setInterval>
   closed: boolean
+  // Per-session audio accounting. These USED to be module-level globals, which
+  // collided across concurrent sessions (multi-user broker) and got reset
+  // mid-flight in dgWs.onopen -- either bug could fabricate a false "No audio
+  // received" error. Now scoped to the session and counting EVERY chunk the
+  // browser sends (buffered while DG dials, or live), never reset, so the
+  // zero-chunk check reliably means "the browser's mic produced nothing".
+  audioChunks: number
+  audioBytes: number
 }
 
 // Active voice sessions keyed by dashboard WS identity
@@ -88,6 +96,8 @@ export function handleVoiceStart(
     keyterms,
     audioBuffer: [],
     closed: false,
+    audioChunks: 0,
+    audioBytes: 0,
     timeoutTimer: setTimeout(() => {
       console.log(`[voice-stream] Session timed out (${VOICE_TIMEOUT_MS / 1000}s)`)
       stopVoiceSession(ws, 'timeout')
@@ -102,6 +112,14 @@ export function handleVoiceStart(
 
   voiceSessions.set(ws, voiceSession)
 
+  // Ack to the browser the instant we accept the start and begin dialing
+  // Deepgram. This splits the chain into observable legs: if the client sent
+  // voice_start but never sees voice_connecting, the browser->broker WS leg
+  // dropped it; if it sees voice_connecting but never voice_ready, Deepgram is
+  // the slow/failed leg. The client uses this to phrase honest errors and to
+  // keep the UI in "connecting" (NOT "speak now") until the whole chain is up.
+  ws.send(JSON.stringify({ type: 'voice_connecting' }))
+
   dgWs.onopen = () => {
     // Flush any audio buffered during connection
     const flushedChunks = voiceSession.audioBuffer.length
@@ -115,8 +133,9 @@ export function handleVoiceStart(
     } else {
       console.log('[voice-stream] Deepgram WS connected, waiting for audio...')
     }
-    voiceDataCount = 0
-    voiceDataBytes = 0
+    // NOTE: do NOT reset the audio counters here. They count every chunk the
+    // browser has sent so far (including the ones just flushed); zeroing them
+    // would discount real audio and could fabricate a false "No audio" error.
     ws.send(JSON.stringify({ type: 'voice_ready', flushedChunks, flushedBytes }))
   }
 
@@ -168,21 +187,21 @@ export function handleVoiceStart(
   dgWs.onclose = (event: CloseEvent) => {
     const reason = event.reason || 'no reason'
     console.log(
-      `[voice-stream] Deepgram WS closed (code: ${event.code}, reason: "${reason}", audioChunks: ${voiceDataCount}, totalBytes: ${voiceDataBytes})`,
+      `[voice-stream] Deepgram WS closed (code: ${event.code}, reason: "${reason}", audioChunks: ${voiceSession.audioChunks}, totalBytes: ${voiceSession.audioBytes})`,
     )
 
     if (!voiceSession.closed) {
       if (voiceSession.finalTranscript) {
         voiceSession.closed = true
         refineAndSend(ws, voiceSession.finalTranscript, voiceSession.keyterms)
-      } else if (voiceDataCount === 0) {
+      } else if (voiceSession.audioChunks === 0) {
         // Deepgram closed and we never sent any audio -- something is wrong
         console.error('[voice-stream] Deepgram closed with ZERO audio chunks received from browser')
         ws.send(JSON.stringify({ type: 'voice_error', error: 'No audio data received. Check microphone permissions.' }))
         voiceSession.closed = true
-      } else if (voiceDataBytes > 0 && !voiceSession.finalTranscript) {
+      } else if (voiceSession.audioBytes > 0 && !voiceSession.finalTranscript) {
         // Got audio but no transcript -- Deepgram couldn't decode or no speech detected
-        console.warn(`[voice-stream] Deepgram closed with ${voiceDataBytes}B audio but no transcript`)
+        console.warn(`[voice-stream] Deepgram closed with ${voiceSession.audioBytes}B audio but no transcript`)
         ws.send(
           JSON.stringify({
             type: 'voice_error',
@@ -196,24 +215,26 @@ export function handleVoiceStart(
   }
 }
 
-let voiceDataCount = 0
-let voiceDataBytes = 0
-
 export function handleVoiceData(ws: ServerWebSocket<unknown>, audioBase64: string) {
   const session = voiceSessions.get(ws)
   if (!session) {
-    console.warn('[voice-stream] voice_data received but no active session')
+    // The browser is streaming audio but the broker has no session for this
+    // socket -- voice_start never arrived (or was dropped). This is a real
+    // discrepancy: the user is talking into the void. Tell them so the UI can
+    // stop pretending it's recording, instead of silently swallowing audio.
+    console.warn('[voice-stream] voice_data received but no active session -- voice_start missing/dropped')
+    ws.send(JSON.stringify({ type: 'voice_error', error: 'Voice session not started (lost connection). Try again.' }))
     return
   }
 
   const bytes = Buffer.from(audioBase64, 'base64')
-  voiceDataCount++
-  voiceDataBytes += bytes.length
+  session.audioChunks++
+  session.audioBytes += bytes.length
 
   // Log first chunk and then every 20th chunk
-  if (voiceDataCount === 1 || voiceDataCount % 20 === 0) {
+  if (session.audioChunks === 1 || session.audioChunks % 20 === 0) {
     console.log(
-      `[voice-stream] Audio chunk #${voiceDataCount}: ${bytes.length}B (total: ${voiceDataBytes}B, DG state: ${session.dgWs.readyState})`,
+      `[voice-stream] Audio chunk #${session.audioChunks}: ${bytes.length}B (total: ${session.audioBytes}B, DG state: ${session.dgWs.readyState})`,
     )
   }
 
@@ -234,6 +255,27 @@ export function handleVoiceStop(ws: ServerWebSocket<unknown>) {
   stopVoiceSession(ws, 'user')
 }
 
+/** Emit the final result if we captured a transcript, else an empty voice_done, then clean up. */
+function completeVoiceSession(ws: ServerWebSocket<unknown>, session: VoiceSession) {
+  if (session.finalTranscript) {
+    refineAndSend(ws, session.finalTranscript, session.keyterms) // cleans up internally
+  } else {
+    ws.send(JSON.stringify({ type: 'voice_done', raw: '', refined: '' }))
+    cleanupVoiceSession(ws)
+  }
+}
+
+/** Ask Deepgram to flush (Finalize), close the stream, then complete once results settle. */
+function flushFinalizeAndComplete(ws: ServerWebSocket<unknown>, session: VoiceSession, completeDelayMs: number) {
+  session.dgWs.send(JSON.stringify({ type: 'Finalize' }))
+  setTimeout(() => {
+    if (session.dgWs.readyState === WebSocket.OPEN) {
+      session.dgWs.send(JSON.stringify({ type: 'CloseStream' }))
+    }
+  }, 500)
+  setTimeout(() => completeVoiceSession(ws, session), completeDelayMs)
+}
+
 function stopVoiceSession(ws: ServerWebSocket<unknown>, reason: string) {
   const session = voiceSessions.get(ws)
   if (!session) return
@@ -244,23 +286,9 @@ function stopVoiceSession(ws: ServerWebSocket<unknown>, reason: string) {
   clearInterval(session.keepaliveTimer)
 
   if (session.dgWs.readyState === WebSocket.OPEN) {
-    // DG connected - flush pending results then close
-    session.dgWs.send(JSON.stringify({ type: 'Finalize' }))
-    setTimeout(() => {
-      if (session.dgWs.readyState === WebSocket.OPEN) {
-        session.dgWs.send(JSON.stringify({ type: 'CloseStream' }))
-      }
-    }, 500)
-
-    // Short delay to catch last final results from Finalize
-    setTimeout(() => {
-      if (session.finalTranscript) {
-        refineAndSend(ws, session.finalTranscript, session.keyterms)
-      } else {
-        ws.send(JSON.stringify({ type: 'voice_done', raw: '', refined: '' }))
-        cleanupVoiceSession(ws)
-      }
-    }, 800)
+    // DG connected - flush pending results, close, then complete (800ms catches
+    // the last finals from Finalize).
+    flushFinalizeAndComplete(ws, session, 800)
   } else if (session.dgWs.readyState === WebSocket.CONNECTING) {
     // DG still connecting - wait up to 3s for it, then flush or give up
     console.log(`[voice-stream] DG still connecting at stop time, waiting up to 3s...`)
@@ -286,23 +314,10 @@ function stopVoiceSession(ws: ServerWebSocket<unknown>, reason: string) {
       if (resolved) return
       resolved = true
       clearTimeout(giveUp)
-      // Let original onopen flush the buffer
+      // Let original onopen flush the buffer, then run the normal finalize flow.
+      // 1500ms (vs 800) since DG just connected and must process buffered audio.
       if (origOnOpen) (origOnOpen as (ev: Event) => void)(ev)
-      // Then do normal finalize flow
-      session.dgWs.send(JSON.stringify({ type: 'Finalize' }))
-      setTimeout(() => {
-        if (session.dgWs.readyState === WebSocket.OPEN) {
-          session.dgWs.send(JSON.stringify({ type: 'CloseStream' }))
-        }
-      }, 500)
-      setTimeout(() => {
-        if (session.finalTranscript) {
-          refineAndSend(ws, session.finalTranscript, session.keyterms)
-        } else {
-          ws.send(JSON.stringify({ type: 'voice_done', raw: '', refined: '' }))
-          cleanupVoiceSession(ws)
-        }
-      }, 1500) // longer delay since DG just connected and needs to process buffered audio
+      flushFinalizeAndComplete(ws, session, 1500)
     }
 
     // If DG errors out during the wait
@@ -320,12 +335,7 @@ function stopVoiceSession(ws: ServerWebSocket<unknown>, reason: string) {
     }
   } else {
     // DG already closed/closing
-    if (session.finalTranscript) {
-      refineAndSend(ws, session.finalTranscript, session.keyterms)
-    } else {
-      ws.send(JSON.stringify({ type: 'voice_done', raw: '', refined: '' }))
-      cleanupVoiceSession(ws)
-    }
+    completeVoiceSession(ws, session)
   }
 }
 

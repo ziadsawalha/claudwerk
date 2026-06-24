@@ -24,7 +24,6 @@ export function VoiceFab() {
 
   const startXRef = useRef(0)
   const dragOffsetRef = useRef(0)
-  const pendingStopRef = useRef(false)
 
   dragOffsetRef.current = dragOffset
 
@@ -60,7 +59,6 @@ export function VoiceFab() {
       voice.reset()
       setDragOffset(0)
       setCancelled(false)
-      pendingStopRef.current = false
     }, 300)
     return () => clearTimeout(t)
   }, [voice.state, voice.refinedText, voice.finalText, voice.targetConversationId, cancelled, voice.reset])
@@ -124,7 +122,6 @@ export function VoiceFab() {
 
     startXRef.current = e.clientX
     setCancelled(false)
-    pendingStopRef.current = false
     setDragOffset(0)
     haptic('tap')
     voice.start()
@@ -153,11 +150,14 @@ export function VoiceFab() {
       return
     }
 
+    // Released while still connecting (quick tap). Do NOT cancel -- stop()
+    // records the intent to send, and the hook honours it once voice_ready
+    // confirms the chain. Any speech captured during connect was buffered
+    // broker-side, so a fast tap-and-talk still transcribes. (Drag-left above
+    // is the only path that truly cancels.)
     if (voice.state === 'connecting') {
-      pendingStopRef.current = true
       haptic('tick')
-      // Cancel if still connecting
-      voice.cancel()
+      voice.stop()
       return
     }
 
