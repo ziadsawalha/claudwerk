@@ -18,7 +18,7 @@ import { appendTurn, getBlock, ONE_HOUR_MS, toMessages } from './living-history'
 import type { ProjectOverviewRow } from './overview'
 
 function row(p: Partial<ProjectOverviewRow> & { project: string }): ProjectOverviewRow {
-  return { projectUri: `claude://x/${p.project}`, brief: '', live: 0, working: 0, needsYou: 0, ...p }
+  return { projectUri: `claude://x/${p.project}`, brief: '', live: 0, working: 0, needsYou: 0, recencyWeight: 1, ...p }
 }
 
 const stubFold: ChatFn = async req => ({

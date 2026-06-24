@@ -44,13 +44,21 @@ function summarizeDecision(d: DispatchDecision) {
   return out
 }
 
-/** The fleet by project, with condensed briefs + live counts. Shared by the
- *  projects_overview tool AND the per-turn context assembly (P6). */
+/** The fleet by project, with condensed briefs + live counts, ordered by decayed
+ *  recency. Shared by the projects_overview tool AND the per-turn context assembly
+ *  (the latter prunes stale quiet projects via activeContextRows). Quiet projects
+ *  decay from their brief's updatedAt -- the last genuine fleet event for them. */
 export function projectOverviewRows(rt: DispatchRuntime): ProjectOverviewRow[] {
   const projects = listDeskProjects()
-  const briefByKey = new Map(projects.map(p => [p.key, getBrief(p.key)?.brief ?? '']))
+  const briefByKey = new Map<string, string>()
+  const recencyByKey = new Map<string, number>()
+  for (const p of projects) {
+    const b = getBrief(p.key)
+    briefByKey.set(p.key, b?.brief ?? '')
+    if (b?.updatedAt) recencyByKey.set(p.key, b.updatedAt)
+  }
   const convs = rt.store.getAllConversations().map(toOverviewConv)
-  return composeProjectsOverview(projects, briefByKey, convs, Date.now())
+  return composeProjectsOverview(projects, briefByKey, convs, Date.now(), recencyByKey)
 }
 
 /** The project-anchored tools -- the dispatcher's primary surface. */

@@ -16,6 +16,7 @@ import { buildDispatchToolset, projectOverviewRows } from './dispatch-tools'
 import { consolidateIfDue, getUserHistory, markDirty, recordTurn, refreshLiveBlocks } from './history-store'
 import { appendTurn, toMessages } from './living-history'
 import { readMemory } from './memory'
+import { activeContextRows } from './overview'
 import type { QuestSpawn } from './quest-tool'
 import type { DispatchRuntime } from './runtime'
 import { listThreads, upsertThread } from './threads'
@@ -143,7 +144,10 @@ export async function runDispatchAgent(
   const now = Date.now()
   const history = getUserHistory(opts.userId)
   // REFRESH the live blocks in place (fleet/briefs/notes), then append the impulse.
-  refreshLiveBlocks(history, { rows: projectOverviewRows(rt), durableNotes: readMemory(opts.userId), now })
+  // Decay prune: stale quiet projects fade OUT of the per-turn window (still in
+  // storage + reachable via projects_overview / project_brief / recall).
+  const contextRows = activeContextRows(projectOverviewRows(rt))
+  refreshLiveBlocks(history, { rows: contextRows, durableNotes: readMemory(opts.userId), now })
   appendTurn(history, 'user', intent, now)
   // Mirror the real user turn into the viewable transcript ring (A0). The async
   // impulse opts out -- its intent is a synthetic report-back trigger, not a turn.
