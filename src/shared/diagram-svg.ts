@@ -1,82 +1,81 @@
 /**
  * The "nice display" renderer: a compact diagram `Scene` -> a crisp, theme-aware SVG string.
- * Reuses the DSL layout pass (`placeScene`) for positioning and the shared connector geometry,
- * so it shares the auto-layout with the Excalidraw lane but renders publication-grade output:
- * real vector boxes, `text-anchor=middle` centering (no glyph estimate, ever), on-line pill
- * labels, and a HAND-AUTHORED dark palette (no filter inversion). Pure -- runs any runtime.
+ * Uses `layoutDiagram` for a clean org-chart layout (uniform box widths on one spine) and
+ * draws real org-chart connectors -- a split is ONE stem -> horizontal bus -> drops to each
+ * child (and the mirror for a merge), with the label as a pill centred on the stem. Real
+ * vector boxes, `text-anchor=middle` centering (no glyph estimate, ever), hand-authored dark
+ * palette (no filter inversion). Pure -- runs any runtime.
  */
-
-import { orthogonalConnector, type Rect } from './diagram-geometry'
+import { type DBox, type DConn, layoutDiagram } from './diagram-layout'
 import { type DiagramTheme, PALETTES, type Palette } from './diagram-palette'
-import type { Placed, Scene, SchemeVariant } from './draw-dsl'
-import { placeScene } from './draw-dsl-layout'
+import type { Scene } from './draw-dsl'
 
 const SANS = '-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,Roboto,Helvetica,Arial,sans-serif'
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'
-const PAD = 24
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-const rect = (p: Placed): Rect => ({ x: p.x, y: p.y, w: p.w, h: p.h })
-
-interface BoxNode {
-  title?: string
-  text?: string
-  subtitle?: string
-  variant?: SchemeVariant
-}
+const cxOf = (b: DBox): number => b.x + b.w / 2
 
 /** Render a diagram Scene to a standalone SVG string in the given theme (default light). */
 export function sceneToSvg(scene: Scene, theme: DiagramTheme = 'light'): string {
   const pal = PALETTES[theme]
-  const placed = placeScene(scene)
-  const byId = new Map<string, Placed>()
-  for (const p of placed) if ('id' in p.node && p.node.id) byId.set(p.node.id, p)
-
-  const w = Math.round(Math.max(0, ...placed.map(p => p.x + p.w)) + PAD * 2)
-  const h = Math.round(Math.max(0, ...placed.map(p => p.y + p.h)) + PAD * 2)
-
-  const body: string[] = []
-  for (const e of scene.edges ?? []) {
-    const f = byId.get(e.from)
-    const t = byId.get(e.to)
-    if (f && t) body.push(edgeSvg(f, t, e.text, pal))
-  }
-  for (const p of placed) body.push(boxSvg(p, pal))
-
+  const { boxes, conns, width, height } = layoutDiagram(scene)
+  const body = [...conns.map(c => connSvg(c, pal)), ...boxes.map(b => boxSvg(b, pal))].join('')
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
-    `<rect width="${w}" height="${h}" fill="${pal.bg}"/>` +
-    `<g transform="translate(${PAD},${PAD})">${body.join('')}</g></svg>`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<rect width="${width}" height="${height}" fill="${pal.bg}"/>${body}</svg>`
   )
 }
 
-function boxSvg(p: Placed, pal: Palette): string {
-  const n = p.node as BoxNode
-  const c = pal.variants[n.variant ?? 'plain']
-  const cx = p.x + p.w / 2
-  const cy = p.y + p.h / 2
-  const title = n.title ?? n.text ?? ''
-  const sub = n.subtitle
+function boxSvg(b: DBox, pal: Palette): string {
+  const c = pal.variants[b.variant]
+  const cx = cxOf(b)
+  const cy = b.y + b.h / 2
   const out = [
-    `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="11" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`,
+    `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="12" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`,
   ]
-  if (title) out.push(textSvg(cx, sub ? cy - 6 : cy + 6, title, 17, 700, c.title, SANS))
-  if (sub) out.push(textSvg(cx, cy + 18, sub, 12, 400, c.sub, MONO))
+  if (b.title) out.push(textSvg(cx, b.subtitle ? cy - 6 : cy + 6, b.title, 17, 700, c.title, SANS))
+  if (b.subtitle) out.push(textSvg(cx, cy + 18, b.subtitle, 12, 400, c.sub, MONO))
   return out.join('')
 }
 
-function edgeSvg(f: Placed, t: Placed, label: string | undefined, pal: Palette): string {
-  const { points, mid } = orthogonalConnector(rect(f), rect(t))
-  const d = points.map((pt, i) => `${i ? 'L' : 'M'}${pt[0]} ${pt[1]}`).join(' ')
-  const out = [`<path d="${d}" fill="none" stroke="${pal.connector}" stroke-width="1.5"/>`]
-  if (label) {
-    const pw = Math.round(label.length * 6.6 + 24)
-    out.push(
-      `<rect x="${mid[0] - pw / 2}" y="${mid[1] - 13}" width="${pw}" height="26" rx="13" fill="${pal.pill.fill}" stroke="${pal.pill.stroke}" stroke-width="1.2"/>`,
-    )
-    out.push(textSvg(mid[0], mid[1] + 4, label, 12.5, 600, pal.pill.text, SANS))
+function connSvg(c: DConn, pal: Palette): string {
+  if (c.kind === 'line') {
+    const x = cxOf(c.from)
+    const y0 = c.from.y + c.from.h
+    const y1 = c.to.y
+    return path(`M${x} ${y0} V${y1}`, pal) + pillAt(x, (y0 + y1) / 2, c.label, pal)
   }
-  return out.join('')
+  if (c.kind === 'split') return forkSvg(c.parent, c.children, c.label, pal, 'down')
+  return forkSvg(c.child, c.parents, c.label, pal, 'up')
+}
+
+/** A stem from `hub` to a bus, the bus across the `spokes`, and a drop to each spoke. For a
+ * split the hub is the parent above (dir 'down'); for a merge it is the child below ('up'). */
+function forkSvg(hub: DBox, spokes: DBox[], label: string | undefined, pal: Palette, dir: 'down' | 'up'): string {
+  const hubEdge = dir === 'down' ? hub.y + hub.h : hub.y
+  const spokeEdge = dir === 'down' ? spokes[0].y : spokes[0].y + spokes[0].h
+  const busY = (hubEdge + spokeEdge) / 2
+  const hx = cxOf(hub)
+  const xs = spokes.map(cxOf)
+  const out = [
+    path(`M${hx} ${hubEdge} V${busY}`, pal),
+    path(`M${Math.min(...xs)} ${busY} H${Math.max(...xs)}`, pal),
+    ...spokes.map(s => path(`M${cxOf(s)} ${busY} V${dir === 'down' ? s.y : s.y + s.h}`, pal)),
+  ]
+  return out.join('') + pillAt(hx, (hubEdge + busY) / 2, label, pal)
+}
+
+const path = (d: string, pal: Palette): string =>
+  `<path d="${d}" fill="none" stroke="${pal.connector}" stroke-width="1.5"/>`
+
+function pillAt(cx: number, cy: number, label: string | undefined, pal: Palette): string {
+  if (!label) return ''
+  const w = Math.round(label.length * 6.6 + 24)
+  return (
+    `<rect x="${cx - w / 2}" y="${cy - 13}" width="${w}" height="26" rx="13" fill="${pal.pill.fill}" stroke="${pal.pill.stroke}" stroke-width="1.2"/>` +
+    textSvg(cx, cy + 4, label, 12.5, 600, pal.pill.text, SANS)
+  )
 }
 
 function textSvg(x: number, y: number, s: string, size: number, weight: number, fill: string, font: string): string {
