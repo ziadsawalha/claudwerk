@@ -8,116 +8,11 @@
  * Mobile only - hidden on desktop (hover-capable devices).
  */
 
-import { Command, ListChecks, MessageSquarePlus, PenLine, Power, RefreshCw, Rocket, Share2, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
-import { type Conversation, projectPath } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
-import { openReviveDialog } from './revive-dialog-trigger'
-import { openSpawnDialog } from './spawn-dialog-trigger'
-import { openTerminateConfirm } from './terminate-confirm-trigger'
-
-interface FanAction {
-  id: string
-  icon: React.ReactNode
-  label: string
-  action: () => void
-  color: string
-  /** Dangerous actions get extra spacing and require confirmation */
-  dangerous?: boolean
-}
-
-function buildActions(conversation: Conversation | undefined, selectedConversationId: string | null): FanAction[] {
-  const actions: FanAction[] = [
-    {
-      id: 'switcher',
-      icon: <Command className="size-4" />,
-      label: 'Switcher',
-      action: () => useConversationsStore.getState().toggleSwitcher(),
-      color: 'bg-primary',
-    },
-    {
-      id: 'task',
-      icon: <PenLine className="size-4" />,
-      label: 'Task',
-      action: () => window.dispatchEvent(new Event('open-quick-task')),
-      color: 'bg-active',
-    },
-    {
-      id: 'batch-tasks',
-      icon: <ListChecks className="size-4" />,
-      label: 'Batch',
-      action: () => window.dispatchEvent(new Event('open-batch-selector')),
-      color: 'bg-info',
-    },
-    {
-      id: 'launch',
-      icon: <Rocket className="size-4" />,
-      label: 'Launch',
-      action: () =>
-        openSpawnDialog({
-          path: conversation ? projectPath(conversation.project) : '.',
-          projectUri: conversation?.project,
-        }),
-      color: 'bg-warning',
-    },
-    {
-      id: 'spawn',
-      icon: <MessageSquarePlus className="size-4" />,
-      label: 'Spawn',
-      action: () => useConversationsStore.getState().openSwitcherWithFilter('S:~/'),
-      color: 'bg-accent',
-    },
-  ]
-
-  if (conversation && selectedConversationId) {
-    if (conversation.status !== 'ended') {
-      // Active conversation actions
-      actions.push({
-        id: 'share',
-        icon: <Share2 className="size-4" />,
-        label: 'Share',
-        action: () => useConversationsStore.getState().openTab(selectedConversationId, 'shared'),
-        color: 'bg-event-prompt',
-      })
-      actions.push({
-        id: 'terminate',
-        icon: <Power className="size-4" />,
-        label: 'Terminate',
-        action: () => {
-          // Open the proper modal -- inline two-tap confirm was easy to miss on
-          // mobile and left the action looking unresponsive. This matches the
-          // ⌘K X / ⌘G X command palette path.
-          const name = conversation.title || conversation.agentName || null
-          openTerminateConfirm(conversation.id, name)
-        },
-        color: 'bg-red-500',
-      })
-    } else {
-      // Ended conversation actions
-      actions.push({
-        id: 'revive',
-        icon: <RefreshCw className="size-4" />,
-        label: 'Revive...',
-        action: () => {
-          useConversationsStore.getState().selectConversation(conversation.id)
-          openReviveDialog({ conversationId: conversation.id })
-        },
-        color: 'bg-emerald-500',
-      })
-      actions.push({
-        id: 'dismiss',
-        icon: <Trash2 className="size-4" />,
-        label: 'Dismiss',
-        action: () => useConversationsStore.getState().dismissConversation(conversation.id),
-        color: 'bg-red-500/80',
-        dangerous: true,
-      })
-    }
-  }
-
-  return actions
-}
+import { buildActions, type FanAction } from './action-fab-actions'
+import { FanItem } from './action-fab-item'
 
 export function ActionFab() {
   const [expanded, setExpanded] = useState(false)
@@ -165,10 +60,27 @@ export function ActionFab() {
     }, 300)
   }, [])
 
+  const handleActivate = useCallback(
+    (e: MouseEvent, action: FanAction) => {
+      e.stopPropagation()
+      if (action.dangerous && confirmId !== action.id) {
+        // First tap on dangerous action: show confirmation
+        haptic('tick')
+        setConfirmId(action.id)
+        return
+      }
+      haptic('tap')
+      action.action()
+      setExpanded(false)
+      setConfirmId(null)
+    },
+    [confirmId],
+  )
+
   // Close fan on outside tap
   useEffect(() => {
     if (!expanded) return
-    function handleClick(e: MouseEvent) {
+    function handleClick(e: globalThis.MouseEvent) {
       const target = e.target as HTMLElement
       if (!target.closest('[data-action-fab]')) {
         setExpanded(false)
@@ -187,60 +99,15 @@ export function ActionFab() {
     <div data-action-fab className="fixed z-[56] right-3" style={{ width: 44, height: 44, top: 'calc(50% + 32px)' }}>
       {/* Action buttons - vertical stack going UP from the FAB */}
       {actions.map((action, i) => (
-        <div
+        <FanItem
           key={action.id}
-          className={cn(
-            'absolute flex items-center gap-2 transition-all duration-200 ease-out',
-            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none',
-          )}
-          style={{
-            right: 0,
-            bottom: expanded ? offsets[i] + 4 : 0,
-            transitionDelay: expanded ? `${i * 30}ms` : '0ms',
-          }}
-        >
-          {/* Label */}
-          <span
-            className={cn(
-              'px-2 py-0.5 rounded text-[10px] font-mono font-bold whitespace-nowrap',
-              'bg-black/70 text-white/90 border border-white/10',
-              'transition-all duration-200',
-              expanded ? 'translate-x-0 opacity-100' : 'translate-x-4 opacity-0',
-              confirmId === action.id && 'border-red-500/50 text-red-300',
-            )}
-            style={{ transitionDelay: expanded ? `${i * 30 + 50}ms` : '0ms' }}
-          >
-            {confirmId === action.id ? `${action.label}?` : action.label}
-          </span>
-          {/* Button */}
-          <button
-            type="button"
-            className={cn(
-              'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
-              'shadow-md border border-white/10 text-white',
-              'transition-transform duration-200 ease-out active:scale-90',
-              action.color,
-              expanded ? 'scale-100' : 'scale-0',
-              confirmId === action.id && 'ring-2 ring-red-500/60 animate-pulse',
-            )}
-            style={{ transitionDelay: expanded ? `${i * 30}ms` : '0ms' }}
-            onClick={e => {
-              e.stopPropagation()
-              if (action.dangerous && confirmId !== action.id) {
-                // First tap on dangerous action: show confirmation
-                haptic('tick')
-                setConfirmId(action.id)
-                return
-              }
-              haptic('tap')
-              action.action()
-              setExpanded(false)
-              setConfirmId(null)
-            }}
-          >
-            {action.icon}
-          </button>
-        </div>
+          action={action}
+          index={i}
+          offset={offsets[i]}
+          expanded={expanded}
+          confirmId={confirmId}
+          onActivate={handleActivate}
+        />
       ))}
 
       {/* Main FAB button */}

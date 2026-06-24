@@ -117,11 +117,12 @@ export function useGlobalCommands(toggleSidebar: () => void) {
     useDispatchStore.getState().openOverlay()
   }, [])
 
-  // Chord command already registers a palette entry AND the ⌘K J / ⌘G J
-  // bindings -- a separate plain useCommand here just duplicated the row.
-  useChordCommand('open-dispatch-chord', openDispatch, {
+  // The dispatcher is the GLOBAL front desk -- it earns a prime single key (⌘D),
+  // not a chord. The old ⌘K J / ⌘G J chords read as "CMD+J CMD+J" and buried the
+  // one surface that fronts everything. On mobile it's reachable via the action FAB.
+  useCommand('open-dispatch', openDispatch, {
     label: 'DISPATCH (cockpit)',
-    key: 'j',
+    shortcut: 'mod+d',
     group: 'Navigation',
   })
 
