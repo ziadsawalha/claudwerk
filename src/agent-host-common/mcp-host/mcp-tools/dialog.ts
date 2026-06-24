@@ -59,6 +59,27 @@ async function resolveDialogFiles(
         comp.url = url
       }
 
+      // Html: a `url` pointing at a LOCAL file (a generated .html doc) is uploaded
+      // to the blob store, like an Image. An http(s) url passes through untouched.
+      // Inline `content` needs no resolution (it rides the layout as srcdoc).
+      if (type === 'Html' && typeof comp.url === 'string' && !isUrl(comp.url)) {
+        const absPath = resolvePath(cwd, comp.url)
+        if (!isPathWithinCwd(absPath, cwd)) {
+          return `Html file outside project directory: ${comp.url}. Move it into ${cwd} first.`
+        }
+        try {
+          const file = Bun.file(absPath)
+          if (!(await file.exists())) {
+            return `Html file not found: ${comp.url} (resolved to ${absPath})`
+          }
+        } catch {
+          return `Html file not accessible: ${comp.url} (resolved to ${absPath})`
+        }
+        const url = await uploadFile(absPath)
+        if (!url) return `Failed to upload Html file: ${comp.url}`
+        comp.url = url
+      }
+
       if (type === 'ImagePicker' && Array.isArray(comp.images)) {
         for (const img of comp.images as Array<Record<string, unknown>>) {
           if (typeof img.url === 'string' && !isUrl(img.url)) {

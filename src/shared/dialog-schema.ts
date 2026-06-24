@@ -115,6 +115,32 @@ export interface DividerComponent {
   id?: string
 }
 
+/**
+ * An ISOLATED HTML embed: arbitrary HTML rendered inside a SANDBOXED iframe
+ * (`allow-scripts` WITHOUT `allow-same-origin`), so it runs in an opaque origin
+ * and can NEVER touch the control-panel origin, its cookies, or localStorage.
+ * Zoomable to true-viewport fullscreen.
+ *
+ * Two source modes (mutually exclusive):
+ *   - `content`: inline HTML string -> rendered via the iframe's `srcdoc`. Best for
+ *     small, self-contained snippets (a chart, a styled table, a mini widget).
+ *   - `url`: a URL to an HTML document -> the iframe's `src`. An http(s) URL passes
+ *     through; a LOCAL path (relative to the dialog CWD) is uploaded to the blob
+ *     store first and rewritten to its `/file/...` URL. Best for large documents or
+ *     anything the agent already uploaded via `share_file`.
+ */
+export interface HtmlComponent {
+  type: 'Html'
+  id?: string
+  /** Inline HTML string (rendered via iframe srcdoc). Mutually exclusive with url. */
+  content?: string
+  /** http(s) URL, or a local path (uploaded to the blob store). Mutually exclusive with content. */
+  url?: string
+  /** Iframe height in px (default 360). Fullscreen ignores this. */
+  height?: number
+  label?: string
+}
+
 // Rich plan blocks (display only, no result data) — shared by dialogs and
 // visual plans. Each wraps an existing renderer (Markdown/Shiki fences) or a
 // small structured view; heavy renderers travel in the lazy dialog chunk.
@@ -293,6 +319,7 @@ export type DialogComponent =
   | ImageComponent
   | AlertComponent
   | DividerComponent
+  | HtmlComponent
   | DiffComponent
   | FileTreeComponent
   | DataModelComponent
@@ -389,6 +416,7 @@ const VALID_COMPONENT_TYPES = new Set([
   'Image',
   'Alert',
   'Divider',
+  'Html',
   'Diff',
   'FileTree',
   'DataModel',
@@ -519,6 +547,14 @@ function validateComponent(comp: unknown, errors: string[], ids: Set<string>, de
     case 'Alert':
       if (typeof c.content !== 'string') errors.push('Alert.content is required')
       break
+    case 'Html': {
+      const hasContent = typeof c.content === 'string'
+      const hasUrl = typeof c.url === 'string'
+      if (!hasContent && !hasUrl) errors.push('Html requires either "content" or "url"')
+      if (hasContent && hasUrl) errors.push('Html: provide either "content" or "url", not both')
+      if (c.height !== undefined && typeof c.height !== 'number') errors.push('Html.height must be a number')
+      break
+    }
     case 'Diff':
       if (typeof c.content !== 'string') errors.push('Diff.content is required')
       break
@@ -682,7 +718,7 @@ export function dialogToolInputSchema(): Record<string, unknown> {
       body: {
         type: 'array',
         description:
-          'Single-page layout. Array of components. Mutually exclusive with "pages". Component types: Markdown (content OR file -- use file to reference a local path instead of inlining text, saves context tokens; color?), Diagram (content, id?, commentable? -- live dialogs: with id+commentable the user clicks a node to attach a note; notes arrive as values[id]={nodeId:note}, redraw to address them), Draw (id, content?, contentUrl?, readOnly?, height?, label? -- an INTERACTIVE WHITEBOARD canvas powered by Excalidraw; the user draws/edits/annotates and submits the result back. SEED it via content with a COMPACT agent shapes DSL Scene JSON string -- you author SHAPES, not raw elements, and the client expands them (layout + bound arrows + sketchy UI macros) so you do NO pixel math. Scene = {v:1,layout?:"flow"|"free",nodes:[...],edges?:[...]}. nodes (id addressable for the diff): {id,kind:"box"|"ellipse"|"diamond",text?,w?,h?,style?,data?} | {kind:"text",text,size?} | {id,kind:"button",text,variant?} | {id,kind:"input",label?,placeholder?} | {id,kind:"checkbox",text,checked?} | {id,kind:"card"|"screen",title?,children:[...]} | {id,kind:"nav",items:[...]} | {id,kind:"image",url}. layout containers (do the geometry, you only nest): {kind:"row"|"col",gap?,align?,children:[...]} | {kind:"grid",cols,gap?,children:[...]}. edges bind arrows by node id: {from,to,text?,arrow?:"->"|"<->"|"--",dashed?}. style.stroke/fill: use STANDARD Excalidraw LIGHT hexes (#1971c2/#e03131/#2f9e44 + pale fills), the dark canvas inverts. node.data rides to customData (diagram-as-data, survives round-trip). layout:"flow" auto-lays edge graphs top-down; "free" uses each node "at":[x,y]. Large seed -> contentUrl. ON SUBMIT values[id]={kind:"excalidraw",scene,diff} (large: {kind:"excalidraw-ref",url,scene,diff}): scene=compact current-state DSL with the user moves/relabels applied; diff={added,removed,moved,resized,relabeled} where ADDED is the annotation layer = elements the user drew with no dsl id (their comments). To redraw in place, send an updated Scene back as content via update_dialog (re-expands, no remount). A freehand/raw block instead returns {kind:"draw",snapshot,bytes}/{kind:"draw-ref",url,bytes}. Best in a persistent dialog with width "wide"/"full"; the /canvas skill teaches the loop. For RAW-element authoring beyond the macros (exact element fields, enums, bindings, the dark-mode palette + other gotchas, validated example scenes), call dialog_taxonomy("draw")), Image (url, alt?), Alert (intent?: info|warning|error|success, content), Divider, Diff (content: unified diff text, filename?), FileTree (entries[{path, status?: added|modified|removed|unchanged, note?}], label?), DataModel (name, fields[{name, type, note?, status?}]), ApiEndpoint (method, path, description?, request?: JSON string, response?: JSON string), AnnotatedCode (code, language?, filename?, annotations[{line, note}]), Options (id, options[{value,label,description?}], label?, multi?, required?, default?), TextInput (id, label?, placeholder?, required?, multiline?, default?), ImagePicker (id, images[{value,url,label?}], label?, multi?, allowUpload?), Toggle (id, label, default?), Slider (id, label?, min?, max?, step?, default?), Button (id, label, variant?: default|primary|outline|ghost, intent?: neutral|destructive|success), Stack (direction?: vertical|horizontal, children[]), Grid (columns?, children[]), Group (label, collapsed?, children[]). Colors: primary|secondary|muted|accent|destructive|success|warning|info. All text/label fields support markdown.',
+          'Single-page layout. Array of components. Mutually exclusive with "pages". Component types: Markdown (content OR file -- use file to reference a local path instead of inlining text, saves context tokens; color?), Diagram (content, id?, commentable? -- live dialogs: with id+commentable the user clicks a node to attach a note; notes arrive as values[id]={nodeId:note}, redraw to address them), Draw (id, content?, contentUrl?, readOnly?, height?, label? -- an INTERACTIVE WHITEBOARD canvas powered by Excalidraw; the user draws/edits/annotates and submits the result back. SEED it via content with a COMPACT agent shapes DSL Scene JSON string -- you author SHAPES, not raw elements, and the client expands them (layout + bound arrows + sketchy UI macros) so you do NO pixel math. Scene = {v:1,layout?:"flow"|"free",nodes:[...],edges?:[...]}. nodes (id addressable for the diff): {id,kind:"box"|"ellipse"|"diamond",text?,w?,h?,style?,data?} | {kind:"text",text,size?} | {id,kind:"button",text,variant?} | {id,kind:"input",label?,placeholder?} | {id,kind:"checkbox",text,checked?} | {id,kind:"card"|"screen",title?,children:[...]} | {id,kind:"nav",items:[...]} | {id,kind:"image",url}. layout containers (do the geometry, you only nest): {kind:"row"|"col",gap?,align?,children:[...]} | {kind:"grid",cols,gap?,children:[...]}. edges bind arrows by node id: {from,to,text?,arrow?:"->"|"<->"|"--",dashed?}. style.stroke/fill: use STANDARD Excalidraw LIGHT hexes (#1971c2/#e03131/#2f9e44 + pale fills), the dark canvas inverts. node.data rides to customData (diagram-as-data, survives round-trip). layout:"flow" auto-lays edge graphs top-down; "free" uses each node "at":[x,y]. Large seed -> contentUrl. ON SUBMIT values[id]={kind:"excalidraw",scene,diff} (large: {kind:"excalidraw-ref",url,scene,diff}): scene=compact current-state DSL with the user moves/relabels applied; diff={added,removed,moved,resized,relabeled} where ADDED is the annotation layer = elements the user drew with no dsl id (their comments). To redraw in place, send an updated Scene back as content via update_dialog (re-expands, no remount). A freehand/raw block instead returns {kind:"draw",snapshot,bytes}/{kind:"draw-ref",url,bytes}. Best in a persistent dialog with width "wide"/"full"; the /canvas skill teaches the loop. For RAW-element authoring beyond the macros (exact element fields, enums, bindings, the dark-mode palette + other gotchas, validated example scenes), call dialog_taxonomy("draw")), Image (url, alt?), Alert (intent?: info|warning|error|success, content), Divider, Html (content OR url, height?, label? -- an ISOLATED HTML embed rendered in a SANDBOXED iframe (allow-scripts, NO same-origin: opaque origin, cannot touch the control panel/cookies), zoomable to fullscreen. content = inline HTML string (srcdoc, for small self-contained snippets); url = http(s) URL or a LOCAL path that gets uploaded to the blob store (for large docs / anything from share_file). Use it for a rich custom visual the block set cannot express -- a chart, a styled report, an interactive widget), Diff (content: unified diff text, filename?), FileTree (entries[{path, status?: added|modified|removed|unchanged, note?}], label?), DataModel (name, fields[{name, type, note?, status?}]), ApiEndpoint (method, path, description?, request?: JSON string, response?: JSON string), AnnotatedCode (code, language?, filename?, annotations[{line, note}]), Options (id, options[{value,label,description?}], label?, multi?, required?, default?), TextInput (id, label?, placeholder?, required?, multiline?, default?), ImagePicker (id, images[{value,url,label?}], label?, multi?, allowUpload?), Toggle (id, label, default?), Slider (id, label?, min?, max?, step?, default?), Button (id, label, variant?: default|primary|outline|ghost, intent?: neutral|destructive|success), Stack (direction?: vertical|horizontal, children[]), Grid (columns?, children[]), Group (label, collapsed?, children[]). Colors: primary|secondary|muted|accent|destructive|success|warning|info. All text/label fields support markdown.',
         items: { type: 'object' },
       },
       pages: {

@@ -209,6 +209,16 @@ export function createRouter(options: RouteOptions): Hono {
       ETag: `"${hash}"`,
     }
 
+    // Defense in depth for HTML blobs (e.g. dialog Html blocks): the `sandbox` CSP
+    // directive forces an OPAQUE origin even on direct navigation -- scripts may run
+    // but the doc can't read this origin's cookies/storage. (The dialog iframe also
+    // sandboxes client-side; this covers someone opening /file/x.html directly.)
+    // X-Content-Type-Options stops a non-html blob being sniffed into active html.
+    if (mediaType.startsWith('text/html')) {
+      headers['Content-Security-Policy'] = 'sandbox allow-scripts allow-popups allow-forms'
+    }
+    headers['X-Content-Type-Options'] = 'nosniff'
+
     // Range request support (video seeking, resumable downloads)
     const rangeHeader = c.req.header('range')
     if (rangeHeader) {

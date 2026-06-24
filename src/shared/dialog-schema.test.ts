@@ -426,4 +426,50 @@ describe('Draw block', () => {
     expect(desc).toContain('Draw (')
     expect(desc.toLowerCase()).toContain('excalidraw')
   })
+
+  describe('Html block', () => {
+    it('accepts an inline-content Html block', () => {
+      const layout: DialogLayout = {
+        title: 'x',
+        body: [{ type: 'Html', content: '<h1>hi</h1>', height: 400, label: 'Report' }],
+      }
+      expect(validateDialogLayout(layout)).toEqual([])
+    })
+
+    it('accepts a url Html block', () => {
+      const layout: DialogLayout = {
+        title: 'x',
+        body: [{ type: 'Html', url: 'https://concentrator.frst.dev/file/abc.html' }],
+      }
+      expect(validateDialogLayout(layout)).toEqual([])
+    })
+
+    it('rejects an Html block with neither content nor url', () => {
+      const errors = validateDialogLayout({ title: 'x', body: [{ type: 'Html' }] })
+      expect(errors).toContain('Html requires either "content" or "url"')
+    })
+
+    it('rejects an Html block with both content and url', () => {
+      const errors = validateDialogLayout({
+        title: 'x',
+        body: [{ type: 'Html', content: '<p>x</p>', url: 'https://e.com/a.html' }],
+      })
+      expect(errors).toContain('Html: provide either "content" or "url", not both')
+    })
+
+    it('rejects a non-numeric Html height', () => {
+      const errors = validateDialogLayout({
+        title: 'x',
+        body: [{ type: 'Html', content: '<p>x</p>', height: 'tall' }],
+      })
+      expect(errors).toContain('Html.height must be a number')
+    })
+
+    it('documents the Html block to the model in the tool schema', () => {
+      const schema = dialogToolInputSchema() as { properties: { body: { description: string } } }
+      const desc = schema.properties.body.description
+      expect(desc).toContain('Html (')
+      expect(desc.toLowerCase()).toContain('sandboxed iframe')
+    })
+  })
 })

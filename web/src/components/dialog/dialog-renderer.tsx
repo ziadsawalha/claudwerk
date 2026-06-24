@@ -15,6 +15,7 @@ import { isPlanBlock, PlanBlock } from './blocks'
 import { DiagramCommentPopover } from './diagram-comment-popover'
 import { DrawBlock } from './draw-block'
 import { applySelect, FieldLabel } from './field-helpers'
+import { HtmlBlock } from './html-block'
 import type { AlertIntent, ButtonIntent, ButtonVariant, DialogColor, DialogComponent } from './types'
 import { useDiagramComments } from './use-diagram-comments'
 import { useDialogPaste } from './use-dialog-paste'
@@ -509,6 +510,57 @@ function GroupLayout({
   )
 }
 
+// ─── Content blocks sub-dispatcher ─────────────────────────────────
+
+// Pure display blocks (no result data). Pulled out of ComponentRenderer the same
+// way PlanBlock is — that switch gains one delegating branch instead of six cases,
+// keeping its complexity below the gate.
+type ContentBlockComponent = Extract<
+  DialogComponent,
+  { type: 'Markdown' | 'Diagram' | 'Image' | 'Alert' | 'Divider' | 'Html' }
+>
+
+const CONTENT_BLOCK_TYPES: ReadonlySet<string> = new Set(['Markdown', 'Diagram', 'Image', 'Alert', 'Divider', 'Html'])
+
+function isContentBlock(component: DialogComponent): component is ContentBlockComponent {
+  return CONTENT_BLOCK_TYPES.has(component.type)
+}
+
+// Diagram has two render modes; kept out of ContentBlock's switch so that switch
+// stays a flat case-per-type (no nested branching pushing it over the gate).
+function DiagramContent({
+  component,
+  form,
+}: {
+  component: Extract<DialogComponent, { type: 'Diagram' }>
+  form: DialogFormState
+}) {
+  return component.commentable && component.id ? (
+    <CommentableDiagram content={component.content} id={component.id} form={form} />
+  ) : (
+    <DiagramBlock content={component.content} />
+  )
+}
+
+function ContentBlock({ component, form }: { component: ContentBlockComponent; form: DialogFormState }) {
+  switch (component.type) {
+    case 'Markdown':
+      return <MarkdownBlock content={component.content || ''} color={component.color} />
+    case 'Diagram':
+      return <DiagramContent component={component} form={form} />
+    case 'Image':
+      return <ImageBlock url={component.url} alt={component.alt} />
+    case 'Alert':
+      return <AlertBlock intent={component.intent} content={component.content} />
+    case 'Divider':
+      return <DividerBlock />
+    case 'Html':
+      return (
+        <HtmlBlock content={component.content} url={component.url} height={component.height} label={component.label} />
+      )
+  }
+}
+
 // ─── Main component renderer ───────────────────────────────────────
 
 export const ComponentRenderer = memo(function ComponentRenderer({
@@ -520,19 +572,11 @@ export const ComponentRenderer = memo(function ComponentRenderer({
   form: DialogFormState
   onAction: (actionId: string) => void
 }) {
-  // Rich plan blocks render via their own sub-dispatcher (keeps this switch lean).
+  // Rich plan + pure display blocks render via their own sub-dispatchers (keeps this switch lean).
   if (isPlanBlock(component)) return <PlanBlock component={component} />
+  if (isContentBlock(component)) return <ContentBlock component={component} form={form} />
 
   switch (component.type) {
-    // Content
-    case 'Markdown':
-      return <MarkdownBlock content={component.content || ''} color={component.color} />
-    case 'Diagram':
-      return component.commentable && component.id ? (
-        <CommentableDiagram content={component.content} id={component.id} form={form} />
-      ) : (
-        <DiagramBlock content={component.content} />
-      )
     case 'Draw':
       return (
         <DrawBlock
@@ -545,12 +589,6 @@ export const ComponentRenderer = memo(function ComponentRenderer({
           form={form}
         />
       )
-    case 'Image':
-      return <ImageBlock url={component.url} alt={component.alt} />
-    case 'Alert':
-      return <AlertBlock intent={component.intent} content={component.content} />
-    case 'Divider':
-      return <DividerBlock />
 
     // Input
     case 'Options':
