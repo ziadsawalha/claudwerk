@@ -148,9 +148,15 @@ function isDoubleTapBinding(binding: string): boolean {
 
 // On non-Mac, physical Ctrl produces 'mod'. But bindings registered as 'ctrl+shift+x'
 // (meaning physical Ctrl on all platforms) should also match. Try both.
-function findBinding(bindings: KeyBindings, normalized: string): KeyHandler | undefined {
+//
+// `exact` disables the ctrl<->mod cross-match. Used inside a terminal: there a
+// physical Ctrl combo (Mac: 'ctrl+p') is a terminal control code and must NOT
+// satisfy a dashboard 'mod+p' exception -- only a real Cmd press (which already
+// normalizes to 'mod+p') should.
+function findBinding(bindings: KeyBindings, normalized: string, exact = false): KeyHandler | undefined {
   const handler = bindings[normalized]
   if (handler) return handler
+  if (exact) return undefined
   // Cross-match: ctrl and mod bindings should match each other's events.
   // On Mac: Ctrl+K (ctrl+k) should also match 'mod+k' bindings (old code accepted both)
   // On non-Mac: Ctrl+K (mod+k) should also match 'ctrl+k' bindings (physical Ctrl)
@@ -170,7 +176,11 @@ function isChordBinding(binding: string): boolean {
 
 // Check if a (possibly multi-part) pattern is a prefix of any registered chord binding.
 // e.g. "mod+g" is a prefix of "mod+g t", and "mod+g s" is a prefix of "mod+g s e"
-function isChordPrefix(pattern: string): boolean {
+// `captureTerminalOnly` restricts the scan to terminal-capturing layers. Used
+// inside a terminal so a chord prefix (Cmd+K…) only arms chord mode if some
+// captureTerminal layer actually owns it -- otherwise the keystroke belongs to
+// the PTY (Cmd+K = clear scrollback / kill-line, etc.).
+function isChordPrefix(pattern: string, captureTerminalOnly = false): boolean {
   // Also check the mod/ctrl equivalent for the first segment
   const alts = [pattern]
   if (pattern.includes('mod')) alts.push(pattern.replace('mod', 'ctrl'))
@@ -181,6 +191,7 @@ function isChordPrefix(pattern: string): boolean {
 
   for (const layer of layers) {
     if (layer.options.enabled === false) continue
+    if (captureTerminalOnly && !layer.options.captureTerminal) continue
     for (const key of Object.keys(layer.bindings)) {
       if (!isChordBinding(key)) continue
       if (key.startsWith(prefix0)) return true
@@ -214,15 +225,13 @@ function dispatch(e: KeyboardEvent) {
   const inTextInput = isTextInput(e.target as Element)
   const inTerminal = isTerminal(e.target as Element)
 
-  // Inside an xterm, a PHYSICAL Ctrl+<key> combo (Mac: Ctrl held, Cmd not) is a
-  // terminal control code -- Ctrl+C, Ctrl+D (EOF), Ctrl+Z, Ctrl+K... -- and MUST
-  // reach the PTY. It is NEVER a dashboard shortcut. The dashboard's primary
-  // modifier is `mod` (Cmd on Mac), which stays interceptable in the terminal so
-  // Cmd+K / Cmd+D etc. still work. By construction `normalize` only emits 'ctrl'
-  // for a physical Ctrl on Mac (off-Mac, Ctrl IS 'mod'), so this is Mac-only.
-  // Without this, findBinding() cross-matches 'ctrl+d' -> the 'mod+d' dispatch
-  // shortcut and Ctrl+D opens the dispatcher instead of EOF'ing the shell.
-  const terminalPassThrough = inTerminal && normalized.includes('ctrl') && !normalized.includes('mod')
+  // TERMINAL-FIRST KEYBOARD: a focused xterm owns 100% of keystrokes -- every
+  // key, modified or not (Ctrl+C, Ctrl+D EOF, Cmd+K, arrows, Escape for vim) --
+  // goes to the PTY. The dashboard only steals a keystroke when a layer EXPLICITLY
+  // opts back out via `captureTerminal: true` (today: the command palette, the
+  // universal escape hatch). This is opt-IN, not opt-out: anything not on that
+  // short allowlist belongs to the terminal. (Was backwards -- the dashboard used
+  // to grab every modifier combo by default, so Ctrl+D opened the dispatcher.)
 
   // ── Chord mode: consume next key in sequence ──────────────────────────────
   if (activeChord) {
@@ -305,9 +314,9 @@ function dispatch(e: KeyboardEvent) {
   const isModified = hasModifier(normalized)
   const isNonPrintable = e.key.length > 1
 
-  // Modifier shortcuts (CMD+K, CMD+G…) are intercepted even inside the terminal,
-  // but a physical Ctrl combo inside a terminal belongs to the PTY (see above).
-  if (isModified && !terminalPassThrough && isChordPrefix(normalized)) {
+  // Chord prefixes (CMD+K, CMD+G…) arm chord mode. Inside a terminal only a
+  // captureTerminal layer's chord may do so -- otherwise the combo is the PTY's.
+  if (isModified && isChordPrefix(normalized, inTerminal)) {
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
@@ -321,12 +330,17 @@ function dispatch(e: KeyboardEvent) {
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i]
     if (layer.options.enabled === false) continue
-    // Modifier shortcuts fire even inside the terminal (CMD+K etc. are dashboard-level),
-    // EXCEPT a physical Ctrl combo, which is a terminal control code bound for the PTY.
-    if (inTerminal && !layer.options.captureTerminal && (!isModified || terminalPassThrough)) continue
+    // Terminal-first: a focused xterm owns the key unless this layer explicitly
+    // opts back out with captureTerminal. No modifier-combo exception -- Ctrl/Cmd
+    // shortcuts go to the PTY too, except the captureTerminal allowlist.
+    if (inTerminal && !layer.options.captureTerminal) continue
 
-    // Skip double-tap bindings in single-key dispatch
-    const handler = !isDoubleTapBinding(normalized) ? findBinding(layer.bindings, normalized) : undefined
+    // Skip double-tap bindings in single-key dispatch. Inside a terminal, match
+    // EXACTLY (no ctrl<->mod cross-match) so a physical Ctrl combo can't trigger
+    // a Cmd-bound captureTerminal exception.
+    const handler = !isDoubleTapBinding(normalized)
+      ? findBinding(layer.bindings, normalized, inTerminal)
+      : undefined
     if (handler) {
       e.preventDefault()
       e.stopPropagation()

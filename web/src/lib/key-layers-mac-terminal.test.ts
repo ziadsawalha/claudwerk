@@ -83,9 +83,10 @@ function key(
 function clear() {
   while (layers.length > 0) popLayer(layers[0])
   resetDoubleTap()
+  _test.exitChordMode() // a chord-mode test would otherwise leak activeChord into the next case
 }
 
-describe('key-layers (Mac terminal passthrough)', () => {
+describe('key-layers (terminal-first keyboard, Mac)', () => {
   beforeEach(clear)
   afterEach(clear)
 
@@ -94,7 +95,7 @@ describe('key-layers (Mac terminal passthrough)', () => {
     expect(normalizeEvent(key('d', { metaKey: true }))).toBe('mod+d')
   })
 
-  it('does NOT fire the mod+d dispatch shortcut on physical Ctrl+D inside a terminal', () => {
+  it('a focused terminal swallows physical Ctrl+D (EOF reaches the PTY)', () => {
     const fn = vi.fn()
     pushLayer({ 'mod+d': fn }, { base: true, id: 'cmd:open-dispatch' })
 
@@ -102,32 +103,62 @@ describe('key-layers (Mac terminal passthrough)', () => {
     const prevented = vi.spyOn(e, 'preventDefault')
     dispatch(e)
 
-    expect(fn).not.toHaveBeenCalled() // Ctrl+D reaches the PTY...
-    expect(prevented).not.toHaveBeenCalled() // ...and the event is not swallowed
+    expect(fn).not.toHaveBeenCalled() // not stolen by the dispatcher...
+    expect(prevented).not.toHaveBeenCalled() // ...and not swallowed -- xterm gets it
   })
 
-  it('STILL fires Cmd+D (mod) inside a terminal', () => {
+  it('a focused terminal swallows Cmd+D too (not a captureTerminal exception)', () => {
     const fn = vi.fn()
     pushLayer({ 'mod+d': fn }, { base: true, id: 'cmd:open-dispatch' })
 
-    dispatch(key('d', { metaKey: true }, /* inTerminal */ true))
-    expect(fn).toHaveBeenCalledTimes(1)
-  })
-
-  it('still fires the mod+d shortcut on physical Ctrl+D OUTSIDE a terminal (cross-match intact)', () => {
-    const fn = vi.fn()
-    pushLayer({ 'mod+d': fn }, { base: true, id: 'cmd:open-dispatch' })
-
-    dispatch(key('d', { ctrlKey: true }, /* inTerminal */ false))
-    expect(fn).toHaveBeenCalledTimes(1)
-  })
-
-  it('does NOT enter chord mode on physical Ctrl+K inside a terminal', () => {
-    const fn = vi.fn()
-    pushLayer({ 'mod+k t': fn }, { base: true, id: 'cmd:some-chord' })
-
-    const e = key('k', { ctrlKey: true }, /* inTerminal */ true)
+    const e = key('d', { metaKey: true }, /* inTerminal */ true)
+    const prevented = vi.spyOn(e, 'preventDefault')
     dispatch(e)
-    expect(_test.getActiveChord()).toBeNull() // Ctrl+K is kill-line, not a chord prefix
+
+    expect(fn).not.toHaveBeenCalled() // terminal owns it; only captureTerminal opts out
+    expect(prevented).not.toHaveBeenCalled()
+  })
+
+  it('still fires the mod+d shortcut OUTSIDE a terminal (cross-match + normal dispatch intact)', () => {
+    const fn = vi.fn()
+    pushLayer({ 'mod+d': fn }, { base: true, id: 'cmd:open-dispatch' })
+
+    dispatch(key('d', { ctrlKey: true }, /* inTerminal */ false)) // Ctrl cross-matches mod off-terminal
+    dispatch(key('d', { metaKey: true }, /* inTerminal */ false))
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+
+  it('does NOT enter chord mode on Cmd+K inside a terminal (no captureTerminal chord owns it)', () => {
+    pushLayer({ 'mod+k t': vi.fn() }, { base: true, id: 'cmd:some-chord' })
+
+    dispatch(key('k', { metaKey: true }, /* inTerminal */ true))
+    expect(_test.getActiveChord()).toBeNull() // Cmd+K goes to the PTY (clear scrollback / kill-line)
+  })
+
+  it('STILL enters chord mode on Cmd+K OUTSIDE a terminal', () => {
+    pushLayer({ 'mod+k t': vi.fn() }, { base: true, id: 'cmd:some-chord' })
+
+    dispatch(key('k', { metaKey: true }, /* inTerminal */ false))
+    expect(_test.getActiveChord()?.prefix).toBe('mod+k')
+  })
+
+  it('a captureTerminal exception (command palette) DOES fire on Cmd+P inside a terminal', () => {
+    const fn = vi.fn()
+    pushLayer({ 'mod+p': fn }, { base: true, id: 'cmd:open-switcher', captureTerminal: true })
+
+    const e = key('p', { metaKey: true }, /* inTerminal */ true)
+    const prevented = vi.spyOn(e, 'preventDefault')
+    dispatch(e)
+
+    expect(fn).toHaveBeenCalledTimes(1) // the one opt-out fires...
+    expect(prevented).toHaveBeenCalled() // ...and is swallowed (not sent to the PTY)
+  })
+
+  it('physical Ctrl+P does NOT trigger the Cmd-bound captureTerminal palette in a terminal', () => {
+    const fn = vi.fn()
+    pushLayer({ 'mod+p': fn }, { base: true, id: 'cmd:open-switcher', captureTerminal: true })
+
+    dispatch(key('p', { ctrlKey: true }, /* inTerminal */ true)) // Ctrl+P = "previous", PTY's
+    expect(fn).not.toHaveBeenCalled() // exact-match in terminal: no ctrl->mod cross-match
   })
 })

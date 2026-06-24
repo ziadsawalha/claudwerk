@@ -40,16 +40,21 @@ export function useGlobalCommands(toggleSidebar: () => void) {
     store.openSwitcherWithFilter('>')
   }, [])
 
+  // The command palette is the ONE shortcut that overrides terminal-first
+  // keyboard ownership: even with an xterm focused, Cmd+P opens it (the universal
+  // escape hatch to reach every other command without a dedicated binding).
   useCommand('open-switcher', openSwitcher, {
     label: 'Command palette',
     shortcut: 'mod+p',
     group: 'Navigation',
+    captureTerminal: true,
   })
 
   useCommand('open-command-mode', openCommandMode, {
     label: 'Command palette (commands)',
     shortcut: 'mod+shift+p',
     group: 'Navigation',
+    captureTerminal: true,
   })
 
   useChordCommand('palette-via-chord', openSwitcher, {

@@ -21,6 +21,12 @@ interface UseCommandOptions {
   when?: () => boolean
   group?: string
   submenu?: string
+  /**
+   * Opt this shortcut OUT of terminal-first ownership: a focused xterm normally
+   * swallows every keystroke, but a captureTerminal shortcut still fires (e.g.
+   * the command palette -- the universal escape hatch). Default false.
+   */
+  captureTerminal?: boolean
 }
 
 // ── Registry (module singleton) ──────────────────────────────────────────
@@ -83,7 +89,7 @@ export function useCommand(id: string, action: CommandAction, options: UseComman
           },
         }
       : {},
-    { base: true, id: `cmd:${id}` },
+    { base: true, id: `cmd:${id}`, captureTerminal: options.captureTerminal },
   )
 }
 
