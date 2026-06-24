@@ -5,6 +5,8 @@
  * No SQL, no file paths, no storage-specific code outside the driver.
  */
 
+import type { LiveStatus } from '../../shared/protocol'
+
 // ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------
@@ -116,6 +118,17 @@ export interface ConversationSummaryRecord {
   rootConversationId?: string
 }
 
+/** A conversation's self-reported `set_status` plus the user-impulse timestamp
+ *  needed to decide if it's superseded. Read straight from the `meta` JSON via a
+ *  targeted index query so the recap never loads the (often hundreds-of-KB) full
+ *  meta blob just to read the status. `liveStatus` is undefined for conversations
+ *  that never called `set_status`. */
+export interface ConversationLiveStatusRecord {
+  id: string
+  liveStatus?: LiveStatus
+  lastInputAt?: number
+}
+
 export interface ConversationStore {
   get(id: string): ConversationRecord | null
   create(conversation: ConversationCreate): ConversationRecord
@@ -123,6 +136,10 @@ export interface ConversationStore {
   delete(id: string): void
   list(filter?: ConversationFilter): ConversationSummaryRecord[]
   listByScope(scope: string, filter?: { status?: string[] }): ConversationSummaryRecord[]
+  /** Per-conversation `set_status` for one project scope, read cheaply from the
+   *  meta blob (only rows that actually carry a liveStatus). Used by the recap
+   *  agent_status signal. Order is unspecified. */
+  liveStatusByScope(scope: string): ConversationLiveStatusRecord[]
   /** Every distinct project scope (URI) that has at least one conversation.
    *  The canonical "all projects" enumeration -- e.g. a cross-project ('*')
    *  recap resolves to this list (a literal scope='*' filter matches nothing). */

@@ -5236,6 +5236,13 @@ export type RecapSignal =
    *  not just the final message. Opt-in -- expensive, NOT in DEFAULT_SIGNALS.
    *  Backs the agent recap's "Dead ends" section. */
   | 'turn_internals'
+  /** Per-conversation `set_status` (the agent's own structured end-of-turn claim:
+   *  state + done/pending/blocked, often citing the commit hash). The
+   *  highest-confidence recap signal -- trusted over transcript inference, with a
+   *  SUPERSEDED status (later user impulse) flagged and not read as final. Cheap
+   *  (one indexed read); IN DEFAULT_SIGNALS. Also carries best-effort spawn-lineage
+   *  provenance (root hash) so chained conversations fold into one storyline. */
+  | 'agent_status'
 
 /** Who a recap is written for. 'human' = narrative report (default).
  *  'agent' = terse orientation brief for a fresh Claude Code session. */

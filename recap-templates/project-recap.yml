@@ -6,7 +6,7 @@ audience: human
 defaults:
   retrospect: false
   customerFriendly: false
-  signals: [user_prompts, assistant_final_turn, commits, task_results, tool_summaries, errors_hooks, cost, open_questions]
+  signals: [user_prompts, assistant_final_turn, commits, task_results, tool_summaries, errors_hooks, cost, open_questions, agent_status]
 sections: [features, bugs, fixes, incidents, decisions, dead_ends, gotchas, frustrations, open_questions]
 options:
   # Prompt-tweak (no signal): exposed as options.link_conversations in the body.

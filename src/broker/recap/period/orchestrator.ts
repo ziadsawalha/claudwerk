@@ -64,6 +64,7 @@ const DEFAULT_SIGNALS: RecapSignal[] = [
   'errors_hooks',
   'cost',
   'open_questions',
+  'agent_status',
 ]
 const CACHE_WINDOW_MS = 5 * 60 * 1000
 
@@ -503,8 +504,18 @@ async function runRegenerate(
     human: manifest.period.human ?? '',
     isoRange: manifest.period.isoRange ?? '',
   }
-  const includeInternals = JSON.parse(src.signalsJson || '[]').includes('turn_internals')
-  const { promptInputs } = collectSignals(deps, scope, period, src.projectUri, deps.projectLabel, includeInternals)
+  const parsedSignals = JSON.parse(src.signalsJson || '[]')
+  const includeInternals = parsedSignals.includes('turn_internals')
+  const includeStatus = parsedSignals.includes('agent_status')
+  const { promptInputs } = collectSignals(
+    deps,
+    scope,
+    period,
+    src.projectUri,
+    deps.projectLabel,
+    includeInternals,
+    includeStatus,
+  )
   if (deps.gatherCommits) {
     try {
       promptInputs.commits = await deps.gatherCommits(scope)
@@ -593,6 +604,7 @@ async function replayStage(
         periodHuman: promptInputs.periodHuman,
         periodIsoRange: promptInputs.periodIsoRange,
         forgotten: promptInputs.forgotten,
+        agentStatus: promptInputs.conversations,
       },
       audience,
       manifest.retrospect ?? false,
@@ -669,6 +681,7 @@ async function runRecap(
   const scope: PeriodScope = { projectUris, periodStart: period.start, periodEnd: period.end, timeZone }
 
   const includeInternals = recipe.signals.includes('turn_internals')
+  const includeStatus = recipe.signals.includes('agent_status')
   const { promptInputs, inputChars } = collectSignals(
     deps,
     scope,
@@ -676,6 +689,7 @@ async function runRecap(
     args.projectUri,
     deps.projectLabel,
     includeInternals,
+    includeStatus,
   )
   // Real git gather (async, via sentinel RPC) replaces the empty stub when the
   // broker injected a gatherer. Failures degrade to the stub commits already in
@@ -809,8 +823,9 @@ function collectSignals(
   projectUri: string,
   projectLabelFn: ((uri: string) => string) | undefined,
   includeInternals: boolean,
+  includeStatus: boolean,
 ): { promptInputs: PromptInputs; inputChars: number } {
-  const conversations = gatherConversations(deps.brokerStore, scope)
+  const conversations = gatherConversations(deps.brokerStore, scope, includeStatus)
   const transcripts = gatherTranscripts(deps.brokerStore, conversations, scope, includeInternals)
   const cost = gatherCost(deps.brokerStore, scope)
   const tasks = gatherTasks(deps.brokerStore, conversations, scope)
@@ -1302,6 +1317,7 @@ async function runChunked(
       periodHuman: promptInputs.periodHuman,
       periodIsoRange: promptInputs.periodIsoRange,
       forgotten: promptInputs.forgotten,
+      agentStatus: promptInputs.conversations,
     },
     audience,
     p.args.retrospect ?? false,

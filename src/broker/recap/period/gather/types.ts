@@ -1,3 +1,4 @@
+import type { LiveStatus } from '../../../../shared/protocol'
 import type { PeriodTurn } from '../../shared/transcript-extract'
 
 export interface PeriodScope {
@@ -16,6 +17,16 @@ export interface ConversationDigest {
   createdAt: number
   updatedAt: number
   turnCount: number
+  /** Topmost ancestor in the spawn lineage (best-effort -- a link launched not
+   *  from its predecessor has no root). Used to fold chained conversations into
+   *  one storyline in the recap. Full id; rendered as a short hash. */
+  rootConversationId?: string
+  /** The conversation's own `set_status` claim, when the agent_status signal is
+   *  on AND the conversation reported one. Highest-confidence recap input. */
+  liveStatus?: LiveStatus
+  /** True when a user impulse landed AFTER `liveStatus` was set (so the report
+   *  predates later activity): kept for the timeline, but NOT the final state. */
+  liveStatusSuperseded?: boolean
 }
 
 export interface TranscriptDigest {

@@ -27,6 +27,7 @@ function makeArgs(extra: Partial<StartArgs> = {}): StartArgs {
 // The anchor template's defaults.signals are byte-equal to the orchestrator's
 // DEFAULT_SIGNALS, so the untemplated default path resolves this exact set.
 const DEFAULT_SIGNAL_SET: RecapSignal[] = [
+  'agent_status',
   'assistant_final_turn',
   'commits',
   'cost',

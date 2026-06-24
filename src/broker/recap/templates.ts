@@ -66,6 +66,7 @@ const RECAP_SIGNALS = [
   'cost',
   'open_questions',
   'turn_internals',
+  'agent_status',
 ] as const
 
 /** One gather signal a template may default-on or an option may flip. Structurally

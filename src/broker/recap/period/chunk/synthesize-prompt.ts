@@ -13,9 +13,10 @@
  */
 
 import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
-import type { ForgottenThreadDigest } from '../gather/types'
+import type { ConversationDigest, ForgottenThreadDigest } from '../gather/types'
 import { applyRetroCf, type PresentationSelection, renderBody } from '../llm/prompt-builder'
 import { renderForgottenSection } from '../llm/render-forgotten'
+import { renderStatusSection } from '../llm/render-status'
 
 export interface SynthesizePrompt {
   system: string
@@ -30,6 +31,11 @@ export interface SynthesizeContext {
    *  conversations are outside the chunks), so they're injected here as an
    *  authoritative deterministic block alongside the merged facts. */
   forgotten?: ForgottenThreadDigest
+  /** In-window conversations carrying a `set_status` claim (+ root provenance).
+   *  Like forgotten threads, this is authoritative per-conversation data that
+   *  bypasses the lossy map extraction -- injected straight into the synthesis as
+   *  the highest-confidence layer. Empty/omitted when the agent_status signal is off. */
+  agentStatus?: ConversationDigest[]
 }
 
 export function buildSynthesizePrompt(
@@ -59,10 +65,11 @@ export function buildSynthesizePrompt(
   const system = applyRetroCf(base, retrospect, customerFriendly)
 
   const forgottenBlock = ctx.forgotten ? renderForgottenSection(ctx.forgotten) : ''
+  const statusBlock = ctx.agentStatus ? renderStatusSection(ctx.agentStatus) : ''
   const user = `MERGED FACTS (already extracted + code-deduped across all chunks of the period):
 
 ${JSON.stringify(merged, null, 2)}
-${forgottenBlock ? `\n${forgottenBlock}\n` : ''}
+${statusBlock ? `\n${statusBlock}\n` : ''}${forgottenBlock ? `\n${forgottenBlock}\n` : ''}
 Synthesize the final recap now: refine + de-duplicate the above, then write the
 frontmatter and body per the contract. Output the frontmatter block and body only.`
 

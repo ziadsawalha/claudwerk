@@ -19,6 +19,7 @@ import type {
   TranscriptDigest,
 } from '../gather/types'
 import { renderForgottenSection } from './render-forgotten'
+import { renderStatusSection } from './render-status'
 import { renderTranscriptsSection, shortId } from './render-transcripts'
 
 export interface PromptInputs {
@@ -555,6 +556,9 @@ markdown body. The frontmatter is parsed and indexed for search.`
 function userPayload(inputs: PromptInputs): string {
   const parts: string[] = []
   parts.push(renderConversationsSection(inputs.conversations))
+  // Highest-confidence signal, right after the conversation list. Empty (omitted
+  // by the filter below) when the agent_status signal is off or nobody reported.
+  parts.push(renderStatusSection(inputs.conversations))
   parts.push(renderTranscriptsSection(inputs.transcripts))
   parts.push(renderTasksSection(inputs.tasks))
   parts.push(renderToolsSection(inputs.tools))

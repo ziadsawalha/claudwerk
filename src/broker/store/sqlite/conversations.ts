@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import type { LiveStatus } from '../../../shared/protocol'
 import { ConversationNotFound, DuplicateEntry } from '../errors'
 import type {
   ConversationCreate,
@@ -74,6 +75,13 @@ export function createSqliteConversationStore(db: Database): ConversationStore {
   `)
   const stmtDelete = db.prepare('DELETE FROM conversations WHERE id = $id')
   const stmtUpdateStats = db.prepare('UPDATE conversations SET stats = $stats WHERE id = $id')
+  const stmtLiveStatusByScope = db.prepare(
+    `SELECT id,
+            json_extract(meta, '$.liveStatus') AS live_status,
+            json_extract(meta, '$.lastInputAt') AS last_input_at
+       FROM conversations
+      WHERE scope = $scope AND json_extract(meta, '$.liveStatus') IS NOT NULL`,
+  )
   // Cache UPDATE statements keyed by their SET clause -- avoids re-parsing
   // the same dynamic SQL on every persistConversation call (B-H4).
   // Statement<unknown> (default) -- run() accepts any param via any[] spread.
@@ -238,6 +246,21 @@ export function createSqliteConversationStore(db: Database): ConversationStore {
       const sql = `SELECT ${LIST_COLS} FROM conversations ${where} ORDER BY created_at DESC`
       const rows = db.prepare(sql).all(params) as Params[]
       return rows.map(rowToSummary)
+    },
+
+    liveStatusByScope(scope) {
+      // Pull liveStatus + lastInputAt straight from the meta JSON via json_extract,
+      // filtered to rows that actually carry a status -- so the recap never
+      // deserialises the full meta blob (subagents/bgTasks/monitors can run to
+      // hundreds of KB) just to read a few status fields. json_extract on the
+      // liveStatus object returns its JSON text (parse it); on the scalar
+      // lastInputAt it returns the number directly.
+      const rows = stmtLiveStatusByScope.all({ scope }) as Params[]
+      return rows.map(r => ({
+        id: r.id as string,
+        liveStatus: r.live_status ? (JSON.parse(r.live_status as string) as LiveStatus) : undefined,
+        lastInputAt: (r.last_input_at as number) ?? undefined,
+      }))
     },
 
     listScopes() {
