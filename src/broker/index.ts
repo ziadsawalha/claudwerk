@@ -66,6 +66,8 @@ import {
 import { drain, enqueue, getQueueSize, initMessageQueue } from './message-queue'
 import { routeMessage } from './message-router'
 import { initModelPricing } from './model-pricing'
+import { startNightshiftOrchestrator } from './nightshift-orchestrator'
+import { startNightshiftScheduler } from './nightshift-scheduler'
 import { startNightshiftWatchdog } from './nightshift-watchdog'
 import { addAllowedRoot, addPathMapping, getAllowedRoots } from './path-jail'
 import { allGrantsExpired } from './permissions'
@@ -1188,6 +1190,13 @@ async function main() {
     addProjectListener: (id, cb) => conversationStore.addProjectListener(id, cb),
     removeProjectListener: id => conversationStore.removeProjectListener(id),
   })
+
+  // NIGHTSHIFT ENGINE: the orchestrator tick drains in-flight runs (reap finished
+  // workers -> fill concurrency slots from the queue -> finalize when empty); the
+  // scheduler arms runs on a per-project clock window (default OFF -- nothing fires
+  // until a project sets `enabled` + a window). Both ride the same watchdog caps.
+  startNightshiftOrchestrator(conversationStore)
+  startNightshiftScheduler(conversationStore)
 
   // Print status periodically
   if (verbose) {

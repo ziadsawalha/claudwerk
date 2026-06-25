@@ -27,10 +27,8 @@ import { randomUUID } from 'node:crypto'
 import type { ServerWebSocket } from 'bun'
 import { GATE_FIVE_HOUR_PCT } from '../sentinel/selection'
 import { DEFAULT_NIGHTSHIFT_CONFIG, type NightshiftCaps, type NightshiftConfig } from '../shared/nightshift-types'
-import { parseProjectUri } from '../shared/project-uri'
 import type {
   Conversation,
-  NightshiftResult,
   NightshiftWatchdogEvent,
   ProfileUsageSnapshot,
   WatchdogCapKind,
@@ -38,6 +36,7 @@ import type {
   WatchdogVerdict,
 } from '../shared/protocol'
 import type { EndConversationOpts } from './conversation-store'
+import { sendNightshiftOp } from './nightshift-broker-rpc'
 import { recordWatchdogDecision } from './nightshift-watchdog-log'
 
 /** Sweep cadence -- "~1 min" per the plan's WATCHDOG row. */
@@ -48,8 +47,6 @@ const WARN_FRACTION = 0.85
 const RATE_LIMIT_RECENT_MS = 10 * 60 * 1000
 /** Per-project config cache TTL -- avoids a sentinel RPC every sweep. */
 const CONFIG_TTL_MS = 5 * 60 * 1000
-/** Sentinel RPC timeout for config reads + terminal-recap writes. */
-const RPC_TIMEOUT_MS = 10_000
 
 /** The four numeric caps the watchdog enforces, fully resolved (config over defaults). */
 export interface ResolvedCaps {
@@ -329,47 +326,4 @@ async function writeTerminalArtifact(deps: WatchdogDeps, conv: Conversation, d: 
   } catch (err) {
     console.warn(`[nightshift-watchdog] terminal artifact write threw for ${d.taskId}:`, err)
   }
-}
-
-/** Internal broker -> sentinel nightshift RPC (no dashboard socket). Mirrors the
- *  resolve-target + listener + timeout shape of `handlers/nightshift.ts`. */
-function sendNightshiftOp(
-  deps: WatchdogDeps,
-  project: string,
-  op: { op: 'config_read' | 'report'; runId?: string; report?: unknown },
-): Promise<NightshiftResult> {
-  const parsed = parseProjectUri(project)
-  const sentinel = (parsed.authority ? deps.getSentinelByAlias(parsed.authority) : undefined) ?? deps.getSentinel()
-  return new Promise<NightshiftResult>(resolve => {
-    const base = { type: 'nightshift_result' as const, requestId: '', op: op.op, ok: false }
-    if (!sentinel) {
-      resolve({ ...base, error: 'no sentinel connected for project' })
-      return
-    }
-    const requestId = `wd-${randomUUID()}`
-    const timeout = setTimeout(() => {
-      deps.removeProjectListener(requestId)
-      resolve({ ...base, requestId, error: 'sentinel timed out' })
-    }, RPC_TIMEOUT_MS)
-    deps.addProjectListener(requestId, result => {
-      clearTimeout(timeout)
-      resolve(result as NightshiftResult)
-    })
-    try {
-      sentinel.send(
-        JSON.stringify({
-          type: 'nightshift_op',
-          requestId,
-          projectRoot: parsed.path,
-          op: op.op,
-          runId: op.runId,
-          report: op.report,
-        }),
-      )
-    } catch {
-      clearTimeout(timeout)
-      deps.removeProjectListener(requestId)
-      resolve({ ...base, requestId, error: 'sentinel send failed' })
-    }
-  })
 }
