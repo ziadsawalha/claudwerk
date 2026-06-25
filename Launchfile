@@ -1,0 +1,81 @@
+# yaml-language-server: $schema=https://launchfile.dev/schema/v1
+#
+# Launchfile for the Claudewerk broker — the central session fabric server.
+#
+# Two ways to launch from this one file:
+#
+#   launchfile up . --native    # dev mode: run from source with bun (macOS)
+#   launchfile up . --docker    # build the Docker image and run it
+#
+# Then create the first passkey user:
+#
+#   launchfile bootstrap .      # prints a one-time invite link
+#
+# The broker needs no external services — state is embedded SQLite. The only
+# required input is RCLAUDE_SECRET, generated and persisted by the provider.
+
+version: launch/v1
+name: claudwerk
+description: "Claudewerk broker — remote session fabric for Claude Code agents"
+
+runtime: bun
+
+# Docker / production: multi-stage build compiles the broker + CLI binaries
+# and the web control panel entirely in-container (nothing runs on the host).
+build:
+  dockerfile: Dockerfile
+
+provides:
+  - protocol: http
+    port: 9999
+    exposed: true
+
+secrets:
+  rclaude_secret:
+    generator: secret
+    description: "Shared secret authenticating agent-host WebSocket connections"
+
+env:
+  RCLAUDE_SECRET:
+    default: "$secrets.rclaude_secret"
+    sensitive: true
+    description: "Broker reads this when --rclaude-secret is not passed"
+
+# Persists SQLite stores, passkey credentials, and transcripts. The image's
+# CMD points --cache-dir at /data/cache and --allow-root at /data/transcripts.
+storage:
+  data:
+    path: /data
+
+health:
+  path: /health
+  start_period: 30s
+
+restart: always
+
+commands:
+  # --- Artifact context (Docker image) -------------------------------------
+  # No `start`: the image ENTRYPOINT starts the broker with its baked-in args.
+  # broker-cli is on the image PATH; it writes directly to the auth store.
+  bootstrap:
+    command: "broker-cli create-invite --name admin --url $app.url --cache-dir /data/cache"
+    capture:
+      invite_link:
+        pattern: "(https?://\\S+/#/invite/\\S+)"
+        description: "One-time passkey invite link (expires in 30 minutes)"
+        sensitive: true
+
+  # --- Dev mode (run from source; D-35) ------------------------------------
+  # State lives in .launchfile/broker-cache so a real broker on this machine
+  # (~/.cache/broker) is never touched.
+  dev: "bun src/broker/index.ts --port $PORT --cache-dir .launchfile/broker-cache --web-dir web/dist"
+  "dev:build":
+    command: "bun install && (cd web && bun install) && bun run build:web && bun run build:cli"
+    timeout: "15m"
+  "dev:bootstrap":
+    command: "bin/broker-cli create-invite --name admin --url $app.url --cache-dir .launchfile/broker-cache"
+    capture:
+      invite_link:
+        pattern: "(https?://\\S+/#/invite/\\S+)"
+        description: "One-time passkey invite link (expires in 30 minutes)"
+        sensitive: true
