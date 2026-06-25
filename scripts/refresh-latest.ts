@@ -132,6 +132,25 @@ function main(): void {
   }
   const originalBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'])
 
+  /**
+   * Cherry-pick one commit. If it goes empty (the change is already present
+   * upstream — common after upstream absorbs one of our PRs), skip it and
+   * report `false`. On a real conflict, abort, return to the original branch,
+   * and die. Returns `true` when the commit was applied.
+   */
+  function cherryPickOne(sha: string, context: string): boolean {
+    if (tryRun('git', ['cherry-pick', sha])) return true
+    // Failed: empty (already upstream) or a genuine conflict?
+    const unmerged = git(['diff', '--name-only', '--diff-filter=U'])
+    if (unmerged === '') {
+      tryRun('git', ['cherry-pick', '--skip']) // empty — the change is already upstream
+      return false
+    }
+    tryRun('git', ['cherry-pick', '--abort'])
+    git(['checkout', originalBranch])
+    die(`Cherry-pick of ${shortSha(sha)} (${context}) conflicts with ${upstreamRef}. Resolve by hand and re-run.`)
+  }
+
   log(`${DRY_RUN ? '[dry-run] ' : ''}Refreshing ${latestBranch} from ${upstreamRef}\n`)
 
   // --- 1. Fetch ------------------------------------------------------------
@@ -181,6 +200,12 @@ function main(): void {
           'then re-run. (Backup tag was created.)',
       )
     }
+    if (commitsInRange(upstreamRef, branch).length === 0) {
+      log(
+        `  #${pr.number} is fully absorbed into ${upstreamRef} (0 commits left) — skipping push; consider closing it.`,
+      )
+      continue
+    }
     if (DRY_RUN) {
       log(`  [dry-run] would push ${branch} → ${originRemote} (force-with-lease)`)
     } else {
@@ -213,15 +238,16 @@ function main(): void {
   log(`\n→ Rebuilding ${latestBranch} on ${upstreamRef}…`)
   git(['tag', '-f', `backup/${latestBranch}-${stamp}`, latestRef])
   git(['checkout', '-B', latestBranch, upstreamRef])
+  let skipped = 0
   for (const pr of prs) {
-    const range = `${upstreamRef}..${pr.headRefName}`
-    if (commitsInRange(upstreamRef, pr.headRefName).length > 0) {
-      git(['cherry-pick', range])
+    for (const sha of commitsInRange(upstreamRef, pr.headRefName)) {
+      if (!cherryPickOne(sha, `#${pr.number}`)) skipped++
     }
   }
   for (const sha of glue) {
-    git(['cherry-pick', sha])
+    if (!cherryPickOne(sha, 'glue')) skipped++
   }
+  if (skipped > 0) log(`  (skipped ${skipped} commit(s) already absorbed upstream)`)
   log(
     `  ${latestBranch} rebuilt: ${commitsInRange(upstreamRef, latestBranch).length} commit(s) on ${shortSha(upstreamRef)}`,
   )
