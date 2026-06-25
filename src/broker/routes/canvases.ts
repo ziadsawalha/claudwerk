@@ -46,8 +46,17 @@ function decodeThumb(thumb: unknown): Uint8Array | undefined {
   }
 }
 
-export function createCanvasesRouter(_conversationStore: ConversationStore, helpers: RouteHelpers): Hono {
+export function createCanvasesRouter(conversationStore: ConversationStore, helpers: RouteHelpers): Hono {
   const app = new Hono()
+
+  /** Project URI for a request: explicit `projectUri`, else resolved from a
+   *  `conversationId` (how agent MCP tools, which only know their conv, scope). */
+  function resolveProject(explicit: unknown, conversationId: unknown): string | undefined {
+    if (typeof explicit === 'string' && explicit) return explicit
+    if (typeof conversationId === 'string' && conversationId)
+      return conversationStore.getConversation(conversationId)?.project
+    return undefined
+  }
 
   /** Load the :id canvas and enforce a permission on its project, in one shot.
    *  Returns the canvas, or a 404/403 Response to return immediately. */
@@ -72,8 +81,8 @@ export function createCanvasesRouter(_conversationStore: ConversationStore, help
 
   // ─── list ────────────────────────────────────────────────────────
   app.get('/api/canvases', c => {
-    const projectUri = c.req.query('projectUri')
-    if (!projectUri) return c.json({ error: 'projectUri required' }, 400)
+    const projectUri = resolveProject(c.req.query('projectUri'), c.req.query('conversationId'))
+    if (!projectUri) return c.json({ error: 'projectUri or conversationId required' }, 400)
     if (!helpers.httpHasPermission(c.req.raw, 'files:read', projectUri)) return c.json({ error: 'Forbidden' }, 403)
     return c.json({ canvases: listCanvases(projectUri) })
   })
@@ -81,8 +90,8 @@ export function createCanvasesRouter(_conversationStore: ConversationStore, help
   // ─── create ──────────────────────────────────────────────────────
   app.post('/api/canvases', async c => {
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null
-    const projectUri = body?.projectUri
-    if (typeof projectUri !== 'string' || !projectUri) return c.json({ error: 'projectUri required' }, 400)
+    const projectUri = resolveProject(body?.projectUri, body?.conversationId)
+    if (!projectUri) return c.json({ error: 'projectUri or conversationId required' }, 400)
     if (!helpers.httpHasPermission(c.req.raw, 'files', projectUri)) return c.json({ error: 'Forbidden' }, 403)
     const s = sceneFromBody(c, body)
     if ('res' in s) return s.res
