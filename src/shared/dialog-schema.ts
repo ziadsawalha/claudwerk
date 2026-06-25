@@ -707,7 +707,7 @@ export function dialogToolInputSchema(): Record<string, unknown> {
       persistent: {
         type: 'boolean',
         description:
-          'Make this a LIVE dialog that survives across turns instead of a one-shot. The user interacts locally (instant, no agent turns) and hits one "Send to agent" button; you receive the full form state in ONE turn and patch the dialog in place with update_dialog(dialogId, ops) -- it stays open. Reopen a closed one with reopen_dialog. Use ONLY when the artifact must persist AND you will re-derive content from interaction (e.g. comment-on-a-design -> redraw); for plain multi-step collection use "pages" (instant). Every block MUST have a stable "id" so patches reconcile without losing input. KEEP IT SMALL across its life: as topics resolve, remove (op:"remove") the blocks that no longer matter so the user only ever sees the live part; and the moment it is RESOLVED, close it with close_dialog -- never leave a resolved dialog open.',
+          'Make this a LIVE dialog that survives across turns instead of a one-shot. The user interacts locally (instant, no agent turns) and hits one "Send to agent" button; you receive the full form state in ONE turn and patch the dialog in place with update_dialog(dialogId, ops) -- it stays open. Reopen a closed one with reopen_dialog. Use ONLY when the artifact must persist AND you will re-derive content from interaction (e.g. comment-on-a-design -> redraw); for plain multi-step collection use "pages" (instant). Every block MUST have a stable "id" so patches reconcile without losing input. KEEP IT SMALL across its life: as topics resolve, remove (op:"remove") the blocks that no longer matter so the user only ever sees the live part; and the moment it is RESOLVED, close it with close_dialog -- never leave a resolved dialog open. PREFER "pages" OVER ONE LONG "body": a live dialog with several pages renders as TABS the user clicks between -- much better than a tall column they must SCROLL. Split distinct sections (plan vs files vs risks, or step 1 vs step 2) into pages and move the user between them with the setPage op (update_dialog).',
       },
       timeout: {
         type: 'number',
@@ -729,7 +729,7 @@ export function dialogToolInputSchema(): Record<string, unknown> {
       pages: {
         type: 'array',
         description:
-          'Multi-page layout. Array of {label, body: [...components]}. Renderer handles navigation (tabs/stepper). Last page shows submit. Mutually exclusive with "body".',
+          'Multi-page layout. Array of {label, body: [...components]}. Renderer handles navigation (tabs/stepper). Last page shows submit. Mutually exclusive with "body". STRONGLY PREFERRED over one long scrolling body whenever a dialog has distinct sections -- each page is a TAB, so the user jumps instead of scrolling (scrolling is bad UX). In a LIVE (persistent) dialog the pages render as tabs and you move the focused tab from the agent side with the setPage op (update_dialog) -- e.g. drop the user straight on the page you just patched.',
         items: {
           type: 'object',
           properties: {

@@ -3,7 +3,7 @@
  * modal and the persistent inline renderer so both derive defaults + validate
  * required fields identically (no duplicated traversal).
  */
-import type { DialogOp } from '@shared/dialog-live'
+import { ACTIVE_PAGE_KEY, type DialogOp } from '@shared/dialog-live'
 import type { DialogComponent, DialogLayout } from './types'
 
 /** The default value an input block seeds, or null for non-inputs. */
@@ -65,6 +65,7 @@ export function reconcileValues(
   for (const op of ops) {
     if (op.op === 'setState') next[op.key] = op.value
     else if (op.op === 'unsetState') delete next[op.key]
+    else if (op.op === 'setPage') next[ACTIVE_PAGE_KEY] = op.page
   }
   return next
 }

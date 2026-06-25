@@ -31,14 +31,21 @@ export interface EventHandler {
 }
 const EVENT_ACTIONS = new Set<string>(['agent', 'navigate', 'close'])
 
+// Reserved state key the host writes the focused page into (index or label).
+// In the reserved `_` namespace so it never collides with a block id. A
+// multi-page live dialog renders its pages as TABS; the panel reads this to
+// follow the agent's `setPage` focus (a manual tab click overrides until the
+// agent moves focus again).
+export const ACTIVE_PAGE_KEY = '_activePage'
+
 // ─── Patch grammar (DialogOp) ──────────────────────────────────────
 //
 // The agent mutates a live dialog by sending an ordered list of ops via the
 // `update_dialog` tool. Structural ops (replace/append/remove) edit the block
-// tree; state ops (setState/unsetState) edit the value store; `busy` is a
-// transient wait-screen hint (not persisted into the snapshot); `close` makes
-// the dialog terminal-but-reopenable. Reconcile by stable `id` so unchanged
-// subtrees never remount.
+// tree; state ops (setState/unsetState) edit the value store; `setPage` moves
+// the focused tab; `busy` is a transient wait-screen hint (not persisted into
+// the snapshot); `close` makes the dialog terminal-but-reopenable. Reconcile by
+// stable `id` so unchanged subtrees never remount.
 export type DialogOp =
   | { op: 'replace'; id: string; block: DialogComponent }
   | { op: 'append'; after?: string; into?: string; block: DialogComponent }
@@ -48,6 +55,9 @@ export type DialogOp =
   // conflict and NOT applied (never clobber a value the user changed meanwhile).
   | { op: 'setState'; key: string; value: unknown; expect?: unknown }
   | { op: 'unsetState'; key: string }
+  // Focus a page in a multi-page (tabbed) live dialog. `page` is a 0-based index
+  // OR a page label (label survives page reorders/inserts; index is convenient).
+  | { op: 'setPage'; page: number | string }
   | { op: 'busy'; target?: string; pending: boolean }
   | { op: 'close' }
 

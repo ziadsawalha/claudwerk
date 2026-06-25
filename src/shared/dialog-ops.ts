@@ -8,7 +8,7 @@
  * silently clobbered (red-team must-fix R1#2/#4).
  */
 
-import type { DialogOp, DialogSnapshot, DialogStatus } from './dialog-live'
+import { ACTIVE_PAGE_KEY, type DialogOp, type DialogSnapshot, type DialogStatus } from './dialog-live'
 import type { DialogComponent, DialogLayout } from './dialog-schema'
 import { childrenOf, insertAfter, removeById, replaceById, rootArrays } from './dialog-tree'
 
@@ -41,6 +41,10 @@ const OP_VALIDATORS: Record<string, (op: Op, at: string) => string[]> = {
   remove: (op, at) => reqString(op, 'id', at),
   setState: (op, at) => reqString(op, 'key', at),
   unsetState: (op, at) => reqString(op, 'key', at),
+  setPage: (op, at) =>
+    typeof op.page === 'number' || (typeof op.page === 'string' && op.page !== '')
+      ? []
+      : [`${at}.page must be a number (index) or non-empty string (label)`],
   busy: (op, at) => (typeof op.pending !== 'boolean' ? [`${at}.pending must be a boolean`] : []),
   close: () => [],
 }
@@ -86,7 +90,7 @@ export interface ApplyResult {
 }
 
 type StructuralOp = Extract<DialogOp, { op: 'replace' | 'remove' | 'append' }>
-type ValueOp = Extract<DialogOp, { op: 'setState' | 'unsetState' | 'busy' | 'close' }>
+type ValueOp = Extract<DialogOp, { op: 'setState' | 'unsetState' | 'setPage' | 'busy' | 'close' }>
 
 function applyStructural(op: StructuralOp, roots: DialogComponent[][]): boolean {
   if (op.op === 'replace') return roots.some(r => replaceById(r, op.id, op.block))
@@ -129,6 +133,11 @@ function applyValueOp(
       return { applied: true }
     case 'unsetState':
       delete state[op.key]
+      return { applied: true }
+    case 'setPage':
+      // Focus is panel-rendered but host-authoritative: park it in the reserved
+      // state key so it persists in the snapshot + replays on reconnect.
+      state[ACTIVE_PAGE_KEY] = op.page
       return { applied: true }
     case 'busy':
       // Transient wait-screen hint for the panel — not folded into the snapshot.

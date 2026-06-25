@@ -12,6 +12,7 @@ export type {
   DialogColor,
   DialogComponent,
   DialogLayout,
+  DialogPage,
   DialogResult,
   DiffComponent,
   FileTreeComponent,

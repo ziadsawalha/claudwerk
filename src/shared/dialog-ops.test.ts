@@ -30,10 +30,18 @@ describe('validateDialogOps', () => {
       { op: 'replace', id: 'intro', block: { type: 'Markdown', id: 'intro', content: 'bye' } },
       { op: 'setState', key: 'name', value: 'grace' },
       { op: 'remove', id: 'inner' },
+      { op: 'setPage', page: 1 },
+      { op: 'setPage', page: 'Outlook' },
       { op: 'busy', pending: true },
       { op: 'close' },
     ]
     expect(validateDialogOps(ops)).toEqual([])
+  })
+
+  test('setPage rejects empty string / wrong type', () => {
+    expect(validateDialogOps([{ op: 'setPage', page: '' }] as unknown).length).toBe(1)
+    expect(validateDialogOps([{ op: 'setPage' }] as unknown).length).toBe(1)
+    expect(validateDialogOps([{ op: 'setPage', page: true }] as unknown).length).toBe(1)
   })
 
   test('flags missing fields + unknown op + after/into clash', () => {
@@ -89,6 +97,16 @@ describe('applyDialogOps', () => {
     const bad = applyDialogOps(snap(), [{ op: 'setState', key: 'name', value: 'grace', expect: 'lin' }])
     expect(bad.state.name).toBe('ada')
     expect(bad.conflicts.length).toBe(1)
+  })
+
+  test('setPage parks focus in the reserved _activePage state key', () => {
+    const byIndex = applyDialogOps(snap(), [{ op: 'setPage', page: 2 }])
+    expect(byIndex.state._activePage).toBe(2)
+    expect(byIndex.applied).toBe(1)
+    expect(byIndex.conflicts).toEqual([])
+
+    const byLabel = applyDialogOps(snap(), [{ op: 'setPage', page: 'Outlook' }])
+    expect(byLabel.state._activePage).toBe('Outlook')
   })
 
   test('unsetState removes key; close flips status', () => {
