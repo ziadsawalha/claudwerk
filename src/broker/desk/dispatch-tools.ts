@@ -1,7 +1,7 @@
 /**
  * The TAILORED dispatcher toolset (plan-dispatcher-brain.md P5). The dispatcher
  * is a project-anchored routing BRAIN, so its primary tools are project-shaped --
- * `projects_overview` / `project_brief` / `recall` / `route` / `spawn_into_project`
+ * `projects_overview` / `project_brief` / `recall` / `route` / `dispatch_quest`
  * -- backed by the condensed memory engine (P3), NOT the raw broker verbs 1:1.
  * The rich control verbs (inject / interrupt / terminate / configure / revive /
  * link / read_events / list_conversations) remain available for ACTIONS (Jonas:
@@ -62,7 +62,7 @@ export function projectOverviewRows(rt: DispatchRuntime): ProjectOverviewRow[] {
 }
 
 /** The project-anchored tools -- the dispatcher's primary surface. */
-function projectTools(rt: DispatchRuntime, confirmedExpensive: boolean): Toolset {
+function projectTools(rt: DispatchRuntime): Toolset {
   return {
     projects_overview: defineTool({
       description:
@@ -136,40 +136,16 @@ function projectTools(rt: DispatchRuntime, confirmedExpensive: boolean): Toolset
         return summarizeDecision(await runDispatch(cmd, rt))
       },
     }),
-
-    spawn_into_project: defineTool({
-      description:
-        'Spawn a NEW conversation inside a project (resolved by name/slug/uri), even one with no live conversations. The user asking to start work in a project is a real impulse -- honor it.',
-      inputSchema: z.object({
-        project: z.string().describe('Project name, slug, or uri.'),
-        intent: z.string().describe('The opening task for the new conversation.'),
-        profile: z.string().nullable().describe('Sentinel profile / model override, or null for the default.'),
-      }),
-      execute: async a => {
-        const { project, intent, profile } = a as { project: string; intent: string; profile: string | null }
-        const dp = resolveDeskProject(project)
-        if (!dp) return { error: `no project matching "${project}"` }
-        if (!dp.cwd) return { error: `project "${dp.label}" has no local filesystem path; cannot spawn into it` }
-        const cmd: DispatchCommand = {
-          intent,
-          disposition: 'new',
-          cwd: dp.cwd,
-          project: dp.projectUri,
-          confirmedExpensive,
-        }
-        if (profile) cmd.profile = profile
-        const d = await runDispatch(cmd, rt)
-        if (!d.resultConversationId) return { error: d.reasoning || 'spawn produced no conversation' }
-        return { conversationId: d.resultConversationId, project: dp.label }
-      },
-    }),
   }
 }
 
 /**
  * The full dispatcher toolset: project-anchored tools (lead) + the rich control
- * verbs (actions). The generic `spawn` is dropped -- `spawn_into_project`
- * supersedes it with named-project resolution.
+ * verbs (actions). EVERY spawn path carries the report-back contract: the only
+ * spawn verb is `dispatch_quest` (quest registration + report-back prompt +
+ * parked <pending> block). The generic `spawn` and the fire-and-forget
+ * `spawn_into_project` are both dropped -- `dispatch_quest` resolves a named /
+ * slug / uri project and spawns into it even with zero live conversations.
  */
 export function buildDispatchToolset(
   rt: DispatchRuntime,
@@ -177,5 +153,5 @@ export function buildDispatchToolset(
   questSpawn?: QuestSpawn,
 ): Toolset {
   const { spawn: _omitGenericSpawn, ...control } = buildControlToolset(buildControlDeps(rt, confirmedExpensive))
-  return { ...projectTools(rt, confirmedExpensive), ...questTools(rt, questSpawn), ...lookupTools(rt), ...control }
+  return { ...projectTools(rt), ...questTools(rt, questSpawn), ...lookupTools(rt), ...control }
 }

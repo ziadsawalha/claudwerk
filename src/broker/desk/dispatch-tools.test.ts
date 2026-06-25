@@ -85,16 +85,17 @@ describe('dispatch tools (project-anchored)', () => {
     expect(hits.map(h => h.project)).toContain('arr')
   })
 
-  test('the generic spawn verb is replaced by spawn_into_project', () => {
+  test('no fire-and-forget spawn verb -- dispatch_quest is the only spawn', () => {
     const tools = buildDispatchToolset(fakeRt([]))
     expect(tools.spawn).toBeUndefined()
-    expect(tools.spawn_into_project).toBeDefined()
+    expect(tools.spawn_into_project).toBeUndefined() // removed: every spawn carries report-back
+    expect(tools.dispatch_quest).toBeDefined()
     expect(tools.list_conversations).toBeDefined() // still available (Jonas)
   })
 
-  test('spawn_into_project rejects an unknown project cleanly', async () => {
+  test('dispatch_quest rejects an unknown project cleanly', async () => {
     const tools = buildDispatchToolset(fakeRt([]))
-    const out = (await tools.spawn_into_project.execute({ project: 'nope-xyz', intent: 'x', profile: null }, ctx)) as {
+    const out = (await tools.dispatch_quest.execute({ project: 'nope-xyz', task: 'x', complexity: 'simple' }, ctx)) as {
       error?: string
     }
     expect(out.error).toContain('no project matching')
