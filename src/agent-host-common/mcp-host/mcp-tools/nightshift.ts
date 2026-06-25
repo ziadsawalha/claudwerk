@@ -57,6 +57,28 @@ function buildBody(p: Params): Record<string, unknown> | { error: string } {
       finalize: { digest: p.digest || undefined, cost_usd: num(p.cost_usd), runtime_min: num(p.runtime_min) },
     }
   }
+  if (action === 'enqueue') {
+    if (!p.title) return { error: 'title is required for enqueue' }
+    return {
+      project,
+      op: 'enqueue',
+      enqueue: {
+        title: p.title,
+        project,
+        description: p.description || undefined,
+        acceptance: p.acceptance || undefined,
+        feasibility: p.feasibility || undefined,
+        risk: p.risk || undefined,
+        source: p.source || undefined,
+        boardRef: p.board_ref || undefined,
+      },
+    }
+  }
+  if (action === 'queue') return { project, op: 'queue_list' }
+  if (action === 'dequeue') {
+    if (!p.id) return { error: 'id is required for dequeue' }
+    return { project, op: 'dequeue', dequeueId: p.id }
+  }
   if (action === 'patch') {
     // ACT-ON-RESULTS: patch an existing task's frontmatter in place (no clobber).
     if (!p.run_id) return { error: 'run_id is required for patch' }
@@ -155,14 +177,18 @@ export function registerNightshiftTools(ctx: McpToolContext): Record<string, Too
         'run_id + id required. Set status (integrated|discarded|...), tests, verdict, diffstat, commits, and/or note ' +
         '(a one-line audit line appended to the task body). Use after integrating/testing/discarding a task.\n' +
         '- run_finalize: close the run. run_id required. digest (the night in one glance), cost_usd, runtime_min.\n' +
-        '- snapshot: read back the latest (or run_id) report.',
+        '- snapshot: read back the latest (or run_id) report.\n' +
+        '- enqueue: assign ONE task to the nightshift queue (awaits a run). title required. description, ' +
+        'acceptance, feasibility, risk, source (manual|board), board_ref.\n' +
+        '- queue: list the tasks assigned to the queue, awaiting a run.\n' +
+        '- dequeue: remove one queued task by id.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           project: { type: 'string', description: 'Canonical project URI the run belongs to (required).' },
           action: {
             type: 'string',
-            enum: ['run_start', 'report', 'patch', 'run_finalize', 'snapshot'],
+            enum: ['run_start', 'report', 'patch', 'run_finalize', 'snapshot', 'enqueue', 'queue', 'dequeue'],
             description: 'Default: report.',
           },
           run_id: { type: 'string', description: 'Run id, YYYY-MM-DD.' },
@@ -194,6 +220,9 @@ export function registerNightshiftTools(ctx: McpToolContext): Record<string, Too
           question: { type: 'string', description: 'blocked: the async question for Jonas.' },
           options: { type: 'string', description: 'blocked: comma-separated choices.' },
           reason: { type: 'string', description: 'skipped: why it was declined.' },
+          description: { type: 'string', description: 'enqueue: freeform task description (stored as the body).' },
+          source: { type: 'string', enum: ['manual', 'board'], description: 'enqueue: where the task came from.' },
+          board_ref: { type: 'string', description: 'enqueue: the project-board task id/slug it was promoted from.' },
           task_count: { type: 'string', description: 'run_start: number of tasks dispatched.' },
           window: { type: 'string', description: 'run_start: scheduling window, e.g. "01:00-07:00".' },
           digest: { type: 'string', description: 'run_start/run_finalize: the night in one glance.' },

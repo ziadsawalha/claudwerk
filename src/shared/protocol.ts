@@ -9,7 +9,9 @@ import type { DialogLayout, DialogResult } from './dialog-schema'
 import type {
   NightshiftBlocked,
   NightshiftConfig,
+  NightshiftEnqueueInput,
   NightshiftFinalizeInput,
+  NightshiftQueueItem,
   NightshiftReportInput,
   NightshiftRun,
   NightshiftRunSnapshot,
@@ -3770,6 +3772,9 @@ export type NightshiftOpKind =
   | 'report' // write one task / blocked / skipped artifact
   | 'task_patch' // ACT-ON-RESULTS: patch an existing task's frontmatter in place (plan §4)
   | 'run_finalize' // recompute totals, flip run.md to done, stamp digest/cost
+  | 'enqueue' // assign one task to the queue (awaiting a run)
+  | 'queue_list' // read the queue (tasks assigned, awaiting a run)
+  | 'dequeue' // remove one queued task by id
 
 /** Dashboard / night-manager -> Broker: one nightshift artifact op. */
 export interface NightshiftRequest {
@@ -3790,6 +3795,10 @@ export interface NightshiftRequest {
   taskPatch?: NightshiftTaskPatchInput
   /** run_finalize payload. */
   finalize?: NightshiftFinalizeInput
+  /** enqueue payload (assign a task to the queue). */
+  enqueue?: NightshiftEnqueueInput
+  /** dequeue: the queued task id to remove. */
+  dequeueId?: string
 }
 
 /** Broker -> Sentinel: the same op, with the resolved absolute projectRoot. */
@@ -3804,6 +3813,8 @@ export interface NightshiftOp {
   report?: NightshiftReportInput
   taskPatch?: NightshiftTaskPatchInput
   finalize?: NightshiftFinalizeInput
+  enqueue?: NightshiftEnqueueInput
+  dequeueId?: string
 }
 
 /** Sentinel -> Broker: result of one op. Populated field depends on `op`. */
@@ -3824,6 +3835,12 @@ export interface NightshiftResult {
   blocked?: NightshiftBlocked
   /** report(kind=skipped) -- the persisted skipped entry. */
   skipped?: NightshiftSkipped
+  /** queue_list -- the queued tasks awaiting a run. */
+  queue?: NightshiftQueueItem[]
+  /** enqueue -- the persisted queued task. */
+  queued?: NightshiftQueueItem
+  /** dequeue -- whether a queued task was removed. */
+  removed?: boolean
   error?: string
 }
 
@@ -3838,7 +3855,7 @@ export interface NightshiftEvent {
   type: 'nightshift_event'
   /** Canonical project URI -- the broadcast scope key. */
   project: string
-  event: 'run_started' | 'task_update' | 'task_done' | 'blocked' | 'impulse' | 'run_done'
+  event: 'run_started' | 'task_update' | 'task_done' | 'blocked' | 'impulse' | 'run_done' | 'queue_update'
   runId: string
   taskId?: string
   status?: string

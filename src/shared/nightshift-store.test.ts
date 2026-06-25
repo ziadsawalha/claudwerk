@@ -10,7 +10,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   appendSkipped,
+  dequeueTask,
+  enqueueTask,
   finalizeRun,
+  hasRecentRun,
+  listQueue,
   listRunSkipped,
   listRunTasks,
   patchTask,
@@ -260,5 +264,80 @@ describe('snapshot (Result screen payload)', () => {
 
   test('no runs -> null snapshot', () => {
     expect(readLatestSnapshot(root)).toBeNull()
+  })
+})
+
+describe('queue lane (assigned, awaiting a run)', () => {
+  test('enqueueTask assigns 001 then 002, writes the file + body', () => {
+    const a = enqueueTask(root, { title: 'First task', project: 'p', description: 'do the thing' }, NOW)
+    const b = enqueueTask(root, { title: 'Second task', project: 'p' }, NOW + 1000)
+    expect(a.id).toBe('001')
+    expect(b.id).toBe('002')
+    expect(a.status).toBe('queued')
+    expect(existsSync(join(root, '.nightshift', 'queue', '001-first-task.md'))).toBe(true)
+    const raw = readFileSync(join(root, '.nightshift', 'queue', '001-first-task.md'), 'utf8')
+    expect(raw).toContain('## Task')
+    expect(raw).toContain('do the thing')
+    // missing description -> placeholder body
+    expect(b.body).toContain('_no description_')
+  })
+
+  test('enqueueTask round-trips the optional fields', () => {
+    enqueueTask(
+      root,
+      {
+        title: 'Promoted task',
+        project: 'p',
+        acceptance: 'tests pass',
+        feasibility: 'uncertain',
+        risk: 'medium',
+        source: 'board',
+        boardRef: 'b-42',
+      },
+      NOW,
+    )
+    const [q] = listQueue(root)
+    expect(q.acceptance).toBe('tests pass')
+    expect(q.feasibility).toBe('uncertain')
+    expect(q.risk).toBe('medium')
+    expect(q.source).toBe('board')
+    expect(q.boardRef).toBe('b-42')
+  })
+
+  test('listQueue returns items sorted by id ascending', () => {
+    enqueueTask(root, { title: 'Alpha', project: 'p' }, NOW)
+    enqueueTask(root, { title: 'Beta', project: 'p' }, NOW)
+    enqueueTask(root, { title: 'Gamma', project: 'p' }, NOW)
+    const q = listQueue(root)
+    expect(q.map(i => i.id)).toEqual(['001', '002', '003'])
+    expect(q.map(i => i.title)).toEqual(['Alpha', 'Beta', 'Gamma'])
+  })
+
+  test('listQueue tolerates a missing queue dir', () => {
+    expect(listQueue(root)).toEqual([])
+  })
+
+  test('dequeueTask removes by id, false for a missing id', () => {
+    enqueueTask(root, { title: 'Keep me', project: 'p' }, NOW)
+    enqueueTask(root, { title: 'Drop me', project: 'p' }, NOW)
+    expect(dequeueTask(root, '2')).toBe(true)
+    expect(listQueue(root).map(i => i.id)).toEqual(['001'])
+    expect(dequeueTask(root, '99')).toBe(false)
+  })
+})
+
+describe('hasRecentRun', () => {
+  test('false when there are no runs', () => {
+    expect(hasRecentRun(root, NOW)).toBe(false)
+  })
+
+  test('true when a run dir is within the window', () => {
+    startRun(root, { runId: '2026-06-19' }, NOW)
+    expect(hasRecentRun(root, NOW)).toBe(true)
+  })
+
+  test('false when the only run is older than 7 days', () => {
+    startRun(root, { runId: '2026-06-01' }, NOW - 18 * 86_400_000)
+    expect(hasRecentRun(root, NOW)).toBe(false)
   })
 })

@@ -11,7 +11,10 @@
 
 import {
   appendSkipped,
+  dequeueTask,
+  enqueueTask,
   finalizeRun,
+  listQueue,
   patchTask,
   readLatestSnapshot,
   readNightshiftConfig,
@@ -133,6 +136,16 @@ export function handleNightshiftOp(root: string, msg: NightshiftOp, nowMs: numbe
         const run = finalizeRun(root, msg.runId, msg.finalize ?? {}, nowMs)
         if (!run) return { ...base, ok: false, error: `run not found: ${msg.runId}` }
         return { ...base, ok: true, run }
+      }
+      case 'enqueue': {
+        if (!msg.enqueue) return { ...base, ok: false, error: 'enqueue payload required' }
+        return { ...base, ok: true, queued: enqueueTask(root, msg.enqueue, nowMs) }
+      }
+      case 'queue_list':
+        return { ...base, ok: true, queue: listQueue(root) }
+      case 'dequeue': {
+        if (!msg.dequeueId) return { ...base, ok: false, error: 'dequeueId required' }
+        return { ...base, ok: true, removed: dequeueTask(root, msg.dequeueId) }
       }
       default:
         return { ...base, ok: false, error: `unknown op: ${(msg as NightshiftOp).op}` }

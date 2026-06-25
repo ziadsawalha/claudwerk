@@ -280,6 +280,43 @@ export interface NightshiftFinalizeInput {
 }
 
 // ---------------------------------------------------------------------------
+// Queue lane (tasks ASSIGNED to nightshift, awaiting a run)
+// ---------------------------------------------------------------------------
+
+/** A task ASSIGNED to nightshift, awaiting a run. Lives in .nightshift/queue/, decoupled from any run. */
+export interface NightshiftQueueItem {
+  /** Zero-padded ordinal, unique within the queue, e.g. "003". */
+  id: string
+  title: string
+  /** Project URI or slug the task belongs to. */
+  project: string
+  status: 'queued'
+  feasibility?: NightshiftFeasibility
+  risk?: NightshiftRisk
+  acceptance?: string
+  /** Where it came from: hand-typed ('manual') or promoted from the project board ('board'). */
+  source?: 'manual' | 'board'
+  /** If promoted from the project board: the board task id/slug it came from. */
+  boardRef?: string
+  created: string
+  /** Markdown body: the task description / details. */
+  body: string
+}
+
+/** Wire input to enqueue one task into the project's nightshift queue. */
+export interface NightshiftEnqueueInput {
+  title: string
+  project: string
+  /** Freeform description -> stored as the body. */
+  description?: string
+  acceptance?: string
+  feasibility?: NightshiftFeasibility
+  risk?: NightshiftRisk
+  source?: 'manual' | 'board'
+  boardRef?: string
+}
+
+// ---------------------------------------------------------------------------
 // config.json (per-project nightshift config, plan §2.2 + §10)
 // ---------------------------------------------------------------------------
 

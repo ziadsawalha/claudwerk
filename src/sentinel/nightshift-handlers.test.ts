@@ -159,3 +159,56 @@ describe('run + report ops', () => {
     expect(r.error).toContain('run not found')
   })
 })
+
+describe('queue ops', () => {
+  test('enqueue -> queue_list -> dequeue round-trip', () => {
+    const enq = handleNightshiftOp(
+      root,
+      op({ op: 'enqueue', enqueue: { title: 'Refactor the auth layer', project: 'remote-claude', source: 'manual' } }),
+      NOW,
+    )
+    expect(enq.ok).toBe(true)
+    expect(enq.queued?.id).toBe('001')
+    expect(enq.queued?.status).toBe('queued')
+
+    handleNightshiftOp(
+      root,
+      op({ op: 'enqueue', enqueue: { title: 'Second order', project: 'remote-claude' } }),
+      NOW + 1000,
+    )
+
+    const list = handleNightshiftOp(root, op({ op: 'queue_list' }), NOW)
+    expect(list.ok).toBe(true)
+    expect(list.queue).toHaveLength(2)
+    expect(list.queue?.map(i => i.id)).toEqual(['001', '002'])
+
+    const deq = handleNightshiftOp(root, op({ op: 'dequeue', dequeueId: '1' }), NOW)
+    expect(deq.ok).toBe(true)
+    expect(deq.removed).toBe(true)
+    expect(handleNightshiftOp(root, op({ op: 'queue_list' }), NOW).queue).toHaveLength(1)
+  })
+
+  test('enqueue without a payload errors', () => {
+    const r = handleNightshiftOp(root, op({ op: 'enqueue' }), NOW)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('enqueue payload required')
+  })
+
+  test('dequeue without an id errors', () => {
+    const r = handleNightshiftOp(root, op({ op: 'dequeue' }), NOW)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('dequeueId required')
+  })
+
+  test('dequeue of a missing id is ok with removed=false', () => {
+    const r = handleNightshiftOp(root, op({ op: 'dequeue', dequeueId: '99' }), NOW)
+    expect(r.ok).toBe(true)
+    expect(r.removed).toBe(false)
+  })
+
+  test('queue_list on a fresh project returns an empty array', () => {
+    const r = handleNightshiftOp(root, op({ op: 'queue_list' }), NOW)
+    expect(r.ok).toBe(true)
+    expect(r.queue).toEqual([])
+  })
+})

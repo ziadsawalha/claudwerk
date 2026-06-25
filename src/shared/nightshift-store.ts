@@ -26,7 +26,9 @@ import {
   DEFAULT_NIGHTSHIFT_CONFIG,
   type NightshiftBlocked,
   type NightshiftConfig,
+  type NightshiftEnqueueInput,
   type NightshiftFeasibility,
+  type NightshiftQueueItem,
   type NightshiftRun,
   type NightshiftRunMeta,
   type NightshiftRunSnapshot,
@@ -660,4 +662,130 @@ export function readRunSnapshot(root: string, runId: string): NightshiftRunSnaps
 export function readLatestSnapshot(root: string): NightshiftRunSnapshot | null {
   const runId = resolveLatestRunId(root)
   return runId ? readRunSnapshot(root, runId) : null
+}
+
+// ---------------------------------------------------------------------------
+// Queue lane (.nightshift/queue/NNN-slug.md -- tasks assigned, awaiting a run)
+//
+// Decoupled from any run: a user assigns a task to nightshift BEFORE a run
+// exists. One file per queued task; the sentinel is the sole writer.
+// ---------------------------------------------------------------------------
+
+function queueDir(root: string): string {
+  return join(nsRoot(root), 'queue')
+}
+
+function coerceQueueItem(meta: Record<string, unknown>, body: string, fallbackId: string): NightshiftQueueItem {
+  return {
+    id: asStr(meta.id) ?? fallbackId,
+    title: asStr(meta.title) ?? fallbackId,
+    project: asStr(meta.project) ?? '',
+    status: 'queued',
+    feasibility: meta.feasibility === undefined ? undefined : asEnum(meta.feasibility, FEASIBILITY_VALUES, 'uncertain'),
+    risk: asStr(meta.risk) as NightshiftQueueItem['risk'],
+    acceptance: asStr(meta.acceptance),
+    source: asStr(meta.source) as NightshiftQueueItem['source'],
+    boardRef: asStr(meta.boardRef),
+    created: asStr(meta.created) ?? '',
+    body,
+  }
+}
+
+/** Next zero-padded queue id = (max numeric existing id) + 1, starting at "001". */
+function nextQueueId(root: string): string {
+  let max = 0
+  try {
+    for (const f of readdirSync(queueDir(root))) {
+      if (!f.endsWith('.md')) continue
+      const n = Number((f.split('-')[0] || '').replace(/[^0-9]/g, ''))
+      if (Number.isFinite(n) && n > max) max = n
+    }
+  } catch {
+    /* no queue dir yet */
+  }
+  return pad3(max + 1)
+}
+
+/** Enqueue (persist) one task into the project's nightshift queue. Returns the stored item. */
+export function enqueueTask(root: string, input: NightshiftEnqueueInput, nowMs: number): NightshiftQueueItem {
+  const dir = queueDir(root)
+  mkdirSync(dir, { recursive: true })
+  const id = nextQueueId(root)
+  const created = nowIso(nowMs)
+  const body = `## Task\n${input.description?.trim() || '_no description_'}`
+  const fm = {
+    id,
+    title: input.title,
+    project: input.project,
+    status: 'queued' as const,
+    feasibility: input.feasibility,
+    risk: input.risk,
+    acceptance: input.acceptance,
+    source: input.source,
+    boardRef: input.boardRef,
+    created,
+  }
+  const file = join(dir, `${pad3(id)}-${slugify(input.title)}.md`)
+  // Path-jail belt-and-suspenders: confirm the resolved file stays under root.
+  resolveInRoot(root, file.slice(root.length))
+  writeFileSync(file, serializeFrontmatter(fm, body), 'utf8')
+  return {
+    id,
+    title: input.title,
+    project: input.project,
+    status: 'queued',
+    feasibility: input.feasibility,
+    risk: input.risk,
+    acceptance: input.acceptance,
+    source: input.source,
+    boardRef: input.boardRef,
+    created,
+    body,
+  }
+}
+
+/** All queued tasks, sorted by id ascending. Tolerates a missing queue dir. */
+export function listQueue(root: string): NightshiftQueueItem[] {
+  const dir = queueDir(root)
+  const out: NightshiftQueueItem[] = []
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.md')) continue
+      try {
+        const { meta, body } = parseFrontmatter(readFileSync(join(dir, f), 'utf8'))
+        const fallbackId = f.replace(/\.md$/, '').split('-')[0] || f
+        out.push(coerceQueueItem(meta, body, fallbackId))
+      } catch {
+        /* skip unreadable file */
+      }
+    }
+  } catch {
+    /* no queue dir yet */
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/** Remove a queued task by id (matches the `NNN-` prefix). Returns true if a file was removed. */
+export function dequeueTask(root: string, id: string): boolean {
+  const dir = queueDir(root)
+  const prefix = `${pad3(id)}-`
+  try {
+    for (const f of readdirSync(dir)) {
+      if (f.endsWith('.md') && f.startsWith(prefix)) {
+        rmSync(join(dir, f), { force: true })
+        return true
+      }
+    }
+  } catch {
+    /* no queue dir */
+  }
+  return false
+}
+
+/** True if any run exists with id (YYYY-MM-DD) within `withinDays` of nowMs. */
+export function hasRecentRun(root: string, nowMs: number, withinDays = 7): boolean {
+  const ids = listRunIds(root)
+  if (!ids.length) return false
+  const cutoff = new Date(nowMs - withinDays * 86_400_000).toISOString().slice(0, 10)
+  return ids.some(id => id >= cutoff)
 }
