@@ -3775,6 +3775,7 @@ export type NightshiftOpKind =
   | 'enqueue' // assign one task to the queue (awaiting a run)
   | 'queue_list' // read the queue (tasks assigned, awaiting a run)
   | 'dequeue' // remove one queued task by id
+  | 'run' // manual Run-now trigger -- intercepted at the broker (NOT relayed to the sentinel)
 
 /** Dashboard / night-manager -> Broker: one nightshift artifact op. */
 export interface NightshiftRequest {

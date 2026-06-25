@@ -24,6 +24,7 @@ import type {
 } from '../../shared/protocol'
 import type { HandlerContext, MessageData, MessageHandler } from '../handler-context'
 import { CONTROL_PANEL_ONLY, registerHandlers, SENTINEL_ONLY } from '../message-router'
+import { runNightshift } from '../nightshift-orchestrator'
 
 const NIGHTSHIFT_RPC_TIMEOUT_MS = 10_000
 const WRITE_OPS = new Set<NightshiftOpKind>([
@@ -34,6 +35,7 @@ const WRITE_OPS = new Set<NightshiftOpKind>([
   'run_finalize',
   'enqueue',
   'dequeue',
+  'run', // launches real agents -> needs files; intercepted in the broker (never relayed)
 ])
 
 /** Resolve a project URI to its host root + owning sentinel socket. */
@@ -87,14 +89,14 @@ function beatFor(d: NightshiftRequest, result: NightshiftResult): NightshiftEven
 }
 
 // Dashboard / night-manager -> broker: one nightshift artifact op.
-const nightshiftRequest: MessageHandler = (ctx, data) => {
+// Exported for the handler test (the `run` intercept must be awaitable).
+export const nightshiftRequest: MessageHandler = async (ctx, data) => {
   const d = data as NightshiftRequest
   if (!d.project || !d.requestId || !d.op) return
 
-  // Reads need files:read; writes need files. Throws GuardError on denial.
+  // Reads need files:read; writes (incl. the Run-now trigger) need files. Throws GuardError on denial.
   ctx.requirePermission(WRITE_OPS.has(d.op) ? 'files' : 'files:read', d.project)
 
-  const { projectRoot, sentinel } = resolveTarget(ctx, d.project)
   const replyWs = ctx.ws
   const sendReply = (msg: Record<string, unknown>) => {
     try {
@@ -103,6 +105,22 @@ const nightshiftRequest: MessageHandler = (ctx, data) => {
       /* socket gone -- caller navigated away */
     }
   }
+
+  // Run-now is executed IN the broker -- it spawns the worker fleet directly via
+  // the orchestrator (not a sentinel artifact op), so handle it before relaying.
+  if (d.op === 'run') {
+    const out = await runNightshift(ctx.conversations, d.project, { trigger: 'manual' })
+    sendReply({
+      type: 'nightshift_result',
+      requestId: d.requestId,
+      op: 'run',
+      ok: out.ok,
+      error: out.error ?? out.skipped,
+    })
+    return
+  }
+
+  const { projectRoot, sentinel } = resolveTarget(ctx, d.project)
 
   if (!sentinel) {
     sendReply({
