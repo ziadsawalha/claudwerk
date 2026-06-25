@@ -17,6 +17,7 @@ import { openSpawnDialog } from '@/components/spawn-dialog-trigger'
 import { openTerminateConfirm } from '@/components/terminate-confirm-trigger'
 import { openTerminateLineageConfirm } from '@/components/terminate-lineage-confirm-trigger'
 import { fetchTranscript, sendInput, useConversationsStore, wsSend } from '@/hooks/use-conversations'
+import { openNightshiftModal } from '@/hooks/use-nightshift-modal'
 import { useShellsStore } from '@/hooks/use-shells'
 import { formatShortcut, useChordCommand, useCommand, validateChordBindings } from '@/lib/commands'
 import { canRespawnStaleDaemon } from '@/lib/daemon-control'
@@ -94,7 +95,8 @@ export function useGlobalCommands(toggleSidebar: () => void) {
   useCommand(
     'open-nightshift',
     () => {
-      window.location.hash = '/nightshift'
+      const uri = useConversationsStore.getState().selectedProjectUri
+      if (uri) openNightshiftModal(uri, 'report')
     },
     { label: 'NIGHTSHIFT (morning report)', group: 'Navigation' },
   )
@@ -102,7 +104,8 @@ export function useGlobalCommands(toggleSidebar: () => void) {
   useCommand(
     'open-nightshift-status',
     () => {
-      window.location.hash = '/nightshift-status'
+      const uri = useConversationsStore.getState().selectedProjectUri
+      if (uri) openNightshiftModal(uri, 'status')
     },
     { label: 'NIGHTSHIFT (live status)', group: 'Navigation' },
   )

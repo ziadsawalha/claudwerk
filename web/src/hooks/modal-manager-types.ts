@@ -23,6 +23,8 @@ export interface ModalRecord {
   /** false = blocking (no minimize button, never reaches the dock). */
   minimizable: boolean
   phase: ModalPhase
+  /** Fill-the-window state, orthogonal to phase. Preserved across park/restore. */
+  maximized: boolean
   /** Wall-clock open time, for dock ordering. */
   openedAt: number
 }

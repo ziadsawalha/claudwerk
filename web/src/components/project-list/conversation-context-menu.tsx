@@ -2,6 +2,7 @@ import { projectIdentityKey } from '@shared/project-uri'
 import { ContextMenu } from 'radix-ui'
 import type { ReactNode } from 'react'
 import { saveProjectOrder, updateProjectSettings, useConversationsStore, wsSend } from '@/hooks/use-conversations'
+import { openNightshiftModal } from '@/hooks/use-nightshift-modal'
 import { usePinnedConversations } from '@/lib/conversation-pins'
 import { canRespawnStaleDaemon } from '@/lib/daemon-control'
 import { selectConversations } from '@/lib/slim-conversation'
@@ -323,6 +324,15 @@ function ProjectMenuItems({ project, onOpenSettings }: { project: string; onOpen
         Launch new…
       </ContextMenu.Item>
       <RecapMenuItems projectUri={project} />
+      <ContextMenu.Item
+        className={cn(menuItemClass, 'text-amber-400')}
+        onSelect={() => {
+          haptic('tap')
+          openNightshiftModal(project, 'outlook')
+        }}
+      >
+        Nightshift…
+      </ContextMenu.Item>
       <ContextMenu.Item
         className={menuItemClass}
         onSelect={() => {

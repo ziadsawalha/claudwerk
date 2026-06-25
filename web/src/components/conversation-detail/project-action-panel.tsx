@@ -10,6 +10,7 @@ import { ProjectIcon } from '../project-icons'
 import { openReviveDialog } from '../revive-dialog-trigger'
 import { openSpawnDialog } from '../spawn-dialog-trigger'
 import { ProjectCanvasesSection } from './project-canvases-section'
+import { ProjectNightshiftCard } from './project-nightshift-card'
 import { ProjectReadmeSection } from './project-readme-section'
 import { ProjectRecapsSection } from './project-recaps-section'
 
@@ -287,6 +288,9 @@ export function ProjectActionPanel({ projectUri }: { projectUri: string }) {
             </button>
           )}
         </div>
+
+        {/* Nightshift report -- self-hides unless a run landed in the last 7 days */}
+        <ProjectNightshiftCard projectUri={projectUri} />
 
         {/* Recent recaps (last 3 days, finished only) */}
         <ProjectRecapsSection projectUri={projectUri} />

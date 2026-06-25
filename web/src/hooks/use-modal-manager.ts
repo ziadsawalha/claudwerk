@@ -24,6 +24,8 @@ interface ModalManagerState {
   minimize: (id: string) => void
   /** Warp to the owner context, then re-open. */
   restore: (id: string) => void
+  /** Toggle the fill-the-window state (persisted across park/restore). */
+  toggleMaximize: (id: string) => void
   /** Drop the instance entirely (Escape / explicit close). */
   close: (id: string) => void
 }
@@ -51,6 +53,7 @@ export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
         minimizable: opts.minimizable ?? true,
         scope,
         phase: 'open',
+        maximized: prev?.maximized ?? false,
         openedAt: prev?.openedAt ?? Date.now(),
       }
       return { records: { ...state.records, [opts.id]: record } }
@@ -76,6 +79,13 @@ export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
     })
   },
 
+  toggleMaximize: id =>
+    set(state => {
+      const prev = state.records[id]
+      if (!prev) return state
+      return { records: { ...state.records, [id]: { ...prev, maximized: !prev.maximized } } }
+    }),
+
   close: id =>
     set(state => {
       if (!state.records[id]) return state
@@ -89,8 +99,11 @@ export interface ManagedModal {
   phase: 'closed' | ModalPhase
   scope: ModalScope | undefined
   minimizable: boolean
+  /** Fill-the-window state, preserved across park/restore. */
+  maximized: boolean
   open: (scope: ModalScope) => void
   minimize: () => void
+  toggleMaximize: () => void
   close: () => void
 }
 
@@ -106,8 +119,10 @@ export function useManagedModal(opts: ManagedModalOpts): ManagedModal {
     phase: record?.phase ?? 'closed',
     scope: record?.scope,
     minimizable,
+    maximized: record?.maximized ?? false,
     open: scope => useModalManagerStore.getState().open(opts, scope),
     minimize: () => useModalManagerStore.getState().minimize(opts.id),
+    toggleMaximize: () => useModalManagerStore.getState().toggleMaximize(opts.id),
     close: () => useModalManagerStore.getState().close(opts.id),
   }
 }

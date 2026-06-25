@@ -28,6 +28,7 @@ import {
   ChevronRight,
   Eye,
   ListChecks,
+  Moon,
   MoreHorizontal,
   Pencil,
   RotateCcw,
@@ -49,6 +50,7 @@ import {
 } from '@/hooks/use-board-view-config'
 import { sendInput, useConversationsStore } from '@/hooks/use-conversations'
 import { useLaunchProgress } from '@/hooks/use-launch-progress'
+import { enqueueNightshiftTask } from '@/hooks/use-nightshift-queue'
 import type { ProjectTask } from '@/hooks/use-project'
 import { type ProjectTaskMeta, type TaskStatus, useProject } from '@/hooks/use-project'
 import { sendSpawnRequest } from '@/hooks/use-spawn'
@@ -161,6 +163,7 @@ export function TaskEditor({
   onSave,
   onMove,
   onRun,
+  onPromote,
   onClose,
 }: {
   task: ProjectTask
@@ -172,6 +175,8 @@ export function TaskEditor({
   ) => Promise<unknown>
   onMove: (slug: string, from: TaskStatus, to: TaskStatus) => Promise<boolean>
   onRun: (task: ProjectTask) => void
+  /** Promote this card into the project's nightshift queue (absent => hidden). */
+  onPromote?: (task: ProjectTask) => void
   onClose: () => void
 }) {
   const [title, setTitle] = useState(task.title)
@@ -502,6 +507,20 @@ export function TaskEditor({
                   className="whitespace-nowrap px-3 py-1 text-[11px] font-bold font-mono bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors"
                 >
                   Reopen
+                </button>
+              )}
+              {onPromote && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic('tap')
+                    onPromote({ ...task, title, body, status, priority, tags })
+                  }}
+                  title="Promote this card into the nightshift queue"
+                  className="flex items-center gap-1 whitespace-nowrap px-3 py-1 text-[11px] font-bold font-mono bg-amber-400/10 text-amber-300 border border-amber-400/25 hover:bg-amber-400/20 transition-colors"
+                >
+                  <Moon className="size-3" />
+                  Nightshift
                 </button>
               )}
             </div>
@@ -1657,6 +1676,18 @@ export const ProjectBoard = memo(function ProjectBoard({ conversationId }: { con
           onRun={task => {
             setEditingTask(null)
             setRunTask(task)
+          }}
+          onPromote={task => {
+            const uri = useConversationsStore.getState().conversationsById[conversationId]?.project
+            if (!uri) return
+            void enqueueNightshiftTask(uri, {
+              title: task.title,
+              description: task.body || undefined,
+              source: 'board',
+              boardRef: task.slug,
+            })
+            setEditingTask(null)
+            haptic('success')
           }}
           onClose={() => setEditingTask(null)}
         />
