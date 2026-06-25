@@ -74,6 +74,7 @@ function buildBody(p: Params): Record<string, unknown> | { error: string } {
       },
     }
   }
+  if (action === 'run') return { project, op: 'run' }
   if (action === 'queue') return { project, op: 'queue_list' }
   if (action === 'dequeue') {
     if (!p.id) return { error: 'id is required for dequeue' }
@@ -181,14 +182,16 @@ export function registerNightshiftTools(ctx: McpToolContext): Record<string, Too
         '- enqueue: assign ONE task to the nightshift queue (awaits a run). title required. description, ' +
         'acceptance, feasibility, risk, source (manual|board), board_ref.\n' +
         '- queue: list the tasks assigned to the queue, awaiting a run.\n' +
-        '- dequeue: remove one queued task by id.',
+        '- dequeue: remove one queued task by id.\n' +
+        '- run: trigger a night run NOW (manual) -- drains the queue by spawning guarded headless ' +
+        'workers in worktrees. Ignores the schedule/enabled gate. project required.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           project: { type: 'string', description: 'Canonical project URI the run belongs to (required).' },
           action: {
             type: 'string',
-            enum: ['run_start', 'report', 'patch', 'run_finalize', 'snapshot', 'enqueue', 'queue', 'dequeue'],
+            enum: ['run_start', 'report', 'patch', 'run_finalize', 'snapshot', 'enqueue', 'queue', 'dequeue', 'run'],
             description: 'Default: report.',
           },
           run_id: { type: 'string', description: 'Run id, YYYY-MM-DD.' },

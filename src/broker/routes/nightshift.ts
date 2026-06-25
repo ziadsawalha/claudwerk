@@ -18,6 +18,7 @@ import { Hono } from 'hono'
 import { tryParseProjectUri } from '../../shared/project-uri'
 import type { NightshiftOp, NightshiftOpKind, NightshiftResult } from '../../shared/protocol'
 import type { ConversationStore } from '../conversation-store'
+import { runNightshift } from '../nightshift-orchestrator'
 import type { RouteHelpers } from './shared'
 
 const NIGHTSHIFT_RPC_TIMEOUT_MS = 10_000
@@ -29,6 +30,7 @@ const WRITE_OPS = new Set<NightshiftOpKind>([
   'run_finalize',
   'enqueue',
   'dequeue',
+  'run', // launches real agents -> needs files; intercepted in the broker (never relayed)
 ])
 
 interface NightshiftHttpBody {
@@ -69,6 +71,16 @@ export function createNightshiftRouter(conversationStore: ConversationStore, hel
     const isWrite = WRITE_OPS.has(body.op)
     if (!helpers.httpHasPermission(c.req.raw, isWrite ? 'files' : 'files:read', body.project)) {
       return c.json({ ok: false, error: `Forbidden: ${isWrite ? 'files' : 'files:read'} permission required` }, 403)
+    }
+
+    // Run-now is executed IN the broker (spawns the worker fleet via the
+    // orchestrator) -- NOT a sentinel artifact op, so handle it before relaying.
+    if (body.op === 'run') {
+      const out = await runNightshift(conversationStore, body.project, { trigger: 'manual' })
+      return c.json(
+        { type: 'nightshift_result', op: 'run', ok: out.ok, runId: out.runId, error: out.error ?? out.skipped },
+        out.ok ? 200 : 400,
+      )
     }
 
     const { projectRoot, sentinel } = resolveSentinel(conversationStore, body.project)
