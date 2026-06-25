@@ -9,6 +9,7 @@ import { cn, contextWindowSize, formatModel, haptic } from '@/lib/utils'
 import { ProjectIcon } from '../project-icons'
 import { openReviveDialog } from '../revive-dialog-trigger'
 import { openSpawnDialog } from '../spawn-dialog-trigger'
+import { ProjectCanvasesSection } from './project-canvases-section'
 import { ProjectReadmeSection } from './project-readme-section'
 import { ProjectRecapsSection } from './project-recaps-section'
 
@@ -289,6 +290,9 @@ export function ProjectActionPanel({ projectUri }: { projectUri: string }) {
 
         {/* Recent recaps (last 3 days, finished only) */}
         <ProjectRecapsSection projectUri={projectUri} />
+
+        {/* Hosted canvases (private + shareable Excalidraw) */}
+        <ProjectCanvasesSection projectUri={projectUri} />
 
         {/* Search filter */}
         {hasAny && (
