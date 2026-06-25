@@ -27,6 +27,7 @@ import {
   setShareValidator,
 } from './auth-routes'
 import { buildReviveMessage } from './build-revive'
+import { closeCanvasStore, initCanvasStore } from './canvas-store'
 import { closeChecklistStore, initChecklistStore } from './checklist-store'
 import { recordInboundForSocket, registerConnection, unregisterConnection } from './connection-registry'
 import {
@@ -312,6 +313,9 @@ async function main() {
 
   // Initialize per-project checklist store (broker-local config DB)
   initChecklistStore(authCacheDir)
+
+  // Initialize per-project hosted canvas store (broker-local config DB + durable scene files)
+  initCanvasStore(authCacheDir)
 
   // Initialize dispatcher stores (decision audit log + threads near-memory + durable memory file)
   initDispatchAudit(authCacheDir)
@@ -612,6 +616,7 @@ async function main() {
     closeAnalyticsStore()
     closeProjectStore()
     closeChecklistStore()
+    closeCanvasStore()
     closeDispatchAudit()
     closeDispatchThreads()
     stopDeskMemoryService()
@@ -625,6 +630,7 @@ async function main() {
     closeAnalyticsStore()
     closeProjectStore()
     closeChecklistStore()
+    closeCanvasStore()
     closeDispatchAudit()
     closeDispatchThreads()
     stopDeskMemoryService()

@@ -3943,6 +3943,43 @@ export interface NightshiftWatchdogEvent {
 // (`resolvedAt === null`) show inline; resolved items live in the archive view.
 // `text` is stored raw; the panel renders a limited inline-markdown subset.
 
+// ─── Project Canvases (hosted Excalidraw) ───────────────────────────
+//
+// Project-scoped, durable Excalidraw canvases listed on the Project Action
+// Panel. Private by default; a row flips to shared with a token + tier. Scene
+// JSON lives in a durable per-canvas file (NOT the 7-day-reaped blob store);
+// the SQLite registry holds only metadata. See plan-project-canvases.md.
+
+/** Share permission tier for a shared canvas:
+ *  - `edit`    full co-edit (scene mutations accepted)
+ *  - `comment` annotation layer only (base scene is read-only)
+ *  - `read`    view + live cursors, no writes */
+export type CanvasShareTier = 'edit' | 'comment' | 'read'
+
+/** Wire-facing canvas metadata (camelCase). The SQLite row is snake_case. The
+ *  scene JSON itself is fetched separately (GET /api/canvases/:id) -- the list
+ *  carries only lightweight metadata so the panel stays cheap. */
+export interface CanvasSummary {
+  id: string
+  projectUri: string
+  name: string
+  createdBy?: string
+  createdAt: number
+  updatedAt: number
+  /** true once a share token exists. */
+  shared: boolean
+  /** tier of the active share, when shared. */
+  shareTier?: CanvasShareTier
+  /** opaque public-share token, when shared (authorized list only). */
+  shareToken?: string
+  /** true if a thumbnail PNG has been stored. */
+  hasThumb: boolean
+  /** byte length of the stored scene JSON (0 for a blank canvas). */
+  sceneBytes: number
+  /** null unless archived; epoch ms. */
+  archivedAt: number | null
+}
+
 /** Lifecycle of a checklist item. `open` and `in_progress` show inline (active);
  *  `done` moves to the archive. in_progress is purely a user-facing emphasis. */
 export type ChecklistStatus = 'open' | 'in_progress' | 'done'
