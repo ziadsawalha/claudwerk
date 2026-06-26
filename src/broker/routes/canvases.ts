@@ -244,5 +244,9 @@ export function createCanvasesRouter(conversationStore: ConversationStore, helpe
     return applyGuestWrite(c, g.canvas, next)
   })
 
+  // Pretty shorthand: /c/:token -> the SPA in canvas share mode. The SPA mounts
+  // PublicCanvasView, which fetches /shared/public/canvas/:token (JSON).
+  app.get('/c/:token', c => c.redirect(`/?share=${encodeURIComponent(c.req.param('token') ?? '')}&kind=canvas`))
+
   return app
 }

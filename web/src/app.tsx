@@ -76,6 +76,9 @@ const SearchIndexManagerDialog = lazy(() =>
 )
 const SheafPage = lazy(() => import('@/sheaf/sheaf-page').then(m => ({ default: m.SheafPage })))
 const CanvasPage = lazy(() => import('@/components/canvas-mode/canvas-page').then(m => ({ default: m.CanvasPage })))
+const PublicCanvasView = lazy(() =>
+  import('@/components/canvas/public-canvas-view').then(m => ({ default: m.PublicCanvasView })),
+)
 // Parkable, maximizable, project-scoped Nightshift modal (Outlook / Status /
 // Report tabs). Replaces the old #/nightshift + #/nightshift-status routes.
 const NightshiftModal = lazy(() =>
@@ -713,6 +716,13 @@ export function App() {
   const shareToken = detectShareMode()
   if (shareToken && detectShareKind() === 'recap') {
     return <PublicRecapView token={shareToken} />
+  }
+  if (shareToken && detectShareKind() === 'canvas') {
+    return (
+      <Suspense fallback={null}>
+        <PublicCanvasView token={shareToken} />
+      </Suspense>
+    )
   }
 
   const shareMatch = hash.match(/^\/?share\/(.+)$/)

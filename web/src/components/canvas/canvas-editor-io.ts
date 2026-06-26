@@ -6,7 +6,7 @@
  * refreshes.
  */
 
-import type { CanvasSummary } from '@shared/protocol'
+import type { CanvasShareTier, CanvasSummary } from '@shared/protocol'
 import { exportScenePng } from '@/components/dialog/draw-export'
 import { appendShareParam } from '@/lib/share-mode'
 
@@ -57,6 +57,31 @@ export async function renameCanvas(canvasId: string, name: string): Promise<bool
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name }),
   })
+  if (res.ok) window.dispatchEvent(new CustomEvent('rclaude-canvas-changed'))
+  return res.ok
+}
+
+/** Public link for a share token. `/c/:token` redirects into the SPA viewer. */
+export function canvasShareUrl(token: string): string {
+  return `${window.location.origin}/c/${encodeURIComponent(token)}`
+}
+
+/** Create/update the public share at a tier. Returns the share token, or null. */
+export async function shareCanvas(canvasId: string, tier: CanvasShareTier): Promise<string | null> {
+  const res = await fetch(`/api/canvases/${encodeURIComponent(canvasId)}/share`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tier }),
+  })
+  if (!res.ok) return null
+  const { shareToken } = (await res.json()) as { shareToken?: string }
+  window.dispatchEvent(new CustomEvent('rclaude-canvas-changed'))
+  return shareToken ?? null
+}
+
+/** Revoke the public share -- the old link goes dead immediately. */
+export async function revokeCanvasShare(canvasId: string): Promise<boolean> {
+  const res = await fetch(`/api/canvases/${encodeURIComponent(canvasId)}/share`, { method: 'DELETE' })
   if (res.ok) window.dispatchEvent(new CustomEvent('rclaude-canvas-changed'))
   return res.ok
 }

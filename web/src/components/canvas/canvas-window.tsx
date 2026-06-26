@@ -11,6 +11,7 @@
 
 import type { CanvasSummary } from '@shared/protocol'
 import ExcalidrawCanvas from '@/components/dialog/excalidraw-canvas'
+import { CanvasShareControl } from './canvas-share-control'
 import { canvasIdFromPath, type DocState, type SaveState, useCanvasDocument } from './use-canvas-document'
 
 const SAVE_LABEL: Record<SaveState, string> = { idle: '', saving: 'saving...', saved: 'saved' }
@@ -34,6 +35,27 @@ function CanvasBody({
   return <ExcalidrawCanvas key={canvas.id} initialSnapshot={seed} onSnapshot={onSnapshot} />
 }
 
+function SurfaceHeader({
+  canvas,
+  saveState,
+  onRename,
+}: {
+  canvas: CanvasSummary | null
+  saveState: SaveState
+  onRename: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 px-3 h-9 border-b border-border shrink-0 text-xs">
+      <button type="button" onClick={onRename} className="font-mono text-sky-400/90 hover:text-sky-300 truncate">
+        {canvas?.name ?? 'Loading...'}
+      </button>
+      <span className="text-[10px] text-muted-foreground/60 shrink-0">{SAVE_LABEL[saveState]}</span>
+      <span className="flex-1" />
+      {canvas && <CanvasShareControl canvas={canvas} />}
+    </div>
+  )
+}
+
 export function CanvasSurface({ canvasId }: { canvasId: string | null }) {
   const { canvas, seed, state, saveState, onSnapshot, onRename } = useCanvasDocument(canvasId)
 
@@ -43,12 +65,7 @@ export function CanvasSurface({ canvasId }: { canvasId: string | null }) {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
-      <div className="flex items-center gap-3 px-3 h-9 border-b border-border shrink-0 text-xs">
-        <button type="button" onClick={onRename} className="font-mono text-sky-400/90 hover:text-sky-300 truncate">
-          {canvas?.name ?? 'Loading...'}
-        </button>
-        <span className="text-[10px] text-muted-foreground/60 shrink-0">{SAVE_LABEL[saveState]}</span>
-      </div>
+      <SurfaceHeader canvas={canvas} saveState={saveState} onRename={onRename} />
       <div className="flex-1 min-h-0 relative">
         <CanvasBody state={state} canvas={canvas} seed={seed} onSnapshot={onSnapshot} />
       </div>

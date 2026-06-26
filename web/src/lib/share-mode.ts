@@ -9,7 +9,7 @@
  * call clearShareMode() to bypass share mode and use the full dashboard.
  */
 
-export type ShareKind = 'conversation' | 'recap'
+export type ShareKind = 'conversation' | 'recap' | 'canvas'
 
 // Detect immediately on module load (before WS_URL const is evaluated)
 function detectInitial(): { token: string | null; kind: ShareKind } {
@@ -22,7 +22,8 @@ function detectInitial(): { token: string | null; kind: ShareKind } {
   const params = new URLSearchParams(window.location.search)
   const queryToken = params.get('share')
   if (queryToken) {
-    const kind: ShareKind = params.get('kind') === 'recap' ? 'recap' : 'conversation'
+    const k = params.get('kind')
+    const kind: ShareKind = k === 'recap' ? 'recap' : k === 'canvas' ? 'canvas' : 'conversation'
     return { token: queryToken, kind }
   }
   return { token: null, kind: 'conversation' }
