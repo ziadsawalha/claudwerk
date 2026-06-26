@@ -3920,13 +3920,13 @@ function connect(
 
         case 'git_log_request': {
           const gitMsg = msg as GitLogRequest
-          const expandedCwd = expandPath(gitMsg.cwd, spawnRoot)
+          const expandedCwd = expandPath(parseProjectUri(gitMsg.projectUri).path, spawnRoot)
           debug(`Git log for: ${expandedCwd} (${gitMsg.sinceMs}..${gitMsg.untilMs})`, verbose)
           const outcome = runGitLog(expandedCwd, gitMsg.sinceMs, gitMsg.untilMs)
           const gitResponse: GitLogResult = {
             type: 'git_log_result',
             requestId: gitMsg.requestId,
-            cwd: gitMsg.cwd,
+            projectUri: gitMsg.projectUri,
             success: !outcome.error,
             commits: outcome.commits,
             error: outcome.error,

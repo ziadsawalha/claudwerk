@@ -66,7 +66,6 @@ describe('buildRecapDigest', () => {
       perProject: [
         {
           projectUri: 'claude://h/p',
-          cwd: '/p',
           commits: [
             {
               sha: 'aaa',
@@ -98,7 +97,7 @@ describe('buildRecapDigest', () => {
     const empty = buildRecapDigest({
       cost,
       conversations,
-      commits: { perProject: [{ projectUri: 'x', cwd: '/p', commits: [] }] },
+      commits: { perProject: [{ projectUri: 'x', commits: [] }] },
     })
     expect(empty.commits).toBeUndefined()
   })

@@ -270,7 +270,6 @@ export function makeCommits(n: number): CommitDigest {
     perProject: [
       {
         projectUri: 'claude://default/p/test',
-        cwd: '/tmp/test',
         commits,
       },
     ],

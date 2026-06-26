@@ -10,14 +10,7 @@ export function gatherCommitsStub(scope: PeriodScope): CommitDigest {
   return {
     perProject: scope.projectUris.map(projectUri => ({
       projectUri,
-      cwd: parseCwdFromUri(projectUri),
       commits: [],
     })),
   }
-}
-
-function parseCwdFromUri(uri: string): string {
-  if (uri === '*') return ''
-  const match = uri.match(/^claude:\/\/[^/]*(\/.*)$/)
-  return match ? match[1] : ''
 }

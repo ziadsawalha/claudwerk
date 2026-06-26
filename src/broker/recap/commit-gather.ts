@@ -44,20 +44,18 @@ async function gatherOne(
   sinceMs: number,
   untilMs: number,
 ): Promise<CommitDigest['perProject'][number]> {
-  if (projectUri === '*') return { projectUri, cwd: '', commits: [], error: 'cross-project: no single cwd' }
+  if (projectUri === '*') return { projectUri, commits: [], error: 'cross-project: no single project' }
+  // Parse for the authority ONLY -- to pick the owning sentinel. The broker never
+  // extracts `.path` (CWD-IS-INFORMATIONAL); the sentinel resolves URI->path.
   const parsed = parseProjectUri(projectUri)
-  const cwd = parsed.path
-  if (!cwd || cwd === '/') return { projectUri, cwd, commits: [], error: 'no project path' }
-
   const sentinel =
     (parsed.authority ? transport.getSentinelByAlias(parsed.authority) : undefined) ?? transport.getSentinel()
-  if (!sentinel) return { projectUri, cwd, commits: [], error: 'sentinel offline' }
+  if (!sentinel) return { projectUri, commits: [], error: 'sentinel offline' }
 
-  const result = await requestGitLog(transport, sentinel, cwd, sinceMs, untilMs)
-  if (!result.success) return { projectUri, cwd, commits: [], error: result.error }
+  const result = await requestGitLog(transport, sentinel, projectUri, sinceMs, untilMs)
+  if (!result.success) return { projectUri, commits: [], error: result.error }
   return {
     projectUri,
-    cwd,
     commits: result.commits.map(c => ({
       sha: c.sha,
       isoDate: c.isoDate,
@@ -74,7 +72,7 @@ async function gatherOne(
 function requestGitLog(
   transport: GitLogTransport,
   sentinel: SentinelHandle,
-  cwd: string,
+  projectUri: string,
   sinceMs: number,
   untilMs: number,
 ): Promise<GitLogResult> {
@@ -82,7 +80,14 @@ function requestGitLog(
   return new Promise<GitLogResult>(resolve => {
     const timeout = setTimeout(() => {
       transport.removeGitLogListener(requestId)
-      resolve({ type: 'git_log_result', requestId, cwd, success: false, commits: [], error: 'git log timed out (10s)' })
+      resolve({
+        type: 'git_log_result',
+        requestId,
+        projectUri,
+        success: false,
+        commits: [],
+        error: 'git log timed out (10s)',
+      })
     }, GIT_LOG_TIMEOUT_MS)
 
     transport.addGitLogListener(requestId, msg => {
@@ -91,12 +96,19 @@ function requestGitLog(
     })
 
     try {
-      const req: GitLogRequest = { type: 'git_log_request', requestId, cwd, sinceMs, untilMs }
+      const req: GitLogRequest = { type: 'git_log_request', requestId, projectUri, sinceMs, untilMs }
       sentinel.send(JSON.stringify(req))
     } catch {
       clearTimeout(timeout)
       transport.removeGitLogListener(requestId)
-      resolve({ type: 'git_log_result', requestId, cwd, success: false, commits: [], error: 'sentinel send failed' })
+      resolve({
+        type: 'git_log_result',
+        requestId,
+        projectUri,
+        success: false,
+        commits: [],
+        error: 'sentinel send failed',
+      })
     }
   })
 }

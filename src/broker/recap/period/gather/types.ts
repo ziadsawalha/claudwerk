@@ -114,7 +114,6 @@ export interface OpenQuestionDigest {
 export interface CommitDigest {
   perProject: Array<{
     projectUri: string
-    cwd: string
     commits: CommitEntry[]
     error?: string
   }>

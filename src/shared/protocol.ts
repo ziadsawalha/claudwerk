@@ -3464,14 +3464,15 @@ export interface ListCcSessionsResult {
   error?: string
 }
 
-/** Broker -> Sentinel: gather git commits in `cwd` between two timestamps.
- *  The broker never touches the host FS (boundary rule) -- the sentinel runs
- *  `git log` and returns the parsed result. Backs the recap "grounding" data. */
+/** Broker -> Sentinel: gather git commits for a project between two timestamps.
+ *  The broker never touches the host FS NOR resolves paths (CWD-IS-INFORMATIONAL):
+ *  it forwards the project URI and the SENTINEL resolves the URI to a path, runs
+ *  `git log`, and returns the parsed result. Backs the recap "grounding" data. */
 export interface GitLogRequest {
   type: 'git_log_request'
   requestId: string
-  /** Absolute path on the sentinel's filesystem. */
-  cwd: string
+  /** Project URI (`claude://{sentinel}/{path}`). The sentinel owns URI->path. */
+  projectUri: string
   /** Period bounds (unix ms). Mapped to git --since / --until. */
   sinceMs: number
   untilMs: number
@@ -3488,12 +3489,13 @@ export interface GitLogCommit {
   deletions: number
 }
 
-/** Sentinel -> Broker: parsed git log. `success:false` + `error` when the cwd
- *  is not a git repo or git failed; `commits:[]` is a valid empty result. */
+/** Sentinel -> Broker: parsed git log. `success:false` + `error` when the path
+ *  is not a git repo or git failed; `commits:[]` is a valid empty result. The
+ *  echoed `projectUri` is provenance only -- the broker keys on `requestId`. */
 export interface GitLogResult {
   type: 'git_log_result'
   requestId: string
-  cwd: string
+  projectUri: string
   success: boolean
   commits: GitLogCommit[]
   error?: string

@@ -100,10 +100,10 @@ describe('Phase 3 gather modules (integration)', () => {
     expect(out.conversationsWithOpenQuestions[0].openQuestions[0]).toContain('?')
   })
 
-  it('gatherCommitsStub returns empty per-project list with parsed cwd', () => {
+  it('gatherCommitsStub returns empty per-project list keyed by projectUri', () => {
     const out = gatherCommitsStub(scope)
     expect(out.perProject.length).toBe(1)
-    expect(out.perProject[0].cwd).toBe('/Users/test/proj')
+    expect(out.perProject[0].projectUri).toBe('claude://default/Users/test/proj')
     expect(out.perProject[0].commits.length).toBe(0)
   })
 

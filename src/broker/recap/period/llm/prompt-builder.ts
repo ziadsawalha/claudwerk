@@ -1,3 +1,4 @@
+import { extractProjectLabel } from '../../../../shared/project-uri'
 import type { RecapAudience } from '../../../../shared/protocol'
 import {
   AGENT_TEMPLATE_ID,
@@ -94,7 +95,7 @@ function humanStats(inputs: PromptInputs): RenderStats {
   return {
     conversations: inputs.conversations.length,
     commits: inputs.commits.perProject.reduce((sum, p) => sum + p.commits.length, 0),
-    projects: inputs.commits.perProject.map(p => p.cwd),
+    projects: inputs.commits.perProject.map(p => extractProjectLabel(p.projectUri)),
   }
 }
 
@@ -627,7 +628,7 @@ function renderCommitsSection(commits: CommitDigest): string {
   if (totalCommits === 0) return 'COMMITS: (no git data available for this recap)'
   const blocks = commits.perProject.map(p => {
     const lines = p.commits.map(c => `  ${c.sha.slice(0, 7)} ${c.subject}${commitStat(c)}`).join('\n')
-    return `  ${p.cwd}:\n${lines}`
+    return `  ${extractProjectLabel(p.projectUri)}:\n${lines}`
   })
   return `COMMITS (${totalCommits}) -- format: <sha> <subject> [<files>f +<ins>/-<del>]:\n${blocks.join('\n\n')}`
 }

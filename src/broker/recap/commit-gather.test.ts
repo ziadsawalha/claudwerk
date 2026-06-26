@@ -23,7 +23,9 @@ const sampleCommit: GitLogCommit = {
 
 /** A transport whose sentinel echoes back a git_log_result synchronously when
  *  it "receives" a request -- exercising the full requestId round-trip. */
-function fakeTransport(opts: { offline?: boolean; reply?: (cwd: string) => GitLogCommit[] } = {}): GitLogTransport {
+function fakeTransport(
+  opts: { offline?: boolean; reply?: (projectUri: string) => GitLogCommit[] } = {},
+): GitLogTransport {
   const pending = new Map<string, (result: unknown) => void>()
   const sentinel = {
     send(data: string) {
@@ -32,9 +34,9 @@ function fakeTransport(opts: { offline?: boolean; reply?: (cwd: string) => GitLo
       cb?.({
         type: 'git_log_result',
         requestId: req.requestId,
-        cwd: req.cwd,
+        projectUri: req.projectUri,
         success: true,
-        commits: opts.reply ? opts.reply(req.cwd) : [sampleCommit],
+        commits: opts.reply ? opts.reply(req.projectUri) : [sampleCommit],
       })
     },
   }
@@ -51,7 +53,7 @@ describe('makeCommitGatherer', () => {
     const gather = makeCommitGatherer(fakeTransport())
     const digest = await gather(scope(['claude://default/Users/jonas/proj']))
     expect(digest.perProject.length).toBe(1)
-    expect(digest.perProject[0].cwd).toBe('/Users/jonas/proj')
+    expect(digest.perProject[0].projectUri).toBe('claude://default/Users/jonas/proj')
     expect(digest.perProject[0].commits.length).toBe(1)
     expect(digest.perProject[0].commits[0].sha).toBe('abc1234')
     expect(digest.perProject[0].commits[0].filesChanged).toBe(2)
