@@ -32,6 +32,7 @@ import {
 import { buildSynthesizePrompt } from './chunk/synthesize-prompt'
 import {
   gatherCommitsStub,
+  gatherContention,
   gatherConversations,
   gatherCost,
   gatherErrors,
@@ -507,6 +508,7 @@ async function runRegenerate(
   const parsedSignals = JSON.parse(src.signalsJson || '[]')
   const includeInternals = parsedSignals.includes('turn_internals')
   const includeStatus = parsedSignals.includes('agent_status')
+  const includeContention = parsedSignals.includes('contention')
   const { promptInputs } = collectSignals(
     deps,
     scope,
@@ -515,6 +517,7 @@ async function runRegenerate(
     deps.projectLabel,
     includeInternals,
     includeStatus,
+    includeContention,
   )
   if (deps.gatherCommits) {
     try {
@@ -605,6 +608,7 @@ async function replayStage(
         periodIsoRange: promptInputs.periodIsoRange,
         forgotten: promptInputs.forgotten,
         agentStatus: promptInputs.conversations,
+        contention: promptInputs.contention,
       },
       audience,
       manifest.retrospect ?? false,
@@ -682,6 +686,7 @@ async function runRecap(
 
   const includeInternals = recipe.signals.includes('turn_internals')
   const includeStatus = recipe.signals.includes('agent_status')
+  const includeContention = recipe.signals.includes('contention')
   const { promptInputs, inputChars } = collectSignals(
     deps,
     scope,
@@ -690,6 +695,7 @@ async function runRecap(
     deps.projectLabel,
     includeInternals,
     includeStatus,
+    includeContention,
   )
   // Real git gather (async, via sentinel RPC) replaces the empty stub when the
   // broker injected a gatherer. Failures degrade to the stub commits already in
@@ -721,6 +727,19 @@ async function runRecap(
     'gather/forgotten',
     `forgotten threads: ${fg.threads.length} shown (open-loop survivors) of ${fg.candidateCount} stale+invested candidate(s), ${fg.probed} tail(s) probed`,
   )
+  // Contention: no-silent-caps funnel -- what was scanned vs surfaced. Only present
+  // when the `contention` signal is on (the agentic-retro template).
+  const ct = promptInputs.contention
+  if (ct) {
+    emit.emit(
+      'info',
+      'gather/contention',
+      `contention: ${ct.fileCollisions.length} file collision(s), ${ct.mainTreeEdits.length} main-tree edit(s), ` +
+        `${ct.fanout.length} fan-out cluster(s) from ${ct.scanned.editEvents} edit event(s) across ` +
+        `${ct.scanned.conversationsWithEdits} conversation(s) (${ct.scanned.filesTouched} file(s) touched, ` +
+        `${ct.scanned.collisionCandidates} collision candidate(s) before cap)`,
+    )
+  }
   emit.setProgress(35, 'gather/done')
 
   const built = buildPrompt(
@@ -824,6 +843,7 @@ function collectSignals(
   projectLabelFn: ((uri: string) => string) | undefined,
   includeInternals: boolean,
   includeStatus: boolean,
+  includeContention: boolean,
 ): { promptInputs: PromptInputs; inputChars: number } {
   const conversations = gatherConversations(deps.brokerStore, scope, includeStatus)
   const transcripts = gatherTranscripts(deps.brokerStore, conversations, scope, includeInternals)
@@ -847,6 +867,8 @@ function collectSignals(
     openQuestions,
     forgotten,
     commits,
+    // Gated: only the agentic-retro template (contention signal) pays for the mining.
+    ...(includeContention ? { contention: gatherContention(deps.brokerStore, conversations, scope) } : {}),
   }
   const inputChars = transcripts.reduce(
     (sum, t) => sum + t.turns.reduce((s, tr) => s + tr.userPrompt.length + tr.assistantFinal.length, 0),
@@ -1318,6 +1340,7 @@ async function runChunked(
       periodIsoRange: promptInputs.periodIsoRange,
       forgotten: promptInputs.forgotten,
       agentStatus: promptInputs.conversations,
+      contention: promptInputs.contention,
     },
     audience,
     p.args.retrospect ?? false,

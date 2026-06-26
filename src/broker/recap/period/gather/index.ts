@@ -1,4 +1,5 @@
 export { gatherCommitsStub } from './commits'
+export { gatherContention } from './contention'
 export { gatherConversations } from './conversations'
 export { gatherCost } from './cost'
 export { gatherErrors } from './errors'

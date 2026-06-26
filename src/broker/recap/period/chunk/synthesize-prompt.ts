@@ -13,8 +13,10 @@
  */
 
 import type { RecapAudience, RecapMetadata } from '../../../../shared/protocol'
+import type { ContentionDigest } from '../gather/contention-types'
 import type { ConversationDigest, ForgottenThreadDigest } from '../gather/types'
 import { applyRetroCf, type PresentationSelection, renderBody } from '../llm/prompt-builder'
+import { renderContentionSection } from '../llm/render-contention'
 import { renderForgottenSection } from '../llm/render-forgotten'
 import { renderStatusSection } from '../llm/render-status'
 
@@ -36,6 +38,11 @@ export interface SynthesizeContext {
    *  bypasses the lossy map extraction -- injected straight into the synthesis as
    *  the highest-confidence layer. Empty/omitted when the agent_status signal is off. */
   agentStatus?: ConversationDigest[]
+  /** Period-global multi-agent contention evidence. Like forgotten threads, this
+   *  is authoritative deterministic data that bypasses map extraction -- injected
+   *  here so a CHUNKED agentic-retro recap grounds its recommendations in the same
+   *  collisions the oneshot path sees. Omitted when the contention signal is off. */
+  contention?: ContentionDigest
 }
 
 export function buildSynthesizePrompt(
@@ -66,10 +73,11 @@ export function buildSynthesizePrompt(
 
   const forgottenBlock = ctx.forgotten ? renderForgottenSection(ctx.forgotten) : ''
   const statusBlock = ctx.agentStatus ? renderStatusSection(ctx.agentStatus) : ''
+  const contentionBlock = renderContentionSection(ctx.contention)
   const user = `MERGED FACTS (already extracted + code-deduped across all chunks of the period):
 
 ${JSON.stringify(merged, null, 2)}
-${statusBlock ? `\n${statusBlock}\n` : ''}${forgottenBlock ? `\n${forgottenBlock}\n` : ''}
+${statusBlock ? `\n${statusBlock}\n` : ''}${forgottenBlock ? `\n${forgottenBlock}\n` : ''}${contentionBlock ? `\n${contentionBlock}\n` : ''}
 Synthesize the final recap now: refine + de-duplicate the above, then write the
 frontmatter and body per the contract. Output the frontmatter block and body only.`
 

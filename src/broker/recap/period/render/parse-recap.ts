@@ -66,6 +66,7 @@ const ITEM_LIST_FIELDS = [
   'went_well',
   'went_badly',
   'recommendations',
+  'contentions',
 ] as const
 
 // fallow-ignore-next-line complexity

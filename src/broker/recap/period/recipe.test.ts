@@ -58,6 +58,15 @@ describe('resolveRecipe', () => {
     expect(withoutInternals).toEqual(DEFAULT_SIGNAL_SET)
   })
 
+  test('agentic-retro template -> human audience, turns the contention signal on', () => {
+    const r = resolveRecipe(makeArgs({ template: 'agentic-retro' }))
+    expect(r.templateId).toBe('agentic-retro')
+    expect(r.audience).toBe('human')
+    // The deliverable hinges on the contention mining + relitigation signal.
+    expect(r.signals).toContain('contention')
+    expect(r.signals).toContain('turn_internals')
+  })
+
   test('explicit args.signals win verbatim (hard user override), sorted', () => {
     const r = resolveRecipe(makeArgs({ signals: ['commits', 'cost'] as RecapSignal[] }))
     expect(r.signals).toEqual(['commits', 'cost'])

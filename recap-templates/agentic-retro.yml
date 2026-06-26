@@ -1,0 +1,97 @@
+id: agentic-retro
+label: Agentic retrospective
+description: A multi-agent retrospective -- mines same-file edit collisions, main-tree-while-busy edits and spawn fan-out, then turns that evidence into concrete worktree / CLAUDE.md / hook / process fixes.
+scope: fleet
+audience: human
+defaults:
+  retrospect: false
+  customerFriendly: false
+  # `contention` turns on the deterministic edit-collision mining; turn_internals
+  # surfaces relitigated decisions / recurring dead-ends (the CLAUDE.md-hardening
+  # signal). The rest ground the base frontmatter so recommendations have context.
+  signals: [user_prompts, assistant_final_turn, commits, task_results, errors_hooks, cost, open_questions, agent_status, turn_internals, contention]
+sections: [contentions, recommendations, decisions, dead_ends, frustrations]
+options: []
+
+# SELF-CONTAINED agentic deliverable. Injects {{ frontmatter_spec }} so the base
+# facts still populate the search index + ground the recommendations, then adds the
+# agentic frontmatter (contentions + fix-type-tagged recommendations) and a custom
+# body focused on multi-agent friction. Does NOT inject {{ body_spec }} (the human
+# narrative) and does NOT rely on the retrospect flag -- recommendations are asked
+# for directly here. The `path` discriminator selects the oneshot vs synthesize
+# framing; both see the same authoritative CONTENTION block in the user payload.
+body: |-
+  {%- if path == "synthesize" -%}
+  You are SYNTHESIZING an AGENTIC RETROSPECTIVE for project {{ scope_label }},
+  covering {{ period.human }} ({{ period.iso_range }}). The reader runs this fleet of agents.
+
+  The facts below were EXTRACTED + code-deduped from the period (map stage). The
+  CONTENTION block is AUTHORITATIVE deterministic evidence (mined from edit
+  tool-calls), NOT extraction -- render it faithfully, never second-guess it. Your
+  job is JUDGMENT: turn the contention evidence into concrete fixes.
+    - PRESERVE every citation (conversation ids, commit hashes) exactly.
+    - DO NOT invent a collision or a finding the CONTENTION block does not show.
+    - DROP anything genuinely empty; never pad.
+  {%- else -%}
+  You are writing an AGENTIC RETROSPECTIVE for project {{ scope_label }},
+  covering {{ period.human }} ({{ period.iso_range }}). The reader runs this fleet of agents
+  and wants to make multi-agent work smoother next period.
+
+  The point of this recap is NOT to narrate the work -- it is to find where AGENTS
+  collided or worked inefficiently and recommend concrete fixes. The CONTENTION
+  block in the input is AUTHORITATIVE, deterministic evidence (same-file edit
+  collisions, main-tree-while-busy edits, spawn fan-out), mined from edit tool-calls.
+  {%- endif %}
+
+  {{ frontmatter_spec }}
+
+  ADDITIONAL AGENTIC-RETRO FRONTMATTER (this recap's PRIMARY payload):
+
+    contentions: [<each multi-agent friction finding, GROUNDED in the CONTENTION block, as {title, detail (which conversations + file, and whether it was concurrent / independent-agents), conversations?}>]
+    recommendations: [<concrete ACTIONABLE fixes, MOST IMPACTFUL FIRST. PREFIX each title with a fix-type tag in brackets -- [worktree], [claude-md], [hook], or [process]. detail = EXACTLY what to change and why, citing the file + conversations from the evidence. as {title, detail, conversations?}>]
+
+  GROUND RULES FOR THE RECOMMENDATIONS (this is the deliverable -- get it right):
+    - Every contention + recommendation MUST trace to the CONTENTION block, or to a
+      relitigated decision / recurring dead_end in the input. NEVER invent friction.
+    - A SAME-FILE COLLISION flagged [CONCURRENT + INDEPENDENT-AGENTS] is the strongest
+      signal: two unrelated agents edited one file at once. Recommend a [worktree]
+      split or a file-ownership boundary, naming the file and the conversations.
+    - MAIN-TREE EDITS WHILE BUSY -> recommend hardening the worktree-always rule: a
+      [claude-md] covenant edit, or a [hook] (PreToolUse) that refuses edits outside
+      .claude/worktrees while sibling conversations are live.
+    - A decision relitigated or a dead_end hit repeatedly across the period ->
+      [claude-md] harden the specific covenant that would have prevented it; quote the
+      rule text to add.
+    - SPAWN FAN-OUT with high peak concurrency -> recommend a [process] supervisor /
+      batching pattern, but ONLY if the evidence shows churn; otherwise omit it.
+    - Each line must be specific enough to APPLY DIRECTLY. "Consider using worktrees"
+      is a FAILURE. "[worktree] conv a1b2 + c3d4 both edited src/ws-server.ts
+      concurrently -- give each its own worktree, or split the file so they own
+      disjoint modules" is right.
+
+  MARKDOWN BODY (after the closing --- of frontmatter):
+
+    ## TL;DR
+    2-4 bullets: the biggest multi-agent friction this period + the single
+    highest-impact fix. If the CONTENTION block was empty, say so plainly.
+
+    ## Contention map
+    Render the SAME-FILE COLLISIONS from the CONTENTION block: each file, the
+    conversations that touched it (ids), and whether it was concurrent /
+    independent-agents. Lead with the dangerous ones. Omit the section if none.
+
+    ## Multi-agent friction
+    The main-tree-while-busy edits and spawn fan-out as prose -- what way of working
+    caused avoidable contention. Omit if the evidence shows none.
+
+    ## Recommendations
+    The `recommendations` frontmatter as prose, MOST IMPACTFUL FIRST, each tagged
+    [worktree] / [claude-md] / [hook] / [process] and concrete enough to apply
+    directly. This is the payload -- the reader should be able to act on every line.
+
+    ## What happened (context)
+    3-6 tight bullets of what the period was actually about (features / fixes /
+    decisions), so the recommendations have context. Cite conversations + commits.
+
+  DO NOT include greetings, sign-offs, an H1 title, or a cost table.
+  Be concrete. Use the project's actual file names, conversation ids, and terms.

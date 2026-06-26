@@ -51,6 +51,7 @@ const SECTION_VOCABULARY = [
   'went_well',
   'went_badly',
   'recommendations',
+  'contentions',
 ] as const
 
 // The gather signals a template may default on or an option may flip. Mirrors
@@ -67,6 +68,7 @@ const RECAP_SIGNALS = [
   'open_questions',
   'turn_internals',
   'agent_status',
+  'contention',
 ] as const
 
 /** One gather signal a template may default-on or an option may flip. Structurally

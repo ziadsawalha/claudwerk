@@ -8,6 +8,7 @@ import {
   renderTemplateBody,
   resolveOptionFlags,
 } from '../../templates'
+import type { ContentionDigest } from '../gather/contention-types'
 import type {
   CommitDigest,
   ConversationDigest,
@@ -19,6 +20,7 @@ import type {
   ToolUseDigest,
   TranscriptDigest,
 } from '../gather/types'
+import { renderContentionSection } from './render-contention'
 import { renderForgottenSection } from './render-forgotten'
 import { renderStatusSection } from './render-status'
 import { renderTranscriptsSection, shortId } from './render-transcripts'
@@ -36,6 +38,10 @@ export interface PromptInputs {
   openQuestions: OpenQuestionDigest
   forgotten: ForgottenThreadDigest
   commits: CommitDigest
+  /** Multi-agent contention evidence -- present only when the `contention` signal
+   *  is on (the agentic-retro template). Rendered as an authoritative input block
+   *  the LLM grounds its recommendations in; absent on every other recap. */
+  contention?: ContentionDigest
 }
 
 export interface BuiltPrompt {
@@ -566,6 +572,7 @@ function userPayload(inputs: PromptInputs): string {
   parts.push(renderErrorsSection(inputs.errors))
   parts.push(renderOpenQuestionsSection(inputs.openQuestions))
   parts.push(renderForgottenSection(inputs.forgotten))
+  parts.push(renderContentionSection(inputs.contention))
   parts.push(renderCommitsSection(inputs.commits))
   parts.push(renderCostSummary(inputs.cost))
   parts.push('\nWrite the recap now.')

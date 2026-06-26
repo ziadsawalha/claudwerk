@@ -91,6 +91,28 @@ body`
     expect(out.metadata.went_badly?.[0].inferred).toBe(true)
     expect(out.metadata.recommendations?.[0].title).toContain('lint rule')
     expect(out.metadata.recommendations?.[0].conversations).toContain('conv_xyz789')
+    // The agentic-retro `contentions` field is OPTIONAL too -- absent here.
+    expect(out.metadata.contentions).toBeUndefined()
+  })
+
+  it('parses the agentic-retro contentions field (block + flow-map forms)', () => {
+    const raw = `---
+subtitle: agentic retro
+contentions:
+  - title: src/ws-server.ts edited by two independent agents at once
+    detail: conv_aaaa1111 and conv_bbbb2222 both edited it concurrently in main
+    conversations: [conv_aaaa1111, conv_bbbb2222]
+recommendations:
+  - {title: "[worktree] split ws-server.ts edits", detail: "give each conv its own worktree", conversations: [conv_aaaa1111]}
+---
+
+## Contention map
+body`
+    const out = parseRecapOutput(raw)
+    expect(out.metadata.contentions?.length).toBe(1)
+    expect(out.metadata.contentions?.[0].title).toContain('ws-server.ts')
+    expect(out.metadata.contentions?.[0].conversations).toEqual(['conv_aaaa1111', 'conv_bbbb2222'])
+    expect(out.metadata.recommendations?.[0].title).toContain('[worktree]')
   })
 
   it('parses inline flow-map items (the form the reduce LLM actually emits)', () => {

@@ -5368,6 +5368,11 @@ export type RecapSignal =
    *  (one indexed read); IN DEFAULT_SIGNALS. Also carries best-effort spawn-lineage
    *  provenance (root hash) so chained conversations fold into one storyline. */
   | 'agent_status'
+  /** Multi-agent CONTENTION evidence: same-file edit collisions, main-tree edits
+   *  while siblings ran, spawn fan-out -- mined deterministically from edit
+   *  tool-call args already in the store. Opt-in (the agentic-retro template turns
+   *  it on); NOT in DEFAULT_SIGNALS, so normal recaps never pay for the mining. */
+  | 'contention'
 
 /** Who a recap is written for. 'human' = narrative report (default).
  *  'agent' = terse orientation brief for a fresh Claude Code session. */
@@ -5472,6 +5477,11 @@ export interface RecapMetadata {
   went_badly?: RecapItem[]
   /** Actionable improvements for next period -- the feed into CLAUDE.md/rules/tools. */
   recommendations?: RecapItem[]
+  /** Agentic-retro template: multi-agent contention findings (same-file edit
+   *  collisions, main-tree-while-busy, spawn fan-out), each grounded in the
+   *  deterministic CONTENTION evidence block. OPTIONAL + absent from
+   *  makeEmptyMetadata -- only the agentic-retro template emits it. */
+  contentions?: RecapItem[]
   /** Lessons Scavenger: technologies/libraries/tools/approaches discovered or
    *  adopted, each with an `outcome` (success/failure/mixed) and citations.
    *  OPTIONAL + absent from makeEmptyMetadata on purpose -- only the
