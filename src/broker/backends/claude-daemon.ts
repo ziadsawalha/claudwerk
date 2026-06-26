@@ -616,10 +616,15 @@ function dispatchToSentinel(opts: {
   conversationName: string
 }): Promise<SentinelSpawnResult> {
   const { sentinel, deps, req, cfg, requestId, conversationId, jobId } = opts
+  // Canonical project URI (matches the `project` tag on the sentinel spawn
+  // message). Resolved here at the spawn seam so pre-boot read-sites read
+  // `config.project` directly rather than re-deriving from `cwd`.
+  const project = req.cwd.includes('://') ? req.cwd : req.cwd.startsWith('/') ? cwdToProjectUri(req.cwd) : ''
   return awaitSentinelSpawn(deps.conversationStore, requestId, () => {
     emitLaunchProgress(deps.conversationStore, jobId, 'spawn_sent', 'active')
     deps.conversationStore.recordJobConfig(jobId, {
       cwd: req.cwd,
+      project,
       worktree: req.worktree,
       mkdir: req.mkdir,
       mode: req.mode || 'fresh',

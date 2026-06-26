@@ -151,6 +151,9 @@ async function spawnOpenCode(req: SpawnRequest, deps: SpawnDeps): Promise<SpawnR
 
     deps.conversationStore.recordJobConfig(jobId, {
       cwd: req.cwd,
+      // The running conversation's canonical project (opencode://{slug}); pre-boot
+      // read-sites read `config.project` rather than re-deriving from `cwd`.
+      project,
       worktree: req.worktree,
       mkdir: req.mkdir,
       mode: req.mode || 'fresh',

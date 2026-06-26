@@ -655,6 +655,9 @@ describe('inter-conversation messaging', () => {
       h.conversationStore.createJob(pendingJob, pendingConv)
       h.conversationStore.recordJobConfig(pendingJob, {
         cwd: '/home/user/project-target',
+        // Spawn-dispatch records the resolved canonical URI; channel read-sites
+        // read `config.project` directly (CWD-IS-INFORMATIONAL).
+        project: 'claude://default/home/user/project-target',
         name: 'launch-profiles',
       })
 
@@ -695,6 +698,9 @@ describe('inter-conversation messaging', () => {
       h.conversationStore.createJob(pendingJob, pendingConv)
       h.conversationStore.recordJobConfig(pendingJob, {
         cwd: '/home/user/project-target',
+        // Spawn-dispatch records the resolved canonical URI; channel read-sites
+        // read `config.project` directly (CWD-IS-INFORMATIONAL).
+        project: 'claude://default/home/user/project-target',
         name: 'launch-profiles',
       })
 

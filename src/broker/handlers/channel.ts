@@ -5,7 +5,7 @@
 
 import { formatDuration } from '../../shared/format-duration'
 import { deriveModelName } from '../../shared/models'
-import { cwdToProjectUri, extractProjectLabel, isSameProject } from '../../shared/project-uri'
+import { extractProjectLabel, isSameProject } from '../../shared/project-uri'
 import {
   type ChannelSendResultEntry,
   isLiveStatusSuperseded,
@@ -530,9 +530,10 @@ const channelListConversations: MessageHandler = (ctx, data) => {
   const knownIds = new Set(all.map(s => s.id))
   for (const job of activeJobs) {
     if (knownIds.has(job.conversationId)) continue // already a real row
-    const cfg = (job.config ?? {}) as { cwd?: string; name?: string }
-    const rawCwd = typeof cfg.cwd === 'string' ? cfg.cwd : ''
-    const project = rawCwd.includes('://') ? rawCwd : rawCwd.startsWith('/') ? cwdToProjectUri(rawCwd) : ''
+    const cfg = (job.config ?? {}) as { project?: string; name?: string }
+    // Read the canonical URI the spawn seam stored -- the broker never re-derives
+    // a project URI from a raw `cwd` here (CWD-IS-INFORMATIONAL).
+    const project = typeof cfg.project === 'string' ? cfg.project : ''
     const conversationName = typeof cfg.name === 'string' && cfg.name ? cfg.name : `spawning-${job.jobId.slice(0, 6)}`
     const projSettings = project ? ctx.getProjectSettings(project) : null
     const projectName = projSettings?.label || (project ? extractProjectLabel(project) : 'unknown')
@@ -612,18 +613,16 @@ function findPendingSpawnTarget(
   const jobs = ctx.conversations.listActiveSpawnJobs()
   for (const job of jobs) {
     if (job.conversationId === toTarget) {
-      const cfg = (job.config ?? {}) as { cwd?: string; name?: string }
-      const cwd = typeof cfg.cwd === 'string' ? cfg.cwd : ''
-      const project = cwd.includes('://') ? cwd : cwd.startsWith('/') ? cwdToProjectUri(cwd) : ''
+      const cfg = (job.config ?? {}) as { project?: string; name?: string }
+      const project = typeof cfg.project === 'string' ? cfg.project : ''
       if (!project) continue
       return { jobId: job.jobId, project, name: cfg.name || `spawning-${job.jobId.slice(0, 6)}` }
     }
   }
   // Compound-id matching: project slug + name slug must both resolve to the job.
   for (const job of jobs) {
-    const cfg = (job.config ?? {}) as { cwd?: string; name?: string }
-    const cwd = typeof cfg.cwd === 'string' ? cfg.cwd : ''
-    const project = cwd.includes('://') ? cwd : cwd.startsWith('/') ? cwdToProjectUri(cwd) : ''
+    const cfg = (job.config ?? {}) as { project?: string; name?: string }
+    const project = typeof cfg.project === 'string' ? cfg.project : ''
     if (!project) continue
     const projSettings = ctx.getProjectSettings(project)
     const projectName = projSettings?.label || extractProjectLabel(project)

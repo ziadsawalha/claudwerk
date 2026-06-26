@@ -465,6 +465,10 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
     // redacts known-secret keys).
     deps.conversationStore.recordJobConfig(jobId, {
       cwd: req.cwd,
+      // Canonical project URI, resolved ONCE here at the spawn seam. Pre-boot
+      // read-sites (channel.ts list/send-queue) read `config.project` directly
+      // instead of re-deriving a URI from `cwd` (CWD-IS-INFORMATIONAL).
+      project: settingsUri ?? '',
       adHoc: req.adHoc,
       adHocTaskId: req.adHocTaskId,
       worktree: req.worktree,
