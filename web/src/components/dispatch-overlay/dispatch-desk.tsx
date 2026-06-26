@@ -28,9 +28,38 @@ function RosterSection() {
   )
 }
 
-/** "Where things stand" (Phase 4b): a zero-LLM per-project status strip -- the
- *  fleet by project + the condensed brief headline + an attention count. The "+
- *  status" half the user expects on open, alongside the condensed memory. */
+/** A genuinely-visible CONTENDED badge -- two or more conversations are on the same
+ *  file/concept right now. In SOTU's passive-collision model this badge IS the whole
+ *  coordination mechanism, so it is a filled warning pill, never a faint hint. */
+function ContendedBadge({ n }: { n: number }) {
+  return (
+    <span className="shrink-0 rounded-full bg-[color:var(--warning)]/20 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-[color:var(--warning)]">
+      ⚠ {n} contended
+    </span>
+  )
+}
+
+/** Git escalation chips from the SOTU fabric scan (at-risk / unpushed / stalled). */
+function AlertChips({ alerts }: { alerts: string[] }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {alerts.map(a => (
+        <span
+          key={a}
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive"
+        >
+          {a}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** "Where things stand": the per-project status strip. UPGRADED in Phase 5 from the
+ *  zero-LLM headline into the real SOTU briefing -- the distilled narrative replaces
+ *  the headline when present, plus the live git alerts + the CONTENDED badge (the
+ *  passive trample-guard). Falls back to the zero-LLM headline for floor-only/quiet
+ *  projects, so nothing regresses when SOTU is off. */
 function StatusSection() {
   const status = useDispatchStore(s => s.status)
   if (status.length === 0) return null
@@ -38,18 +67,25 @@ function StatusSection() {
     <div>
       <span className="text-[11px] uppercase tracking-[0.2em] text-comment">where things stand</span>
       <div className="mt-3 flex flex-col gap-2">
-        {status.map(p => (
-          <div key={p.project} className="rounded-xl border border-border/70 bg-card/40 px-3.5 py-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-[13px] font-medium text-foreground/90">{p.project}</span>
-              <span className="shrink-0 text-[11px] text-comment">
-                {p.needsYou > 0 && <span className="text-[color:var(--accent)]">{p.needsYou} needs you · </span>}
-                {p.live} live{p.working > 0 ? ` · ${p.working} working` : ''}
-              </span>
+        {status.map(p => {
+          const body = p.sotuNarrative || p.headline
+          return (
+            <div key={p.project} className="rounded-xl border border-border/70 bg-card/40 px-3.5 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-[13px] font-medium text-foreground/90">{p.project}</span>
+                <span className="flex shrink-0 items-center gap-2 text-[11px] text-comment">
+                  {p.sotuContended ? <ContendedBadge n={p.sotuContended} /> : null}
+                  <span>
+                    {p.needsYou > 0 && <span className="text-[color:var(--accent)]">{p.needsYou} needs you · </span>}
+                    {p.live} live{p.working > 0 ? ` · ${p.working} working` : ''}
+                  </span>
+                </span>
+              </div>
+              {body && <p className="mt-1 text-[11.5px] leading-snug text-comment">{body}</p>}
+              {p.sotuAlerts && p.sotuAlerts.length > 0 && <AlertChips alerts={p.sotuAlerts} />}
             </div>
-            {p.headline && <p className="mt-1 text-[11.5px] leading-snug text-comment">{p.headline}</p>}
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

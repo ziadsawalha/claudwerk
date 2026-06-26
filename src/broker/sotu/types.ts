@@ -23,14 +23,25 @@
 // live in `src/shared/protocol.ts` (the single source of truth) and are re-exported
 // here so the broker module consumes them without duplicating the union. `scribe_note`
 // carries the callout fields; `git_fabric_result` carries the GitFabric snapshot.
-import type { CalloutType, ContribWeight, GitFabric, ScribeNoteTarget } from '../../shared/protocol'
+import type { CalloutType, Chronicle, ContribWeight, GitFabric, ScribeNoteTarget } from '../../shared/protocol'
 
 // GitFabric is consumed here (GitScanContrib wraps it). Its member types
 // (BranchFabric / IntegrationStatus / GitAlert) are re-exported as their broker
 // consumers land (Phase 4 decay reads integration + alerts; Phase 6 renders them) --
 // grows-per-phase, so the fallow dead-export gate stays green. The sentinel ladder
 // imports those member types straight from `../shared/protocol`.
-export type { CalloutType, ContribWeight, GitFabric, ScribeNoteTarget, SotuDistillMode } from '../../shared/protocol'
+// Chronicle / ChronicleEntry are now part of the wire contract (the read surfaces
+// serve them) -- defined in protocol.ts, re-exported here; this module owns the
+// helpers (emptyChronicle) + the pipeline-version constant.
+export type {
+  CalloutType,
+  Chronicle,
+  ChronicleEntry,
+  ContribWeight,
+  GitFabric,
+  ScribeNoteTarget,
+  SotuDistillMode,
+} from '../../shared/protocol'
 
 // ─── Contribution queue (Layer 1, queue.jsonl) ──────────────────────
 
@@ -87,32 +98,8 @@ export type Contribution = CalloutContrib | TurnDigestContrib | GitScanContrib |
 // produced by the sentinel ladder) and are re-exported at the top of this file.
 // `GitScanContrib` (above) wraps a `GitFabric` snapshot as a queue contribution.
 
-// ─── Chronicle (Layer 2, chronicle.json + chronicle.md) ─────────────
-
-export interface ChronicleEntry {
-  convId: string
-  title?: string
-  detail: string
-  ts: number
-}
-
-/** The distilled SOTU. `now`/`justDone` are structured; `narrative` is the
- *  human "where are we" rollup. Regenerated lazily by the distill engine. */
-export interface Chronicle {
-  /** Conversations running right now + what they declared. */
-  now: ChronicleEntry[]
-  /** Exited/terminated convs with final state + age. */
-  justDone: ChronicleEntry[]
-  /** Human "where are we" prose. */
-  narrative: string
-  /** Latest git-fabric snapshot folded in by the reconcile pass. */
-  git?: GitFabric
-  /** Pipeline version this chronicle was generated against (recap C++ replay
-   *  gate -- refuse to fold across an incompatible schema). */
-  pipelineVersion: number
-  /** Epoch ms the chronicle was generated. */
-  generatedAt: number
-}
+// ─── Chronicle (Layer 2) -- shape lives in protocol.ts (re-exported above);
+//     the helpers (emptyChronicle) + pipeline-version constant live here.
 
 // ─── State (state.json -- trigger bookkeeping) ──────────────────────
 

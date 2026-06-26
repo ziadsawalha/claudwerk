@@ -27,6 +27,7 @@ import { workspaceSnapshot } from '../desk/workspace'
 import { GuardError, type HandlerContext, type MessageData, type MessageHandler } from '../handler-context'
 import { CONTROL_PANEL_ONLY, registerHandlers } from '../message-router'
 import { chat } from '../recap/shared/openrouter-client'
+import { buildSotuView, projectSlug } from '../sotu'
 
 // fallow-ignore-next-line complexity
 function buildCommand(data: MessageData): DispatchCommand {
@@ -148,11 +149,30 @@ const dispatchRequest: MessageHandler = async (ctx: HandlerContext, data: Messag
 // history. The dispatcher fronts ALL projects -- there is no per-project view --
 // and THREADS are short-term memory folded into the dispatcher's context, not a
 // surfaced panel, so neither is sent to the overlay.
-/** Project STATUS strip (Phase 4b): the attention-ordered overview, slimmed to a
- *  headline + counts. Zero LLM -- the brief is already condensed; this is a union of
- *  the live fleet + that brief's first line. Projects with no live conv AND no brief
- *  are dropped; top rows only (the overview is already attention/recency ordered). */
+/** Fold the SOTU read model (Phase 5) into a status row -- the real narrative
+ *  UPGRADING the zero-LLM headline, plus the free floor (git alerts + the CONTENDED
+ *  count). Pure render off the current chronicle + live queue (no forced regen on
+ *  this hot UI path -- the activity trigger + spawn/MCP reads keep it fresh). Any
+ *  failure (store not ready) degrades silently to the zero-LLM headline. */
+function sotuEnrich(row: DispatchProjectStatus, projectUri: string, now: number): void {
+  try {
+    const view = buildSotuView({ slug: projectSlug(projectUri), project: projectUri, enabled: true, now })
+    const narrative = view.chronicle.narrative.trim()
+    if (narrative) row.sotuNarrative = narrative.slice(0, 280)
+    if (view.alerts.length) row.sotuAlerts = view.alerts
+    const contended = view.holds.filter(h => h.contended).length
+    if (contended > 0) row.sotuContended = contended
+  } catch {
+    // SOTU store not initialized / unreadable -- keep the floor headline.
+  }
+}
+
+/** Project STATUS strip: the attention-ordered overview, slimmed to a headline +
+ *  counts, then ENRICHED with the SOTU narrative + git alerts + CONTENDED badge
+ *  (Phase 5 -- the dispatcher tie-in that upgrades the zero-LLM strip into the real
+ *  briefing). Projects with no live conv AND no brief are dropped; top rows only. */
 function toStatusRows(rows: ProjectOverviewRow[]): DispatchProjectStatus[] {
+  const now = Date.now()
   return rows
     .filter(r => r.live > 0 || r.brief.trim())
     .slice(0, 6)
@@ -166,6 +186,7 @@ function toStatusRows(rows: ProjectOverviewRow[]): DispatchProjectStatus[] {
         needsYou: r.needsYou,
       }
       if (r.idleMin !== undefined) row.idleMin = r.idleMin
+      sotuEnrich(row, r.projectUri, now)
       return row
     })
 }

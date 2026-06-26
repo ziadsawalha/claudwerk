@@ -2,18 +2,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HandlerContext, MessageData, WsData } from '../../handler-context'
-import { routeMessage } from '../../message-router'
 import { initSotuStore, projectSlug } from '../../sotu'
 import { readQueue } from '../../sotu/queue'
 import { registerSotuHandlers } from '../sotu'
+import { HARNESS_PROJECT as PROJECT, runHandler as run, trustSettings as settings } from './sotu-harness'
 
 // Phase 3 turn_digest + Phase 1 scribe_note share the benevolent gate + the
 // recordContribution chokepoint + the sotu_contribution broadcast. These tests
 // prove the gate, the queue append, and the broadcast for the new turn_digest
 // path (and that scribe_note still works after the shared-helper refactor).
-
-const PROJECT = 'claude://host/proj'
 
 beforeAll(() => {
   registerSotuHandlers()
@@ -27,35 +24,6 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
-
-function settings(trustLevel: 'default' | 'benevolent'): HandlerContext['callerSettings'] {
-  return { trustLevel } as unknown as HandlerContext['callerSettings']
-}
-
-interface RunResult {
-  replies: Record<string, unknown>[]
-  broadcasts: { msg: Record<string, unknown>; project: string }[]
-}
-
-function run(
-  type: string,
-  data: MessageData,
-  wsData: Partial<WsData>,
-  callerSettings?: HandlerContext['callerSettings'],
-): RunResult {
-  const replies: Record<string, unknown>[] = []
-  const broadcasts: RunResult['broadcasts'] = []
-  const ctx = {
-    ws: { data: wsData },
-    callerSettings: callerSettings ?? null,
-    reply: (m: Record<string, unknown>) => replies.push(m),
-    broadcastScoped: (msg: Record<string, unknown>, project: string) => broadcasts.push({ msg, project }),
-    conversations: { getConversation: (id: string) => (id ? { project: PROJECT } : undefined) },
-    log: { info() {}, error() {}, debug() {} },
-  } as unknown as HandlerContext
-  routeMessage(ctx, type, data)
-  return { replies, broadcasts }
-}
 
 describe('turn_digest handler', () => {
   it('rejects a non-benevolent agent-host with a clean error + requestId', () => {

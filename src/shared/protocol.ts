@@ -1058,6 +1058,8 @@ export type AgentHostMessage =
   | WebControlRelayRequest
   | ScribeNote
   | TurnDigest
+  | GetStateOfUnionRequest
+  | SotuContributeRequest
 
 export interface ConversationNameUpdate {
   type: 'conversation_name'
@@ -1688,6 +1690,17 @@ export interface DispatchProjectStatus {
   needsYou: number
   /** Minutes since the most recent activity, if any. */
   idleMin?: number
+  /** SOTU narrative (Phase 5): the distilled "where are we" rollup for this project,
+   *  when SOTU is opted in + a chronicle exists. UPGRADES the zero-LLM `headline`
+   *  (the dispatcher renders this in its place when present). Absent on older brokers
+   *  or floor-only projects. */
+  sotuNarrative?: string
+  /** SOTU git escalation alerts (at-risk/unpushed/stalled), deduped, from the latest
+   *  fabric scan. Free floor -- present even when the narrative is not. */
+  sotuAlerts?: GitAlert[]
+  /** SOTU CONTENDED count: targets two or more convs claim/stake at once (passive
+   *  collision). The badge MUST be visible -- in passive mode it IS the mechanism. */
+  sotuContended?: number
 }
 
 /** broker -> the requesting control panel: the user's near-memory threads PLUS
@@ -6155,6 +6168,113 @@ export interface SotuBudgetExhausted {
   spend: { dailyUsd: number; monthlyUsd: number }
   /** The caps that bound it (whichever the project set). */
   budget: { dailyUsd?: number; monthlyUsd?: number }
+}
+
+// ─── Chronicle (Layer 2 -- the distilled narrative, served over the wire) ──────
+// The chronicle is now a READ SURFACE (get_state_of_union MCP + REST), so its
+// shape is part of the wire contract. `src/broker/sotu/types.ts` re-exports these
+// and owns the helpers (emptyChronicle / SOTU_PIPELINE_VERSION).
+
+export interface ChronicleEntry {
+  convId: string
+  title?: string
+  detail: string
+  ts: number
+}
+
+/** The distilled SOTU. `now`/`justDone` are structured; `narrative` is the human
+ *  "where are we" rollup. Regenerated lazily by the distill engine (Phase 4). */
+export interface Chronicle {
+  /** Conversations running right now + what they declared. */
+  now: ChronicleEntry[]
+  /** Exited/terminated convs with final state + age. */
+  justDone: ChronicleEntry[]
+  /** Human "where are we" prose. */
+  narrative: string
+  /** Latest git-fabric snapshot folded in by the reconcile pass. */
+  git?: GitFabric
+  /** Pipeline version this chronicle was generated against (recap C++ replay gate). */
+  pipelineVersion: number
+  /** Epoch ms the chronicle was generated. */
+  generatedAt: number
+}
+
+// ─── Read model (Phase 5 -- claims/stakes + the assembled view) ────────────────
+
+/** An ACTIVE claim/stake on a target, with human provenance + the passive-collision
+ *  CONTENDED flag. Derived from the free live queue (zero LLM): a CLAIM is a
+ *  file/path (exact key), a STAKE is a concept. Advisory only -- never a lease. */
+export interface SotuTargetHold {
+  kind: 'claim' | 'stake'
+  /** Display key: the normalized path (claim) or concept (stake). */
+  target: string
+  /** Optional concept tag (stake only) -- the free real-time match key. */
+  tag?: string
+  /** Soft ETA hint ("~1h") -- orientation only, NEVER a deadline. */
+  etaHint?: string
+  /** Optional blast-radius scope hint. */
+  scope?: string
+  /** Distinct holding conversations (id + when each first staked it). */
+  holders: { convId: string; since: number }[]
+  /** TRUE when 2+ distinct convs hold the same target -- passive collision. In
+   *  passive mode this badge IS the entire coordination mechanism, so it MUST be
+   *  rendered + injected, never swallowed. */
+  contended: boolean
+}
+
+/** The assembled SOTU read model -- chronicle (paid narrative) + the free floor
+ *  (claims/stakes + git alerts). Returned by `get_state_of_union` + `GET /api/sotu`. */
+export interface SotuView {
+  project: string
+  /** False -> floor only, no narrative ever (the chronicle stays empty). */
+  enabled: boolean
+  /** The distilled chronicle (empty until the first paid distill). */
+  chronicle: Chronicle
+  /** Active claims/stakes with provenance + CONTENDED flags (free floor). */
+  holds: SotuTargetHold[]
+  /** Git escalation alerts from the latest scan (at-risk/unpushed/stalled), deduped. */
+  alerts: GitAlert[]
+  /** Epoch ms the view was assembled. */
+  builtAt: number
+}
+
+/** Agent host -> Broker: read the SOTU for a project (lazy-regen-if-stale). The
+ *  broker resolves the caller's own project when `projectUri` is omitted. */
+export interface GetStateOfUnionRequest {
+  type: 'get_state_of_union_request'
+  requestId: string
+  /** Optional explicit project URI; omitted -> the caller's conversation project. */
+  projectUri?: string
+}
+
+/** Broker -> Agent host: the assembled view (or an error). Echoes `requestId`. */
+export interface GetStateOfUnionResult {
+  type: 'get_state_of_union_result'
+  requestId: string
+  ok: boolean
+  view?: SotuView
+  error?: string
+}
+
+/** Agent host -> Broker: belt-and-suspenders MCP write -- a contribution that goes
+ *  through the SAME `recordContribution` chokepoint as the inline `<callout>`. */
+export interface SotuContributeRequest {
+  type: 'sotu_contribute_request'
+  requestId: string
+  noteType: CalloutType
+  payload: string
+  /** Optional claim/stake target (soft-coordination layer). */
+  target?: ScribeNoteTarget
+  ttlMs?: number
+}
+
+/** Broker -> Agent host: ack the write. Echoes `requestId`. */
+export interface SotuContributeResult {
+  type: 'sotu_contribute_result'
+  requestId: string
+  ok: boolean
+  pendingContribs?: number
+  error?: string
 }
 
 // Configuration

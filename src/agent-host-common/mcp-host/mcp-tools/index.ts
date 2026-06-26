@@ -10,6 +10,7 @@ import { registerNotifyTools } from './notify'
 import { registerProjectBoardTools } from './project-board'
 import { registerRecapTools } from './recap'
 import { registerSearchTools } from './search'
+import { registerSotuTools } from './sotu'
 import { registerSpawnTools } from './spawn'
 import { registerStatusTool } from './status'
 import type { McpToolContext, ToolDef } from './types'
@@ -40,6 +41,7 @@ export function registerAllTools(ctx: McpToolContext): Record<string, ToolDef> {
     ...registerDialogTaxonomyTool(),
     ...registerSearchTools(ctx),
     ...registerRecapTools(ctx),
+    ...registerSotuTools(ctx),
     ...registerWebControlTools(ctx),
   }
 }

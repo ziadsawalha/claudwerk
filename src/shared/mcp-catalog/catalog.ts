@@ -39,6 +39,7 @@ export interface CatalogTool {
     | 'files'
     | 'dialog'
     | 'recap'
+    | 'sotu'
     | 'web-control'
     | 'nightshift'
     | 'dispatch'
@@ -134,6 +135,20 @@ export const MCP_CATALOG: readonly CatalogTool[] = [
   { name: 'recap_regenerate', group: 'recap', sites: HOST_ONLY, summary: 'Regenerate a recap' },
   { name: 'recap_search', group: 'recap', sites: HOST_ONLY, summary: 'Search recaps' },
   { name: 'recap_templates', group: 'recap', sites: HOST_ONLY, summary: 'List recap templates + their options' },
+
+  // ── sotu / state of the union (host) ───────────────────────────────
+  {
+    name: 'get_state_of_union',
+    group: 'sotu',
+    sites: HOST_ONLY,
+    summary: 'Read the project State of the Union briefing',
+  },
+  {
+    name: 'sotu_contribute',
+    group: 'sotu',
+    sites: HOST_ONLY,
+    summary: 'Contribute a declared-intent signal to the SOTU',
+  },
 
   // ── web control (both sites; host bridged in Phase 5) ──────────────
   { name: 'web_list_clients', group: 'web-control', sites: BOTH, summary: 'List opted-in control-panel browsers' },

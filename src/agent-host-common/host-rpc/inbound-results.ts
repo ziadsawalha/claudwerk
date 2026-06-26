@@ -122,5 +122,13 @@ export function dispatchHostRpcResult(msg: Msg, pending: PendingCallbacks, diag:
   // id, so this is safe).
   if (type.startsWith('recap_') && typeof msg.requestId === 'string') return dispatchBrokerRpcResponse(msg)
   if (type === 'web_control_relay_response' && typeof msg.requestId === 'string') return dispatchBrokerRpcResponse(msg)
+  // SOTU MCP read/write replies (Phase 5). The sotu_contribution / sotu_updated
+  // broadcasts carry no requestId, so only the matched RPC replies forward.
+  if (
+    (type === 'get_state_of_union_result' || type === 'sotu_contribute_result') &&
+    typeof msg.requestId === 'string'
+  ) {
+    return dispatchBrokerRpcResponse(msg)
+  }
   return false
 }

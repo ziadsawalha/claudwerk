@@ -18,13 +18,9 @@ export function initSotuStore(cacheDir: string): void {
 }
 
 export { readChronicle, readChronicleMd, renderChronicleMd, writeChronicle } from './chronicle'
-// recordContribution / contribWeight are consumed directly from './contribute' by
-// the handler + floor (and the distill engine in Phase 4) -- re-exported here once
-// the barrel gains an external consumer, per the "grows per phase" seam rule.
-// The distill engine (Phase 4): the activity-driven trigger over the contribution
-// stream. `maybeDistillOnRead` (read-triggered regen) is consumed by the Phase-5
-// read surfaces -- barrel re-export lands with that consumer (grows-per-phase).
-export { startSotuEngine, stopSotuEngine } from './engine'
+// `maybeDistillOnRead` (read-triggered regen) is consumed from the barrel by the
+// Phase-5 REST route. The MCP handler imports it directly from './engine'.
+export { maybeDistillOnRead, startSotuEngine, stopSotuEngine } from './engine'
 export { startSotuFloor, stopSotuFloor } from './floor'
 // gatherGitFabric / GitFabricTransport are consumed directly by git-scan.ts (and
 // the Phase-4 distill engine later) -- barrel re-export lands with that external
@@ -34,5 +30,11 @@ export { startSotuGitScan, stopSotuGitScan } from './git-scan'
 // are used internally by the store; the barrel surfaces only what callers need).
 export { FLEET_SLUG, projectDir, projectSlug, sanitizeSlug, sotuRootDir } from './paths'
 export { appendContribution, isExpired, readLiveQueue, readQueue } from './queue'
+// Phase-5 SessionStart inject -- the compact brief a new conversation spawns with.
+export { sotuSpawnBrief } from './spawn-brief'
 export { readState, updateState, writeState } from './state'
 export * from './types'
+// Phase-5 read model -- `buildSotuView` is the ONE assembler, consumed from the
+// barrel by the REST route + the dispatcher tie-in. `deriveHolds`/`deriveAlerts`/
+// `renderSotuBrief` are consumed directly from './view' (internally + by spawn-brief).
+export { buildSotuView } from './view'

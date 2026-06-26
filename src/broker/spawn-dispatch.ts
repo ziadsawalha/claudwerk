@@ -40,6 +40,7 @@ import { dispatchClaudeDaemon } from './backends/claude-daemon'
 import { emitLaunchProgress as emitProgress } from './backends/launch-progress'
 import type { ConversationStore } from './conversation-store'
 import type { GlobalSettings } from './global-settings'
+import { sotuSpawnBrief } from './sotu'
 
 /**
  * Translate the wire-level (`req.profile`, `req.pool`) pair into the
@@ -486,21 +487,25 @@ async function dispatchClaudeSpawn(req: SpawnRequest, deps: SpawnDispatchDeps): 
       name: req.name,
     })
 
-    // A nightshift spawn always carries the unattended covenant + safe-to-do
-    // gate (plan §10 / directive #2), appended after any caller-supplied prompt
-    // so the worker runs with-no-human-here behaviour regardless of who dispatched.
-    const appendSystemPrompt = req.nightshift
-      ? [
-          req.appendSystemPrompt,
-          nightshiftPreamble({
+    // The system-prompt stack appended to this spawn, in order: any caller prompt,
+    // then (nightshift) the unattended covenant + safe-to-do gate (plan §10 /
+    // directive #2) so the worker runs with-no-human-here behaviour regardless of
+    // who dispatched, then (Phase 5) the SOTU SessionStart brief -- "where things
+    // stand / who is touching what" for opted-in projects (floor-only projects
+    // inject nothing; any failure degrades to '' and never blocks the spawn).
+    const sotuBrief = settingsUri ? sotuSpawnBrief(settingsUri, req.name || extractProjectLabel(req.cwd)) : ''
+    const appendParts = [
+      req.appendSystemPrompt,
+      req.nightshift
+        ? nightshiftPreamble({
             runId: req.nightshift.runId,
             taskId: req.nightshift.taskId,
             project: req.name || extractProjectLabel(req.cwd),
-          }),
-        ]
-          .filter(Boolean)
-          .join('\n\n')
-      : req.appendSystemPrompt || undefined
+          })
+        : '',
+      sotuBrief,
+    ].filter(Boolean)
+    const appendSystemPrompt = appendParts.length ? appendParts.join('\n\n') : undefined
 
     deps.conversationStore.setPendingLaunchConfig(conversationId, {
       headless,

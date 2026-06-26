@@ -27,7 +27,8 @@ import type {
   RecapTemplateInfo,
 } from '../../../shared/protocol'
 import { brokerRpc, hasBrokerRpcSender } from './lib/broker-rpc'
-import type { McpToolContext, ToolDef, ToolResult } from './types'
+import { errResult as err, jsonResult, notConnected } from './lib/results'
+import type { McpToolContext, ToolDef } from './types'
 
 const PERIOD_LABELS: RecapPeriodLabel[] = [
   'today',
@@ -39,20 +40,8 @@ const PERIOD_LABELS: RecapPeriodLabel[] = [
   'custom',
 ]
 
-function notConnected(): ToolResult {
-  return {
-    content: [{ type: 'text', text: 'Error: broker connection not ready (no RPC sender)' }],
-    isError: true,
-  }
-}
-
-function err(message: string): ToolResult {
-  return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true }
-}
-
-function jsonResult(payload: unknown): ToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] }
-}
+// Shared MCP result envelopes (notConnected / errResult / jsonResult) live in
+// ./lib/results -- imported (aliased `err`) so recap + sotu return identical shapes.
 
 function resolveProjectFilter(ctx: McpToolContext, raw: string | undefined): string | undefined {
   if (!raw) return undefined

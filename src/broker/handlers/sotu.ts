@@ -20,92 +20,14 @@
  * agent host, Phase 3).
  */
 
-import type { ScribeNote, SotuContribution } from '../../shared/protocol'
+import type { ScribeNote } from '../../shared/protocol'
 import type { HandlerContext, MessageData } from '../handler-context'
-import { AGENT_HOST_ONLY, detectRole, registerHandlers } from '../message-router'
-import { recordContribution } from '../sotu/contribute'
-import { projectSlug } from '../sotu/paths'
-import type { CalloutContrib, Contribution, TurnDigestContrib } from '../sotu/types'
-
-const VALID_NOTE_TYPES = new Set<ScribeNote['noteType']>(['insight', 'lock', 'blocked', 'focus', 'dead-end'])
-
-type Echo = { requestId?: string }
-
-/** The resolved source for a contribution: conv + project come from the caller's
- *  OWN connection (never the wire body) so a host can't mis-route another
- *  project's queue. */
-interface Source {
-  convId: string
-  project: string
-}
-
-/** Pillar B trust gate: an agent host may contribute only when benevolent. The
- *  router already admitted the agent-host role; this is the trust check. Returns
- *  an error string when rejected, else null. */
-function trustError(ctx: HandlerContext): string | null {
-  if (detectRole(ctx.ws.data) === 'agent-host' && ctx.callerSettings?.trustLevel !== 'benevolent') {
-    return 'Requires benevolent trust level'
-  }
-  return null
-}
-
-/** Resolve the source conv + project from the caller's OWN connection (the wire
- *  body's convId is honored only as a hint, but the project is always derived
- *  from the broker's view of that conv so a host can't spoof another queue). */
-function resolveSource(ctx: HandlerContext, data: MessageData): Source | null {
-  const convId = (typeof data.convId === 'string' ? data.convId : undefined) ?? ctx.ws.data.conversationId
-  if (!convId) return null
-  const project = ctx.conversations.getConversation(convId)?.project ?? ctx.caller?.project
-  return project ? { convId, project } : null
-}
-
-/** Record a contribution + broadcast the refreshed live map + ack the caller.
- *  Shared by both handlers so the queue append / pending bump / broadcast can
- *  never drift between the two contribution kinds. */
-function commit(
-  ctx: HandlerContext,
-  resultType: string,
-  src: Source,
-  contrib: Contribution,
-  echo: Echo,
-  logLine: string,
-): void {
-  const { pendingContribs } = recordContribution(projectSlug(src.project), contrib, src.project)
-  ctx.broadcastScoped(
-    {
-      type: 'sotu_contribution',
-      project: src.project,
-      pendingContribs,
-      latest: { convId: src.convId, kind: contrib.kind, ts: contrib.ts },
-    } satisfies SotuContribution,
-    src.project,
-  )
-  ctx.log.info(`[sotu] ${logLine} pending=${pendingContribs}`)
-  ctx.reply({ type: resultType, ok: true, pendingContribs, ...echo })
-}
-
-/** Build the callout queue contribution from a validated note. Optional fields
- *  (ttl, claim/stake target) are spread in only when present. */
-function buildCallout(
-  data: MessageData,
-  convId: string,
-  noteType: ScribeNote['noteType'],
-  payload: string,
-): CalloutContrib {
-  return {
-    kind: 'callout',
-    convId,
-    ts: typeof data.ts === 'number' ? data.ts : Date.now(),
-    type: noteType,
-    payload,
-    weight: data.weight === 'baseline' ? 'baseline' : 'high',
-    ...(typeof data.ttlMs === 'number' ? { ttlMs: data.ttlMs } : {}),
-    ...(data.target && typeof data.target === 'object' ? { target: data.target as CalloutContrib['target'] } : {}),
-  }
-}
+import { AGENT_HOST_ONLY, registerHandlers } from '../message-router'
+import type { TurnDigestContrib } from '../sotu/types'
+import { buildCallout, commit, echoOf, resolveSource, trustError, VALID_NOTE_TYPES } from './sotu-shared'
 
 function scribeNote(ctx: HandlerContext, data: MessageData): void {
-  const echo: Echo = typeof data.requestId === 'string' ? { requestId: data.requestId } : {}
+  const echo = echoOf(data)
   const denied = trustError(ctx)
   if (denied) {
     ctx.reply({ type: 'scribe_note_result', ok: false, error: denied, ...echo })
@@ -151,7 +73,7 @@ function buildTurnDigest(data: MessageData, convId: string): TurnDigestContrib {
 }
 
 function turnDigest(ctx: HandlerContext, data: MessageData): void {
-  const echo: Echo = typeof data.requestId === 'string' ? { requestId: data.requestId } : {}
+  const echo = echoOf(data)
   const denied = trustError(ctx)
   if (denied) {
     ctx.reply({ type: 'turn_digest_result', ok: false, error: denied, ...echo })
