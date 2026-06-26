@@ -1,6 +1,6 @@
 /**
  * Bridge: which live dialogs (THE DIALOGUE) are MANUALLY minimized and should
- * surface in the global ModalDock.
+ * surface in the global Dock.
  *
  * Additive integration — reads the live-dialog store, derives nothing back into
  * it. We surface only USER minimizes (`collapsed && !closedAt`); an agent-closed

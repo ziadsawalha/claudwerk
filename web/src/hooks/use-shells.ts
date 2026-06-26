@@ -28,7 +28,7 @@ interface ShellsState {
   subscribed: Record<string, true>
   /** A shell THIS client just opened and wants auto-maximized the moment its
    *  `shell_added` round-trips into the roster. null = nothing pending. Cleared
-   *  by ShellDock once it expands the overlay. Client-local: only set by our own
+   *  by Dock once it expands the overlay. Client-local: only set by our own
    *  open-shell action, so other clients' shells never yank our view open. */
   autoExpandId: string | null
 

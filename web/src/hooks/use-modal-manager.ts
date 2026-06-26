@@ -1,32 +1,58 @@
 /**
  * Unified minimizable modals — the manager store.
  *
- * One record per open/minimized modal instance, keyed by a stable id. Modal
- * components stay mounted at the app shell and read their `phase` from here
- * instead of a local `useState(open)`; `minimized` keeps the component mounted
- * with the Radix Dialog closed (in-progress local state survives for free) and
- * surfaces a tile in the global ModalDock.
+ * One record per live modal instance, keyed by a stable id. Components stay
+ * mounted at the app shell and read their `presentation` from here; because they
+ * never unmount, in-progress state survives EVERY transition for free — park,
+ * detach, reattach just re-target where the body portals (Dialog <-> dock <-> OS
+ * window). restore = warp to owner, then reopen (see plan-unified-modals.md).
  *
- * THE rule — restore = warp to owner, then reopen: a parked conversation/project
- * modal is meaningless outside its owner's context, so restoring one from another
- * context first navigates back to the owner. See plan-unified-modals.md.
+ * A detached modal's live `Window` is non-serializable, so it is held in a
+ * module-scoped Map (NOT on the future-persistable record); `getDetachedWindow()`
+ * reads it on the render the presentation flip triggers.
  */
 
 import { create } from 'zustand'
-import type { ManagedModalOpts, ModalPhase, ModalRecord, ModalScope } from './modal-manager-types'
+import type { ManagedModalOpts, ModalPresentation, ModalRecord, ModalScope } from './modal-manager-types'
 import { useConversationsStore } from './use-conversations'
+
+/** Live popup windows for detached modals, by modal id. Off-record (non-serializable). */
+const detachedWindows = new Map<string, Window>()
+
+/** The popup window hosting a detached modal, or undefined when not detached. */
+export function getDetachedWindow(id: string): Window | undefined {
+  return detachedWindows.get(id)
+}
+
+const detachFeatures = 'popup=yes,width=900,height=640'
+
+function closeWindowSafe(id: string): void {
+  const win = detachedWindows.get(id)
+  if (win) {
+    try {
+      if (!win.closed) win.close()
+    } catch {}
+    detachedWindows.delete(id)
+  }
+}
 
 interface ModalManagerState {
   records: Record<string, ModalRecord>
-  /** Open (or re-open) an instance, (re)capturing its owner scope. */
+  /** Open (or re-open) an instance inline, (re)capturing its owner scope. */
   open: (opts: ManagedModalOpts, scope: ModalScope) => void
   /** Park a parkable instance into the dock (no-op for blocking modals). */
   minimize: (id: string) => void
-  /** Warp to the owner context, then re-open. */
+  /** Warp to the owner context, then re-open inline (dock restore). */
   restore: (id: string) => void
-  /** Toggle the fill-the-window state (persisted across park/restore). */
+  /** Detach into its own OS window. MUST run inside the triggering click gesture. */
+  detach: (id: string) => void
+  /** Re-attach a detached modal back inline (closes the window). */
+  reattach: (id: string) => void
+  /** The popup window was closed by its own chrome -> park to the dock (keep state). */
+  parkFromDetached: (id: string) => void
+  /** Toggle the fill-the-window state (persisted across transitions). */
   toggleMaximize: (id: string) => void
-  /** Drop the instance entirely (Escape / explicit close). */
+  /** Drop the instance entirely (Escape / explicit close); closes any window. */
   close: (id: string) => void
 }
 
@@ -38,6 +64,17 @@ function warpToScope(scope: ModalScope): void {
   } else if (scope.type === 'project') {
     if (conv.selectedProjectUri !== scope.uri) conv.selectProject(scope.uri)
   }
+}
+
+/** Set one record's presentation, if it exists. */
+function setPresentation(
+  state: ModalManagerState,
+  id: string,
+  presentation: ModalPresentation,
+): Partial<ModalManagerState> {
+  const cur = state.records[id]
+  if (!cur) return state
+  return { records: { ...state.records, [id]: { ...cur, presentation } } }
 }
 
 export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
@@ -52,7 +89,7 @@ export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
         title: opts.title,
         minimizable: opts.minimizable ?? true,
         scope,
-        phase: 'open',
+        presentation: 'inline',
         maximized: prev?.maximized ?? false,
         openedAt: prev?.openedAt ?? Date.now(),
       }
@@ -63,8 +100,8 @@ export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
     set(state => {
       const prev = state.records[id]
       // Blocking modals never park; a no-op keeps callers honest.
-      if (!prev?.minimizable || prev.phase === 'minimized') return state
-      return { records: { ...state.records, [id]: { ...prev, phase: 'minimized' as ModalPhase } } }
+      if (!prev?.minimizable || prev.presentation === 'docked') return state
+      return setPresentation(state, id, 'docked')
     }),
 
   restore: id => {
@@ -72,12 +109,33 @@ export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
     if (!prev) return
     // Warp FIRST so the modal re-opens against its owning context.
     warpToScope(prev.scope)
-    set(state => {
-      const cur = state.records[id]
-      if (!cur) return state
-      return { records: { ...state.records, [id]: { ...cur, phase: 'open' as ModalPhase } } }
-    })
+    set(state => setPresentation(state, id, 'inline'))
   },
+
+  detach: id => {
+    const prev = get().records[id]
+    if (!prev?.minimizable || prev.presentation === 'detached') return
+    // window.open MUST be synchronous in the gesture for popup blockers to allow it.
+    const win = window.open('', id, detachFeatures)
+    if (!win) return // blocked -> stay where we were
+    try {
+      win.focus()
+    } catch {}
+    detachedWindows.set(id, win)
+    set(state => setPresentation(state, id, 'detached'))
+  },
+
+  reattach: id =>
+    set(state => {
+      closeWindowSafe(id)
+      return setPresentation(state, id, 'inline')
+    }),
+
+  parkFromDetached: id =>
+    set(state => {
+      detachedWindows.delete(id)
+      return setPresentation(state, id, 'docked')
+    }),
 
   toggleMaximize: id =>
     set(state => {
@@ -89,40 +147,53 @@ export const useModalManagerStore = create<ModalManagerState>((set, get) => ({
   close: id =>
     set(state => {
       if (!state.records[id]) return state
+      closeWindowSafe(id)
       const { [id]: _gone, ...records } = state.records
       return { records }
     }),
 }))
 
 export interface ManagedModal {
-  /** 'closed' | 'open' | 'minimized'. */
-  phase: 'closed' | ModalPhase
+  /** Stable instance id (for reading the detached window via getDetachedWindow). */
+  id: string
+  /** 'closed' | 'inline' | 'docked' | 'detached'. */
+  presentation: 'closed' | ModalPresentation
   scope: ModalScope | undefined
   minimizable: boolean
-  /** Fill-the-window state, preserved across park/restore. */
+  /** Fill-the-window state, preserved across transitions. */
   maximized: boolean
   open: (scope: ModalScope) => void
   minimize: () => void
+  restore: () => void
+  detach: () => void
+  reattach: () => void
+  parkFromDetached: () => void
   toggleMaximize: () => void
   close: () => void
 }
 
 /**
- * Bind a modal component to the manager. Returns the live `phase` plus stable
- * controls. The component renders its Radix Dialog `open={phase === 'open'}`,
- * wires the new minimize button to `minimize()`, and Escape/x to `close()`.
+ * Bind a modal component to the manager. Returns the live `presentation` plus
+ * stable controls. The component renders via <ModalSurface>, which routes its
+ * body to a Dialog (inline) / dock (docked) / PopoutWindow (detached).
  */
 export function useManagedModal(opts: ManagedModalOpts): ManagedModal {
   const record = useModalManagerStore(s => s.records[opts.id])
   const minimizable = opts.minimizable ?? true
+  const store = useModalManagerStore.getState
   return {
-    phase: record?.phase ?? 'closed',
+    id: opts.id,
+    presentation: record?.presentation ?? 'closed',
     scope: record?.scope,
     minimizable,
     maximized: record?.maximized ?? false,
-    open: scope => useModalManagerStore.getState().open(opts, scope),
-    minimize: () => useModalManagerStore.getState().minimize(opts.id),
-    toggleMaximize: () => useModalManagerStore.getState().toggleMaximize(opts.id),
-    close: () => useModalManagerStore.getState().close(opts.id),
+    open: scope => store().open(opts, scope),
+    minimize: () => store().minimize(opts.id),
+    restore: () => store().restore(opts.id),
+    detach: () => store().detach(opts.id),
+    reattach: () => store().reattach(opts.id),
+    parkFromDetached: () => store().parkFromDetached(opts.id),
+    toggleMaximize: () => store().toggleMaximize(opts.id),
+    close: () => store().close(opts.id),
   }
 }

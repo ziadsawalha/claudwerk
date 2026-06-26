@@ -242,7 +242,7 @@ export function useGlobalCommands(toggleSidebar: () => void) {
           conversationId: sid ?? undefined,
         })
         // Maximize the moment the broker echoes it into the roster (one tick
-        // later). ShellDock watches autoExpandId and expands + clears it.
+        // later). Dock watches autoExpandId and expands + clears it.
         useShellsStore.getState().setAutoExpandId(shellId)
         return
       }

@@ -10,6 +10,7 @@ import { CommandPalette } from '@/components/command-palette'
 import { ConversationDetail } from '@/components/conversation-detail'
 import { DebugConsole } from '@/components/debug-console'
 import { dispatchBus } from '@/components/dispatch-overlay/dispatch-bus'
+import { Dock } from '@/components/dock'
 import { Header } from '@/components/header'
 import { JsonInspectorDialog } from '@/components/json-inspector'
 import { LaunchProfileCommands } from '@/components/launch-profiles/launch-profile-commands'
@@ -19,7 +20,6 @@ import { LinkPreviewPane } from '@/components/link-preview-pane'
 import { MarkdownViewerModal } from '@/components/markdown-viewer-modal'
 import { MediaLightbox } from '@/components/media-lightbox'
 import { useMermaidLightbox } from '@/components/mermaid-lightbox-bus'
-import { ModalDock } from '@/components/modal-dock'
 import { openOrganizeProjects, useOrganizeProjectsOpen } from '@/components/organize-projects/organize-state'
 import { PanelBoundary } from '@/components/panel-boundary'
 import { PinnedSwitchStrip } from '@/components/pinned-switch-strip'
@@ -36,7 +36,6 @@ import { reviveDialogBus } from '@/components/revive-dialog-trigger'
 import { manageChatConnectionsBus } from '@/components/settings/manage-chat-connections-trigger'
 import { manageProjectLinksBus } from '@/components/settings/manage-project-links-trigger'
 import { SharedConversationView } from '@/components/shared-conversation-view'
-import { ShellDock } from '@/components/shell-dock'
 import { ShortcutHelp } from '@/components/shortcut-help'
 import { spawnDialogBus } from '@/components/spawn-dialog-trigger'
 import { taskBatchBus } from '@/components/task-batch-trigger'
@@ -441,14 +440,10 @@ function Dashboard() {
           Self-hides on desktop (lg:hidden) and when there's nothing to switch to. */}
       <PinnedSwitchStrip />
 
-      {/* Host-shell dock -- global floating-shell tray. Self-hides when empty. */}
+      {/* Unified dock -- one global tray: parked modals + minimized live dialogs +
+          host shells. Self-hides when everything is empty. */}
       <div className="shrink-0">
-        <ShellDock />
-      </div>
-
-      {/* Minimized-modal dock -- global tray of parked modals. Self-hides when empty. */}
-      <div className="shrink-0">
-        <ModalDock />
+        <Dock />
       </div>
 
       {/* Off-screen host for agent-attached (debug) shells -- mounted + readable

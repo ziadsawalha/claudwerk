@@ -5,10 +5,10 @@
  * restore WARPS to the owning conversation before re-opening (the
  * restore-from-another-context case from plan-unified-modals.md).
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Conversation } from '@/lib/types'
 import { useConversationsStore } from './use-conversations'
-import { useModalManagerStore } from './use-modal-manager'
+import { getDetachedWindow, useModalManagerStore } from './use-modal-manager'
 
 function conv(id: string): Conversation {
   return {
@@ -43,7 +43,7 @@ describe('modal manager', () => {
   it('opens an instance with its owner scope captured', () => {
     useModalManagerStore.getState().open(OPTS, { type: 'conversation', id: 'conv_a' })
     const rec = useModalManagerStore.getState().records['debug-control']
-    expect(rec?.phase).toBe('open')
+    expect(rec?.presentation).toBe('inline')
     expect(rec?.scope).toEqual({ type: 'conversation', id: 'conv_a' })
   })
 
@@ -51,14 +51,14 @@ describe('modal manager', () => {
     const s = useModalManagerStore.getState()
     s.open(OPTS, { type: 'conversation', id: 'conv_a' })
     s.minimize('debug-control')
-    expect(useModalManagerStore.getState().records['debug-control']?.phase).toBe('minimized')
+    expect(useModalManagerStore.getState().records['debug-control']?.presentation).toBe('docked')
   })
 
   it('refuses to minimize a blocking modal', () => {
     const s = useModalManagerStore.getState()
     s.open({ ...OPTS, id: 'rename', minimizable: false }, { type: 'conversation', id: 'conv_a' })
     s.minimize('rename')
-    expect(useModalManagerStore.getState().records.rename?.phase).toBe('open')
+    expect(useModalManagerStore.getState().records.rename?.presentation).toBe('inline')
   })
 
   it('restore WARPS to the owning conversation, then re-opens', () => {
@@ -73,7 +73,7 @@ describe('modal manager', () => {
     // Warped back to the owner...
     expect(useConversationsStore.getState().selectedConversationId).toBe('conv_a')
     // ...and re-opened.
-    expect(useModalManagerStore.getState().records['debug-control']?.phase).toBe('open')
+    expect(useModalManagerStore.getState().records['debug-control']?.presentation).toBe('inline')
   })
 
   it('close drops the instance entirely', () => {
@@ -81,5 +81,49 @@ describe('modal manager', () => {
     s.open(OPTS, { type: 'global' })
     s.close('debug-control')
     expect(useModalManagerStore.getState().records['debug-control']).toBeUndefined()
+  })
+
+  describe('detach', () => {
+    let fakeWin: { focus: () => void; close: () => void; closed: boolean }
+
+    beforeEach(() => {
+      fakeWin = { focus: vi.fn(), close: vi.fn(), closed: false }
+      vi.spyOn(window, 'open').mockReturnValue(fakeWin as unknown as Window)
+    })
+    afterEach(() => vi.restoreAllMocks())
+
+    it('detaches into its own window and registers the handle', () => {
+      const s = useModalManagerStore.getState()
+      s.open(OPTS, { type: 'conversation', id: 'conv_a' })
+      s.detach('debug-control')
+      expect(useModalManagerStore.getState().records['debug-control']?.presentation).toBe('detached')
+      expect(getDetachedWindow('debug-control')).toBe(fakeWin)
+    })
+
+    it('reattach closes the window and returns inline', () => {
+      const s = useModalManagerStore.getState()
+      s.open(OPTS, { type: 'conversation', id: 'conv_a' })
+      s.detach('debug-control')
+      s.reattach('debug-control')
+      expect(useModalManagerStore.getState().records['debug-control']?.presentation).toBe('inline')
+      expect(fakeWin.close).toHaveBeenCalled()
+      expect(getDetachedWindow('debug-control')).toBeUndefined()
+    })
+
+    it('parkFromDetached (popup closed by chrome) parks to the dock, keeping the record', () => {
+      const s = useModalManagerStore.getState()
+      s.open(OPTS, { type: 'conversation', id: 'conv_a' })
+      s.detach('debug-control')
+      s.parkFromDetached('debug-control')
+      expect(useModalManagerStore.getState().records['debug-control']?.presentation).toBe('docked')
+      expect(getDetachedWindow('debug-control')).toBeUndefined()
+    })
+
+    it('refuses to detach a blocking modal', () => {
+      const s = useModalManagerStore.getState()
+      s.open({ ...OPTS, id: 'rename', minimizable: false }, { type: 'conversation', id: 'conv_a' })
+      s.detach('rename')
+      expect(useModalManagerStore.getState().records.rename?.presentation).toBe('inline')
+    })
   })
 })

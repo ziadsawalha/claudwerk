@@ -1,5 +1,5 @@
 /**
- * A minimized live dialog (THE DIALOGUE) surfaced in the global ModalDock.
+ * A minimized live dialog (THE DIALOGUE) surfaced in the global Dock.
  *
  * Restore WARPS to the owning conversation, then expands the dialog in place
  * (the same `setCollapsed(false)` the inline bar uses). Close maps to the

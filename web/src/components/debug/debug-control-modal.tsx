@@ -9,7 +9,7 @@
  */
 
 import { CONTROL_COMMANDS, getControlCommandSpec } from '@shared/cc-control-commands'
-import { Bug, Minus, Trash2 } from 'lucide-react'
+import { Bug, Trash2 } from 'lucide-react'
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import {
   clearDebugTraces,
@@ -21,7 +21,9 @@ import {
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { useManagedModal } from '@/hooks/use-modal-manager'
 import { useCommand } from '@/lib/commands'
-import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
+import { ModalSurface } from '../modal-surface'
+import { DebugCommandEditor } from './debug-command-editor'
+import { DebugCommandPicker } from './debug-command-picker'
 import { DebugTraceWaterfall } from './debug-trace-waterfall'
 
 function randomTraceId(): string {
@@ -85,109 +87,57 @@ export function DebugControlModal() {
   if (!selectedConversationId) return null
 
   return (
-    <Dialog
-      open={modal.phase === 'open'}
-      onOpenChange={o => {
-        if (!o) modal.close()
-      }}
+    <ModalSurface
+      modal={modal}
+      title="Debug: control"
+      icon={<Bug className="size-4 text-accent" />}
+      headerExtra={
+        <span className="text-[10px] text-muted-foreground ml-1 truncate">{selectedConversationId.slice(0, 12)}</span>
+      }
+      className="max-w-3xl top-[8vh] translate-y-0 max-h-[84vh]"
     >
-      <DialogContent className="max-w-3xl flex flex-col p-0 top-[8vh] translate-y-0 max-h-[84vh]">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-          <Bug className="size-4 text-accent" />
-          <DialogTitle className="text-xs">Debug: control</DialogTitle>
-          <span className="text-[10px] text-muted-foreground ml-1 truncate">{selectedConversationId.slice(0, 12)}</span>
-          <button
-            type="button"
-            onClick={() => modal.minimize()}
-            className="ml-auto mr-6 text-muted-foreground hover:text-foreground transition-colors"
-            title="Minimize to dock"
-          >
-            <Minus className="size-4" />
-          </button>
-        </div>
+      <div className="flex min-h-0 flex-1">
+        <DebugCommandPicker grouped={grouped} activeKey={key} onSelect={selectCommand} />
 
-        <div className="flex min-h-0 flex-1">
-          {/* command picker */}
-          <div className="w-56 border-r border-border overflow-y-auto shrink-0 text-[11px] font-mono">
-            {(['cc_control', 'daemon_op'] as const).map(ch => (
-              <div key={ch}>
-                <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-muted-foreground/60 sticky top-0 bg-background">
-                  {ch === 'cc_control' ? 'cc_control (headless)' : 'daemon_op (daemon)'}
-                </div>
-                {grouped[ch].map(c => {
-                  const k = `${c.channel}:${c.command}`
-                  return (
-                    <button
-                      type="button"
-                      key={k}
-                      onClick={() => selectCommand(k)}
-                      className={`w-full text-left px-2 py-1 flex items-center gap-1.5 hover:bg-muted/50 ${k === key ? 'bg-accent/15 text-accent' : ''}`}
-                    >
-                      <span className="truncate flex-1">{c.command}</span>
-                      {c.readOnly && <span className="text-[8px] text-emerald-400/60">RO</span>}
-                      {c.danger && <span className="text-[8px] text-red-400/80">DANGER</span>}
-                    </button>
-                  )
-                })}
-              </div>
+        {/* editor + waterfall */}
+        <div className="flex-1 flex flex-col min-w-0 p-3 gap-2 overflow-y-auto">
+          {spec && (
+            <DebugCommandEditor
+              spec={spec}
+              payloadText={payloadText}
+              onPayloadChange={text => {
+                setPayloadText(text)
+                setPayloadError(null)
+              }}
+              payloadError={payloadError}
+              onSend={send}
+            />
+          )}
+
+          <div className="flex items-center justify-between mt-1">
+            <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50">Traces</div>
+            {traces.length > 0 && (
+              <button
+                type="button"
+                onClick={() => clearDebugTraces(selectedConversationId)}
+                className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="Clear all traces"
+              >
+                <Trash2 className="size-3" />
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            {traces.length === 0 && (
+              <div className="text-[10px] text-muted-foreground/50">No traces yet -- send a command.</div>
+            )}
+            {traces.map(t => (
+              <DebugTraceWaterfall key={t.traceId} trace={t} />
             ))}
           </div>
-
-          {/* editor + waterfall */}
-          <div className="flex-1 flex flex-col min-w-0 p-3 gap-2 overflow-y-auto">
-            {spec && (
-              <>
-                <div className="text-[10px] text-muted-foreground">{spec.description}</div>
-                <textarea
-                  value={payloadText}
-                  onChange={e => {
-                    setPayloadText(e.target.value)
-                    setPayloadError(null)
-                  }}
-                  spellCheck={false}
-                  className="w-full h-28 bg-muted/40 border border-border text-[11px] font-mono px-2 py-1.5 outline-none focus:border-accent resize-none"
-                />
-                {payloadError && <div className="text-[10px] text-red-400">{payloadError}</div>}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={send}
-                    className={`px-3 py-1 text-xs font-bold transition-colors ${spec.danger ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-accent/20 text-accent hover:bg-accent/30'}`}
-                  >
-                    Send{spec.danger ? ' (DANGER)' : ''}
-                  </button>
-                  <span className="text-[10px] text-muted-foreground/60">
-                    {spec.channel} · {spec.transports.join(',')}
-                  </span>
-                </div>
-              </>
-            )}
-
-            <div className="flex items-center justify-between mt-1">
-              <div className="text-[9px] uppercase tracking-wider text-muted-foreground/50">Traces</div>
-              {traces.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => clearDebugTraces(selectedConversationId)}
-                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors"
-                  title="Clear all traces"
-                >
-                  <Trash2 className="size-3" />
-                  Clear
-                </button>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              {traces.length === 0 && (
-                <div className="text-[10px] text-muted-foreground/50">No traces yet -- send a command.</div>
-              )}
-              {traces.map(t => (
-                <DebugTraceWaterfall key={t.traceId} trace={t} />
-              ))}
-            </div>
-          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </ModalSurface>
   )
 }

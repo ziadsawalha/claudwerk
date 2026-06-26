@@ -278,7 +278,7 @@ export function ProjectActionPanel({ projectUri }: { projectUri: string }) {
               onClick={() => {
                 haptic('tap')
                 // No conversationId -- the shell is owned by the sentinel + project,
-                // not a conversation. Lands in the global ShellDock; auto-expand it.
+                // not a conversation. Lands in the global Dock; auto-expand it.
                 const shellId = openShell({ projectUri, cols: 80, rows: 24 })
                 useShellsStore.getState().setAutoExpandId(shellId)
               }}

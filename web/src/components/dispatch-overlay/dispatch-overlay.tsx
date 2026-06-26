@@ -29,7 +29,7 @@ export default function DispatchOverlay() {
   const fetchThreads = useDispatchStore(s => s.fetchThreads)
   // Subscribes to connectSeq only (bumps on every WS (re)connect), NOT the data.
   const connectSeq = useConversationsStore(s => s.connectSeq)
-  const isOpen = modal.phase === 'open'
+  const isOpen = modal.presentation === 'inline'
 
   // Self-heal the open-load: re-fetch the desk when the overlay is open and the
   // socket (re)connects. Covers cold-open (the overlay armed before the WS was

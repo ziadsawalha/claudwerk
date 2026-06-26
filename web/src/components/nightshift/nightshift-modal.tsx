@@ -103,7 +103,7 @@ export function NightshiftModal() {
   if (!projectUri) return null
 
   return (
-    <Dialog open={modal.phase === 'open'} onOpenChange={o => o || modal.close()}>
+    <Dialog open={modal.presentation === 'inline'} onOpenChange={o => o || modal.close()}>
       <DialogContent
         className={cn(
           'p-0',
