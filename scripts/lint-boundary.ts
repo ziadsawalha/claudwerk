@@ -67,10 +67,17 @@ const ALLOWED_CCSESSION_FILES = new Set([
  *       at runtime. Conversion belongs at the agent-host / sentinel boundary,
  *       not in broker core.
  *
- * Both allowlists are GRANDFATHERED: they freeze the current footprint so NO NEW
- * file can introduce broker cwd-logic. `.claude/docs/plan-broker-cwd-eradication.md`
- * drives them to zero. DO NOT ADD to either set -- if you reach for one, the
- * conversion belongs on the sentinel.
+ * END STATE (eradication plan CLOSED 2026-06-26, decision A): the 4a allowlist is
+ * EMPTY -- the broker never extracts `.path` from a URI anywhere. The 4b allowlist
+ * is the ACCEPTED, PERMANENT boundary: one-time legacy migrations + the
+ * spawn/ingest seam, where a real path legitimately enters from the external MCP
+ * contract (agents type paths) and MUST be canonicalized before the pre-dispatch
+ * project-settings + same-project permission lookups -- a conversion the sentinel
+ * cannot do for us (it only returns `resolvedProject` AFTER dispatch). Rule 4b's
+ * job now is purely to BLOCK NEW DRIFT: DO NOT ADD to either set -- if you reach
+ * for one, the conversion belongs on the sentinel.
+ * `.claude/docs/plan-broker-cwd-eradication.md` has the full rationale + why the
+ * remaining seam can't reach literal zero by mechanical refactor.
  */
 // EMPTY -- Rule 4a is fully eradicated. The broker never extracts `.path` from a
 // project URI; every site forwards the URI and lets the sentinel resolve it.
