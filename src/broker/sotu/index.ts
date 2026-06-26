@@ -21,6 +21,10 @@ export { readChronicle, readChronicleMd, renderChronicleMd, writeChronicle } fro
 // recordContribution / contribWeight are consumed directly from './contribute' by
 // the handler + floor (and the distill engine in Phase 4) -- re-exported here once
 // the barrel gains an external consumer, per the "grows per phase" seam rule.
+// The distill engine (Phase 4): the activity-driven trigger over the contribution
+// stream. `maybeDistillOnRead` (read-triggered regen) is consumed by the Phase-5
+// read surfaces -- barrel re-export lands with that consumer (grows-per-phase).
+export { startSotuEngine, stopSotuEngine } from './engine'
 export { startSotuFloor, stopSotuFloor } from './floor'
 // gatherGitFabric / GitFabricTransport are consumed directly by git-scan.ts (and
 // the Phase-4 distill engine later) -- barrel re-export lands with that external

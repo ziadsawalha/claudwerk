@@ -2957,6 +2957,19 @@ export interface ProjectSettings {
    *  Used only for activity-gating / observability; the window is a fixed
    *  rolling 7d, so this is not a strict watermark. */
   lessonsLastRun?: number
+  /** SOTU (State of the Union) per-project opt-in. When false/unset the project
+   *  gets the FREE floor only (queue + git-fabric scan + live soft-lock map) and
+   *  NO paid distill ever runs. Default off (opt-in, like lessonsEnabled). The
+   *  design's `ProjectMeta.sotuEnabled` lands here -- ProjectSettings is the actual
+   *  per-project store; mission-control's ProjectMeta is not built. */
+  sotuEnabled?: boolean
+  /** Optional daily USD cap on SOTU's paid distills. When set and the project's
+   *  spend-this-day reaches it, the budget gate skips the paid distill (keeping the
+   *  free floor) and emits `sotu_budget_exhausted`. Unset = no daily cap. */
+  sotuBudgetDailyUsd?: number
+  /** Optional monthly USD cap on SOTU's paid distills (same gate as the daily cap,
+   *  whichever binds first). Unset = no monthly cap. */
+  sotuBudgetMonthlyUsd?: number
 }
 
 // File metadata for the file editor
@@ -6112,6 +6125,36 @@ export interface SotuContribution {
     kind: 'callout' | 'turn_digest' | 'git_scan' | 'lifecycle'
     ts: number
   }
+}
+
+/** Which distill tier produced a chronicle (Phase 4). `scribe` = the cheap Haiku
+ *  fold (frequent); `reconcile` = the rare Opus re-grounding pass (on-return /
+ *  big-burst / staleness) that re-checks the whole chronicle against git truth. */
+export type SotuDistillMode = 'scribe' | 'reconcile'
+
+/** Broker -> dashboard broadcast when a distill regenerates a project's chronicle
+ *  (Phase 4). The panel re-reads the chronicle on this; carries the tier + the
+ *  COST-2 spend the fold bought (recap ledger reuse). */
+export interface SotuUpdated {
+  type: 'sotu_updated'
+  project: string
+  /** Epoch ms the chronicle was (re)generated. */
+  generatedAt: number
+  mode: SotuDistillMode
+  /** USD this distill cost (sum of the COST-2 ledger). 0 when no LLM ran. */
+  costUsd: number
+}
+
+/** Broker -> dashboard broadcast when a paid distill is SKIPPED because the project
+ *  is over its SOTU budget (Phase 4). Budget-exhausted != dark: the free floor stays
+ *  live; only the fresh narrative is withheld. The panel renders "$x/$y this period". */
+export interface SotuBudgetExhausted {
+  type: 'sotu_budget_exhausted'
+  project: string
+  /** Spend so far this day / month (USD). */
+  spend: { dailyUsd: number; monthlyUsd: number }
+  /** The caps that bound it (whichever the project set). */
+  budget: { dailyUsd?: number; monthlyUsd?: number }
 }
 
 // Configuration

@@ -98,7 +98,15 @@ import {
   validateShare as validateShareToken,
 } from './shares'
 import { shellRegistry } from './shell-registry'
-import { initSotuStore, startSotuFloor, startSotuGitScan, stopSotuFloor, stopSotuGitScan } from './sotu'
+import {
+  initSotuStore,
+  startSotuEngine,
+  startSotuFloor,
+  startSotuGitScan,
+  stopSotuEngine,
+  stopSotuFloor,
+  stopSotuGitScan,
+} from './sotu'
 import { createStore } from './store'
 import { createTerminationLog, startTerminationLogSweep } from './termination-log'
 import { cleanupVoiceForWs } from './voice-stream'
@@ -567,6 +575,16 @@ async function main() {
     log: msg => console.log(msg),
   })
 
+  // SOTU distill engine (Phase 4): the activity-driven trigger over the contribution
+  // stream. Folds the queue into the chronicle (cheap Haiku scribe) and rarely
+  // re-grounds it against git truth (Opus reconcile), gated by per-project opt-in +
+  // budget. Idle project -> no contributions -> zero cost. The chat fn + config
+  // resolver default to the real OpenRouter client + ProjectSettings opt-in.
+  startSotuEngine({
+    broadcast: (message, project) => conversationStore.broadcastConversationScoped(message, project),
+    log: msg => console.log(msg),
+  })
+
   // G2 boot sweep: a recap whose async run was mid-flight when this broker last
   // stopped is now orphaned (the process took the run with it). Reclaim every
   // such row to 'interrupted' (resumable, manual-only) so it can't sit forever
@@ -646,6 +664,7 @@ async function main() {
     stopDeskMemoryService()
     stopSotuFloor()
     stopSotuGitScan()
+    stopSotuEngine()
     closeProjectMemory()
     store.close()
     process.exit(0)

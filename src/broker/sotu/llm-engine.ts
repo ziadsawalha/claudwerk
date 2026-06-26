@@ -32,7 +32,7 @@
 export { RECAP_LEDGER_VERSION, RecapLedger } from '../recap/period/ledger'
 // ─── JSON salvage (responseFormat:json_object output parsing) ────────
 export { findFirstJsonObject } from '../recap/shared/json-parse'
-// ─── OpenRouter client (the chat() round-trip) ──────────────────────
-export { chat } from '../recap/shared/openrouter-client'
+// ─── OpenRouter client (the chat() round-trip + its request type) ────
+export { type ChatRequest, chat } from '../recap/shared/openrouter-client'
 // ─── Pricing / usage normalization (COST 2 inputs) ──────────────────
-export { computeCostUsd, normalizeUsage } from '../recap/shared/pricing'
+export { computeCostUsd, type NormalizedUsage, normalizeUsage } from '../recap/shared/pricing'

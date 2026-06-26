@@ -83,5 +83,25 @@ export function statePath(slug: string): string {
   return join(projectDir(slug), 'state.json')
 }
 
-// distills/<ts>/ bundle dirs (recap C+ pattern) land in Phase 4 with the distill
-// writer that consumes them -- see the storage layout in plan-state-of-union.md.
+/** Per-project SOTU spend ledger (Phase 4 budget gate). Tracks day/month USD so
+ *  the gate can skip a paid distill once a cap binds. Separate from state.json so
+ *  the spend trail survives a pipeline-version reset of the trigger state. */
+export function spendPath(slug: string): string {
+  return join(projectDir(slug), 'spend.json')
+}
+
+/** The distills/ root for a project (recap C+ run-artifact bundle pattern). */
+function distillsRoot(slug: string): string {
+  const dir = join(projectDir(slug), 'distills')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+/** A single distill's bundle dir, `distills/<ts>/`. Created on demand. The `ts`
+ *  segment is sanitized so a caller can never escape the distills root. */
+export function distillDir(slug: string, ts: number | string): string {
+  const seg = sanitizeSlug(String(ts))
+  const dir = join(distillsRoot(slug), seg)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}

@@ -33,7 +33,7 @@ export function startSotuFloor(): void {
       ts: event.ts,
       event: event.transition,
     }
-    recordContribution(projectSlug(event.project), contrib)
+    recordContribution(projectSlug(event.project), contrib, event.project)
   })
 }
 

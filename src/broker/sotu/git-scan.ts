@@ -62,7 +62,7 @@ export function startSotuGitScan(deps: GitScanDeps): void {
       return
     }
     const contrib: GitScanContrib = { kind: 'git_scan', convId: '', ts: now(), git: res.fabric }
-    const { pendingContribs } = recordContribution(projectSlug(project), contrib)
+    const { pendingContribs } = recordContribution(projectSlug(project), contrib, project)
     deps.broadcast(
       {
         type: 'sotu_contribution',

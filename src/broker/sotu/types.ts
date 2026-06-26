@@ -30,7 +30,7 @@ import type { CalloutType, ContribWeight, GitFabric, ScribeNoteTarget } from '..
 // consumers land (Phase 4 decay reads integration + alerts; Phase 6 renders them) --
 // grows-per-phase, so the fallow dead-export gate stays green. The sentinel ladder
 // imports those member types straight from `../shared/protocol`.
-export type { CalloutType, ContribWeight, GitFabric, ScribeNoteTarget } from '../../shared/protocol'
+export type { CalloutType, ContribWeight, GitFabric, ScribeNoteTarget, SotuDistillMode } from '../../shared/protocol'
 
 // ─── Contribution queue (Layer 1, queue.jsonl) ──────────────────────
 

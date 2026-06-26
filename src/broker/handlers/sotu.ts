@@ -70,7 +70,7 @@ function commit(
   echo: Echo,
   logLine: string,
 ): void {
-  const { pendingContribs } = recordContribution(projectSlug(src.project), contrib)
+  const { pendingContribs } = recordContribution(projectSlug(src.project), contrib, src.project)
   ctx.broadcastScoped(
     {
       type: 'sotu_contribution',
