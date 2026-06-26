@@ -89,7 +89,7 @@ export async function attachGhost(conversationId: string): Promise<GhostAttachRe
   const entry = findGhostEntry(conversationId)
   if (!entry) return { ok: false, error: 'Daemon worker is no longer in the roster' }
   const result = await sendSpawnRequest({
-    cwd: entry.cwd,
+    cwd: entry.currentPath,
     mkdir: false,
     sentinel: entry.sentinelAlias || undefined,
     jobId: crypto.randomUUID(),

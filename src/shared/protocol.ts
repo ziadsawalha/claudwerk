@@ -4317,11 +4317,18 @@ export interface DaemonJobState {
 
 /**
  * A daemon roster job as the CONTROL PANEL receives it: `DaemonJobInfo` with
- * `sessionId` stripped. `sessionId` is a ccSessionId (CC's concept); the broker
- * never forwards it to the control panel (boundary rule). The ATTACH spawn
- * routes by the stable `short`, never by `sessionId`, so nothing is lost.
+ * `sessionId` stripped and the inbound `cwd` re-exposed as `currentPath`.
+ * `sessionId` is a ccSessionId (CC's concept); the broker never forwards it to
+ * the control panel (boundary rule). The ATTACH spawn routes by the stable
+ * `short`, never by `sessionId`, so nothing is lost.
+ *
+ * `currentPath` is DISPLAY-ONLY (the worker's working directory shown in the
+ * ATTACH browser + reused as the attach spawn `cwd`). It is NEVER an identity
+ * key: daemon conversations are keyed by `conversationId` and the `claude://`
+ * project URI, never by this path (CWD-IS-INFORMATIONAL). The field is named
+ * `currentPath`, not `cwd`, so it can't masquerade as a broker `cwd` currency.
  */
-export type DaemonRosterJob = Omit<DaemonJobInfo, 'sessionId'>
+export type DaemonRosterJob = Omit<DaemonJobInfo, 'sessionId' | 'cwd'> & { currentPath: string }
 
 /**
  * Broker -> control panel: the live daemon worker roster, forwarded from the

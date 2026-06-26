@@ -99,7 +99,7 @@ function buildDaemonSpawnRequest(
   if (!state.options) return { errors: ['Spawn dialog has no options'] }
   return {
     req: {
-      cwd: isAttach && daemonAttach ? daemonAttach.cwd : effectivePath,
+      cwd: isAttach && daemonAttach ? daemonAttach.currentPath : effectivePath,
       mkdir: isAttach ? false : state.options.mkdir || false,
       name: name.trim() || undefined,
       description: description.trim() || undefined,

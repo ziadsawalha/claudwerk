@@ -15,7 +15,7 @@ afterEach(() => {
 })
 
 function job(overrides: Partial<DaemonRosterJob> = {}): DaemonRosterJob {
-  return { conversationId: 'conv_a', short: 'aaaaaaaa', cwd: '/x', state: 'working', ...overrides }
+  return { conversationId: 'conv_a', short: 'aaaaaaaa', currentPath: '/x', state: 'working', ...overrides }
 }
 
 function forward(overrides: Partial<DaemonRosterForward> = {}): DaemonRosterForward {

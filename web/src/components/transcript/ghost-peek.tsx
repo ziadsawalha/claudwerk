@@ -111,7 +111,7 @@ function GhostPeek({ entry, conversationId }: { entry: DaemonRosterEntry; conver
           {entry.intent && <MetaRow label="goal" value={entry.intent} />}
           {entry.detail && <MetaRow label="now" value={entry.detail} valueClass={stateClass(entry.state)} />}
           {entry.needs && <MetaRow label="needs" value={entry.needs} valueClass="text-amber-400" />}
-          <MetaRow label="cwd" value={shortPath(entry.cwd)} />
+          <MetaRow label="cwd" value={shortPath(entry.currentPath)} />
           {entry.cliVersion && <MetaRow label="cli" value={entry.cliVersion} />}
           {typeof entry.pid === 'number' && <MetaRow label="pid" value={String(entry.pid)} />}
           {typeof entry.startedAt === 'number' && <MetaRow label="started" value={formatAge(entry.startedAt)} />}

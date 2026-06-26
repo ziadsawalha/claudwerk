@@ -86,7 +86,7 @@ export function DaemonRosterBrowser({ selectedShort, onSelect }: DaemonRosterBro
                 <span className={cn('shrink-0', stateClass(job.state))}>{job.state}</span>
               </div>
               <div className="flex items-center justify-between gap-2 text-[9px] text-comment">
-                <span className="truncate">{shortPath(job.cwd)}</span>
+                <span className="truncate">{shortPath(job.currentPath)}</span>
                 <span className="shrink-0">{job.cliVersion ? `cli ${job.cliVersion}` : job.short}</span>
               </div>
             </button>

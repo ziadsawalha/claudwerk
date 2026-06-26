@@ -47,13 +47,24 @@ describe('toRosterJob', () => {
     const view = toRosterJob(job)
     expect(view.conversationId).toBe(job.conversationId)
     expect(view.short).toBe(job.short)
-    expect(view.cwd).toBe(job.cwd)
+    expect(view.currentPath).toBe(job.cwd)
     expect(view.state).toBe(job.state)
     expect(view.name).toBe(job.name)
     expect(view.cliVersion).toBe(job.cliVersion)
     expect(view.backend).toBe(job.backend)
     expect(view.pid).toBe(job.pid)
     expect(view.startedAt).toBe(job.startedAt)
+  })
+
+  // CWD-IS-INFORMATIONAL guard (plan-broker-cwd-eradication Phase 4): the
+  // control-panel roster carries the worker's working dir ONLY as a DISPLAY field
+  // named `currentPath`, never as a raw `cwd` currency. Identity is the
+  // conversationId + project URI, never this path. If a future edit re-exposes
+  // `cwd` on the wire, this fails -- forcing the rename to stay.
+  it('exposes the working dir as display-only `currentPath`, never `cwd`', () => {
+    const view = toRosterJob(fullJob()) as Record<string, unknown>
+    expect('cwd' in view).toBe(false)
+    expect(typeof view.currentPath).toBe('string')
   })
 
   it('tolerates missing optional fields', () => {

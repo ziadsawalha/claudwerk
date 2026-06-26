@@ -19,7 +19,7 @@ function job(overrides: Partial<DaemonRosterJob> = {}): DaemonRosterJob {
   return {
     conversationId: 'conv_a',
     short: 'aeb185f9',
-    cwd: '/Users/jonas/projects/x',
+    currentPath: '/Users/jonas/projects/x',
     state: 'working',
     name: 'fix the bug',
     cliVersion: '2.1.144',

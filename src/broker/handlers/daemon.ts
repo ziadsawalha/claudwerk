@@ -114,6 +114,8 @@ function createDaemonConversation(
 ): void {
   const conv = ctx.conversations.createConversation(job.conversationId, cwdToProjectUri(job.cwd))
   conv.agentHostType = 'daemon'
+  // DISPLAY-ONLY. Identity is `conv.project` (the URI above); currentPath is the
+  // raw working dir shown in the UI and never keyed on (CWD-IS-INFORMATIONAL).
   conv.currentPath = job.cwd
   conv.hostSentinelId = sentinelId
   conv.hostSentinelAlias = alias
@@ -200,6 +202,7 @@ function applyDaemonState(
   const stateChanged = conv.status !== status
   conv.status = status
   if (stateChanged && prevStatus !== 'ended') conv.lastActivity = Date.now()
+  // DISPLAY-ONLY refresh -- never an identity key (see createDaemonConversation).
   conv.currentPath = job.cwd
   // Refresh resolvedProfile -- a job's polled-under profile is authoritative
   // (handles a sentinel restart that flips the active profile). Never clear it
@@ -258,7 +261,10 @@ export function toRosterJob(job: DaemonJobInfo): DaemonRosterJob {
   return {
     conversationId: job.conversationId,
     short: job.short,
-    cwd: job.cwd,
+    // DISPLAY-ONLY working directory, renamed from the inbound `cwd` so it can
+    // never read as a broker `cwd` currency. Daemon convs key on conversationId
+    // + project URI, never this path (CWD-IS-INFORMATIONAL).
+    currentPath: job.cwd,
     state: job.state,
     name: job.name,
     cliVersion: job.cliVersion,
