@@ -424,6 +424,8 @@ interface ConversationsState {
   setJsonStreamHandler: (handler: ((msg: JsonStreamMessage) => void) | null) => void
   projectHandler: ((msg: Record<string, unknown>) => void) | null
   checklistHandler: ((msg: Record<string, unknown>) => void) | null
+  /** Canvas live-multiplayer messages (canvas_*), dispatched by canvasId. */
+  canvasHandler: ((msg: Record<string, unknown>) => void) | null
   nightshiftHandler: ((msg: Record<string, unknown>) => void) | null
   nightshiftWatchdogHandler: ((msg: Record<string, unknown>) => void) | null
   sendWsMessage: (msg: Record<string, unknown>) => void
@@ -868,6 +870,7 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   jsonStreamHandler: null,
   projectHandler: null,
   checklistHandler: null,
+  canvasHandler: null,
   nightshiftHandler: null,
   nightshiftWatchdogHandler: null,
   showTerminal: false,

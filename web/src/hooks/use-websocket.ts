@@ -482,6 +482,14 @@ export function useWebSocket() {
             return
           }
 
+          // Canvas live-multiplayer (canvas_join_ack / presence / pointer /
+          // scene_delta / error) -> canvas bus, dispatched by canvasId. High
+          // frequency (cursors), so bypass the buffer like terminal data.
+          if (typeof msg.type === 'string' && msg.type.startsWith('canvas_')) {
+            useConversationsStore.getState().canvasHandler?.(msg as unknown as Record<string, unknown>)
+            return
+          }
+
           // Nightshift result + live event broadcast -> nightshift handler.
           if (typeof msg.type === 'string' && (msg.type === 'nightshift_result' || msg.type === 'nightshift_event')) {
             const handler = useConversationsStore.getState().nightshiftHandler

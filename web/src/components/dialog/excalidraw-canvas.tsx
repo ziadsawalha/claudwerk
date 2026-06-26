@@ -26,12 +26,28 @@ type ExcalidrawProps = ComponentProps<typeof Excalidraw>
 type ChangeHandler = NonNullable<ExcalidrawProps['onChange']>
 type ExcalidrawAPI = Parameters<NonNullable<ExcalidrawProps['excalidrawAPI']>>[0]
 
+/** Opt-in live-collaboration wiring (hosted canvas multiplayer, Phase E). When
+ *  present, the canvas streams cursors + scene changes to peers and applies
+ *  theirs via the imperative API. Absent for the Draw dialog block (unchanged). */
+export interface CanvasCollabBinding {
+  /** Receive the Excalidraw API so the collab layer can updateScene(). */
+  bindApi: (
+    api: { updateScene(scene: { elements?: readonly unknown[]; collaborators?: Map<string, unknown> }): void } | null,
+  ) => void
+  /** Local cursor moved (scene coords). */
+  onPointer: (x: number, y: number) => void
+  /** Local scene changed -- serialized JSON. */
+  onChange: (json: string) => void
+}
+
 export interface DrawCanvasProps {
   /** Parsed Excalidraw scene to seed the canvas (null = blank). */
   initialSnapshot?: unknown
   readOnly?: boolean
   /** Debounced: fires with the serialized scene JSON whenever the user edits. */
   onSnapshot?: (json: string, bytes: number) => void
+  /** Opt-in multiplayer binding. Undefined = solo (Draw block, private canvas). */
+  collab?: CanvasCollabBinding
 }
 
 // Parsed .excalidraw scene (serializeAsJSON output). Kept loose -- it is cast to
@@ -42,7 +58,7 @@ interface SceneSnapshot {
   files?: unknown
 }
 
-export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot }: DrawCanvasProps) {
+export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot, collab }: DrawCanvasProps) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const apiRef = useRef<ExcalidrawAPI | null>(null)
   const [apiReady, setApiReady] = useState(false)
@@ -78,14 +94,28 @@ export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot
 
   const handleChange = useCallback<ChangeHandler>(
     (elements, appState, files) => {
-      if (readOnly || !onSnapshot) return
+      if (readOnly) return
       clearTimeout(timer.current)
       timer.current = setTimeout(() => {
         const json = serializeAsJSON(elements, appState, files, 'local')
-        onSnapshot(json, utf8Bytes(json))
+        onSnapshot?.(json, utf8Bytes(json))
+        collab?.onChange(json)
       }, 500)
     },
-    [readOnly, onSnapshot],
+    [readOnly, onSnapshot, collab],
+  )
+
+  // Throttle cursor broadcasts -- onPointerUpdate fires on every mouse move.
+  const lastPointerAt = useRef(0)
+  const handlePointer = useCallback<NonNullable<ExcalidrawProps['onPointerUpdate']>>(
+    payload => {
+      if (!collab) return
+      const now = performance.now()
+      if (now - lastPointerAt.current < 50) return
+      lastPointerAt.current = now
+      collab.onPointer(payload.pointer.x, payload.pointer.y)
+    },
+    [collab],
   )
 
   return (
@@ -94,9 +124,11 @@ export default function ExcalidrawCanvas({ initialSnapshot, readOnly, onSnapshot
       excalidrawAPI={api => {
         apiRef.current = api
         setApiReady(true)
+        collab?.bindApi(api as unknown as Parameters<NonNullable<DrawCanvasProps['collab']>['bindApi']>[0])
       }}
       viewModeEnabled={readOnly}
       onChange={handleChange}
+      onPointerUpdate={collab ? handlePointer : undefined}
     />
   )
 }

@@ -1,0 +1,52 @@
+/**
+ * Pure helpers for merging inbound canvas-multiplayer messages into local state.
+ * Kept out of the React hook so they're directly unit-testable (and so the hook
+ * closures stay thin).
+ */
+
+import type { CanvasPeer } from '@shared/protocol'
+
+/** Excalidraw collaborator shape (the slice we populate for remote cursors). */
+export interface RemoteCollaborator {
+  username: string
+  color: { background: string; stroke: string }
+  pointer?: { x: number; y: number }
+}
+
+/** Build a collaborator entry from a canvas_pointer message (with defaults). */
+export function pointerCollaborator(msg: Record<string, unknown>): RemoteCollaborator {
+  return {
+    username: (msg.name as string) || 'guest',
+    color: { background: (msg.color as string) || '#888', stroke: '#1e293b' },
+    pointer: { x: Number(msg.x) || 0, y: Number(msg.y) || 0 },
+  }
+}
+
+/** Resolve an inbound pointer message to the collaborator entry to store, or
+ *  null when it should be ignored (no peerId, or it's our own cursor echo). */
+export function peerToApply(
+  msg: Record<string, unknown>,
+  ownPeerId: string | null,
+): { id: string; collaborator: RemoteCollaborator } | null {
+  const id = msg.peerId as string
+  if (!id || id === ownPeerId) return null
+  return { id, collaborator: pointerCollaborator(msg) }
+}
+
+/** Parse the elements array out of a scene-delta payload, or null if unusable. */
+export function parseSceneElements(sceneJson: unknown): readonly unknown[] | null {
+  if (typeof sceneJson !== 'string') return null
+  try {
+    const scene = JSON.parse(sceneJson) as { elements?: unknown[] }
+    return (scene.elements ?? []) as readonly unknown[]
+  } catch {
+    return null
+  }
+}
+
+/** Drop collaborators no longer in the presence roster (mutates the map). */
+export function prunePeers(collaborators: Map<string, RemoteCollaborator>, roster: CanvasPeer[]): void {
+  for (const id of [...collaborators.keys()]) {
+    if (!roster.some(p => p.peerId === id)) collaborators.delete(id)
+  }
+}
