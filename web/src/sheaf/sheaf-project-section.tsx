@@ -10,6 +10,7 @@ import { useMemo } from 'react'
 import { accentFor } from './accent'
 import { costHeatClass, formatCost, formatTokens } from './format'
 import { flattenForest } from './sheaf-derive'
+import { SotuProjectStrip } from './sheaf-sotu'
 import { SheafNodeRow, SheafTree } from './sheaf-tree'
 
 interface ProjectSectionProps {
@@ -132,6 +133,7 @@ export function ProjectSection({
   return (
     <section className="space-y-2">
       <ProjectHeader project={project} expanded={expanded} onToggle={onToggle} />
+      <SotuProjectStrip sotu={project.sotu} />
       {expanded && <WorktreePills project={project} />}
       {expanded &&
         (showLineage ? (

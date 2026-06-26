@@ -63,6 +63,27 @@ function RecapBlock({ node }: { node: SheafNode }) {
   )
 }
 
+/** Row 1 tags: worktree name + the (git-fabric) ahead-of-origin commit count. */
+function NodeTags({ node }: { node: SheafNode }) {
+  return (
+    <>
+      {node.worktreeName && (
+        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-mono">
+          wt:{node.worktreeName}
+        </span>
+      )}
+      {node.commits > 0 && (
+        <span
+          className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono"
+          title={`${node.commits} commit${node.commits === 1 ? '' : 's'} ahead of origin/main on this worktree's branch (unmerged)`}
+        >
+          ↑{node.commits}
+        </span>
+      )}
+    </>
+  )
+}
+
 export function SheafNodeRow({ node, depth, now, showRecaps = true, flat = false }: SheafNodeRowProps) {
   const glyph = STATUS_GLYPH[node.status]
   const startStr = formatClockTime(node.startedAt)
@@ -94,11 +115,7 @@ export function SheafNodeRow({ node, depth, now, showRecaps = true, flat = false
         >
           {node.status}
         </span>
-        {node.worktreeName && (
-          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-mono">
-            wt:{node.worktreeName}
-          </span>
-        )}
+        <NodeTags node={node} />
         <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 font-mono">{node.id.slice(0, 10)}</span>
       </div>
 

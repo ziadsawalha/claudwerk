@@ -5,12 +5,22 @@
  *
  * Admin only. Returns a `SheafResponse` (see `src/shared/sheaf-types.ts`).
  *
+ * Phase 6 folds the SOTU narrative + git-fabric INTO the response via
+ * `enrichSheafWithSotu`. The fleet aggregate crosses projects, so the enrichment
+ * is handed a per-project visibility predicate derived from the CALLER'S grants
+ * (`httpHasPermission('chat:read', uri)`) -- NEVER hardcoded true. A project the
+ * viewer cannot see gets no SOTU block (no chronicle bleed) and is excluded from
+ * the fleet union. The structural grid keeps its admin gate below; the predicate
+ * is wired + enforced so opening the grid to non-admins later cannot leak a
+ * chronicle (OPEN ITEM #2, the permission covenant).
+ *
  * See `.claude/docs/plan-sheaf.md` for the design.
  */
 
 import { Hono } from 'hono'
 import type { ConversationStore } from '../conversation-store'
 import { buildSheaf } from '../handlers/sheaf-build'
+import { enrichSheafWithSotu } from '../sotu'
 import type { StoreDriver } from '../store/types'
 import type { TerminationLog } from '../termination-log'
 import type { RouteHelpers } from './shared'
@@ -37,6 +47,11 @@ export function createSheafRouter(
       conversationStore,
       terminationLog,
       windowH,
+    })
+    // Per-project visibility filter (the permission covenant): derived from the
+    // caller's own grants, applied BEFORE any SOTU data is attached.
+    enrichSheafWithSotu(response, {
+      canViewProject: uri => helpers.httpHasPermission(c.req.raw, 'chat:read', uri),
     })
     return c.json(response)
   })

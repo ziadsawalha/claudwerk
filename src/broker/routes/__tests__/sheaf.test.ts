@@ -14,6 +14,11 @@ import { Hono } from 'hono'
 import type { SheafResponse } from '../../../shared/sheaf-types'
 import { setRclaudeSecret } from '../../auth-routes'
 import { type ConversationStore, createConversationStore } from '../../conversation-store'
+import { writeChronicle } from '../../sotu/chronicle'
+import { recordContribution } from '../../sotu/contribute'
+import { initSotuStore } from '../../sotu/index'
+import { projectSlug } from '../../sotu/paths'
+import { emptyChronicle, type GitScanContrib } from '../../sotu/types'
 import { createMemoryDriver } from '../../store/memory/driver'
 import type { StoreDriver } from '../../store/types'
 import { createTerminationLog, type TerminationLog } from '../../termination-log'
@@ -237,6 +242,53 @@ describe('GET /api/sheaf -- worktree sub-tag', () => {
     expect(new Set(proj.worktrees.map(w => w.name))).toEqual(new Set([null, 'feature-x']))
     const wtNode = proj.forest.find(n => n.id === 'conv_wt')!
     expect(wtNode.worktreeName).toBe('feature-x')
+  })
+})
+
+describe('GET /api/sheaf -- SOTU enrichment (Phase 6)', () => {
+  const PROJECT = 'claude://default/Users/test/proj'
+
+  it('folds per-project SOTU + git-fabric + the fleet union into the response', () => {
+    initSotuStore(cacheDir)
+    const now = Date.now()
+    createConv('conv_a', { createdAt: now - 3600_000, lastActivity: now - 60_000, scope: PROJECT })
+    recordTurn('conv_a', { ts: now - 1800_000, cost: 0.1 })
+    const slug = projectSlug(PROJECT)
+    writeChronicle(slug, { ...emptyChronicle(now - 5000), narrative: 'Proj is mid-refactor.' })
+    const git: GitScanContrib = {
+      kind: 'git_scan',
+      convId: '',
+      ts: now - 1000,
+      git: {
+        branches: [
+          {
+            branch: 'feat',
+            aheadOrigin: 2,
+            behindOrigin: 0,
+            aheadLocal: 0,
+            behindLocal: 0,
+            integration: 'merge-clean',
+            alerts: ['unpushed'],
+          },
+        ],
+        scannedAt: now - 1000,
+      },
+    }
+    recordContribution(slug, git)
+    // ProjectSettings opt-in (bearer admin -> all visible). Narrative needs enabled.
+    return (async () => {
+      const res = await app.request('/api/sheaf', { headers: authHeaders() })
+      const body = (await res.json()) as SheafResponse
+      const proj = body.projects.find(p => p.projectUri === PROJECT)!
+      expect(proj.sotu).toBeDefined()
+      // Free floor is always present (alerts from the scan), regardless of opt-in.
+      expect(proj.sotu!.alerts).toContain('unpushed')
+      expect(proj.sotu!.branches).toHaveLength(1)
+      // The fleet union reflects the visible project, nothing filtered for admin.
+      expect(body.sotu).toBeDefined()
+      expect(body.sotu!.filteredProjects).toBe(0)
+      expect(body.sotu!.unpushedProjects).toBeGreaterThanOrEqual(1)
+    })()
   })
 })
 

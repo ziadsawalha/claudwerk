@@ -21,6 +21,8 @@ export { readChronicle, readChronicleMd, renderChronicleMd, writeChronicle } fro
 // `maybeDistillOnRead` (read-triggered regen) is consumed from the barrel by the
 // Phase-5 REST route. The MCP handler imports it directly from './engine'.
 export { maybeDistillOnRead, startSotuEngine, stopSotuEngine } from './engine'
+// Phase-6 fleet rollup -- enriches the Sheaf response (consumed by the sheaf route).
+export { enrichSheafWithSotu } from './fleet'
 export { startSotuFloor, stopSotuFloor } from './floor'
 // gatherGitFabric / GitFabricTransport are consumed directly by git-scan.ts (and
 // the Phase-4 distill engine later) -- barrel re-export lands with that external

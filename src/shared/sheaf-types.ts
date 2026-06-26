@@ -9,6 +9,12 @@
  * in-memory live status).
  */
 
+import type { BranchFabric, GitAlert } from './protocol'
+
+// Re-exported so the Sheaf web layer (sheaf-sotu.tsx) consumes the git-fabric
+// shapes from one module alongside the SOTU enrichment types.
+export type { BranchFabric, GitAlert } from './protocol'
+
 export type SheafStatus = 'running' | 'idle' | 'ended' | 'killed' | 'crashed'
 
 export interface SheafTokens {
@@ -39,7 +45,12 @@ export interface SheafNode {
   /** Worktree name if currentPath is inside `.claude/worktrees/<name>` or
    *  `.worktrees/<name>`. Null = main checkout / unknown. */
   worktreeName: string | null
-  /** Commits attributed to this conversation in the window (phase 3). */
+  /** Ahead-of-origin commit count on this node's WORKTREE branch, from SOTU's
+   *  git-fabric scan (Phase 6 finishes the formerly-dead `commits: 0 // phase 3`
+   *  column). Per-WORKTREE, not per-conversation: every conv sharing a worktree
+   *  shows the same count (a precise convId->commit map is not measurable -- the
+   *  same honest limit the Phase-4 decay decision documented). 0 = main checkout,
+   *  no git-fabric, or branch already integrated. */
   commits: number
   /** Outcome line: short, one-liner. Recap > termination reason > status hint. */
   outcomeLine: string
@@ -73,6 +84,53 @@ export interface SheafWorktreeSubtotal {
   cost: SheafCost
 }
 
+/** Citation-grounding metric (recap Pillar D, deterministic, no judge) -- THE
+ *  bard-lying detector. Scores the distilled chronicle's cited conversations
+ *  against the input it actually had (the live contribution queue). High
+ *  precision = the narrative isn't inventing convs; coverage = how much of the
+ *  input it accounts for. `unknownCited` is the hard count that matters most:
+ *  conversations the chronicle cites that are NOT in the input (hallucinated or
+ *  stale). See `src/broker/sotu/grounding.ts`. */
+export interface SheafGrounding {
+  /** (cited - unknownCited) / cited. 1 when nothing is cited. */
+  precision: number
+  /** (cited ∩ known) / known. 1 when there is no input to cover. */
+  coverage: number
+  /** Distinct conversations the chronicle cites. */
+  citedConvs: number
+  /** Distinct conversations present in the input (the queue the bard folded). */
+  knownConvs: number
+  /** Cited conversations absent from the input -- the lie/staleness count. */
+  unknownCited: number
+}
+
+/** SOTU enrichment attached to one project section in the fleet view (Phase 6).
+ *  ALWAYS present on a project the viewer may see (free floor: alerts + contended
+ *  + git-fabric branches, zero LLM); `narrative` is the PAID chronicle prose,
+ *  present only when the project opted in AND a distill has run. Absent entirely
+ *  on a project the viewer cannot see (the per-project visibility filter -- no
+ *  chronicle bleed across project boundaries). */
+export interface SheafProjectSotu {
+  /** Project opted into the paid distill (`ProjectSettings.sotuEnabled`). */
+  enabled: boolean
+  /** Distilled "where are we" prose, trimmed. Absent when disabled / never distilled. */
+  narrative?: string
+  /** When the chronicle was generated (epoch ms). Absent until the first distill. */
+  generatedAt?: number
+  /** Deduped git escalation alerts (at-risk/unpushed/stalled) for this project. */
+  alerts: GitAlert[]
+  /** Count of CONTENDED targets (2+ convs on one claim/stake) -- passive collision. */
+  contended: number
+  /** Per-branch/worktree merge-risk from the latest git-fabric scan (free, always-on). */
+  branches: BranchFabric[]
+  /** Fetch freshness of the git-fabric snapshot ("origin/main as of <t>"). */
+  fetchedAt?: number
+  /** When the git-fabric was scanned (epoch ms). */
+  scannedAt?: number
+  /** Citation-grounding of the chronicle vs its input (present only when distilled). */
+  grounding?: SheafGrounding
+}
+
 export interface SheafProject {
   /** Canonicalized project URI (worktree-collapsed). Stable bucket key. */
   projectUri: string
@@ -86,6 +144,35 @@ export interface SheafProject {
     convCount: number
     treeCount: number
   }
+  /** SOTU narrative + git-fabric + claims/stakes. Set by the Phase-6 fleet
+   *  enrichment AFTER the structural build. Absent when the viewer cannot see
+   *  this project (visibility filter) or the SOTU store is unavailable. */
+  sotu?: SheafProjectSotu
+}
+
+/** The cheap fleet rollup (Phase 6): a zero-LLM UNION across the projects the
+ *  viewer can see -- total git alerts, contention, grounding average. The optional
+ *  LLM "fleet narrative" (on-return) is a later add; this union is always free. */
+export interface SheafFleetSotu {
+  /** Projects (visible) that opted into the paid distill. */
+  projectsEnabled: number
+  /** Projects (visible) with a non-empty distilled narrative. */
+  projectsWithNarrative: number
+  /** Deduped union of git alerts across visible projects. */
+  alerts: GitAlert[]
+  /** Total CONTENDED targets across visible projects. */
+  contended: number
+  /** Visible projects carrying each alert class (the fleet risk counts). */
+  atRiskProjects: number
+  unpushedProjects: number
+  stalledProjects: number
+  /** Input-weighted average grounding across distilled visible projects. Absent
+   *  when no visible project has a distilled chronicle. */
+  grounding?: SheafGrounding
+  /** Projects hidden from this viewer by the per-project visibility filter. Surfaced
+   *  (never silently dropped) so the view never reads as "the whole fleet" when it
+   *  is a filtered slice. */
+  filteredProjects: number
 }
 
 export interface SheafResponse {
@@ -101,4 +188,7 @@ export interface SheafResponse {
     cost: SheafCost
   }
   projects: SheafProject[]
+  /** Fleet-wide SOTU union (Phase 6). Set by the enrichment; absent when the SOTU
+   *  store is unavailable. Reflects ONLY the projects this viewer may see. */
+  sotu?: SheafFleetSotu
 }

@@ -13,6 +13,7 @@ import { costHeatClass, formatAgo, formatCost, formatDateTime, formatTokens } fr
 import { SheafControlsRow } from './sheaf-controls'
 import { WINDOW_OPTIONS } from './sheaf-derive'
 import { ProjectSection } from './sheaf-project-section'
+import { FleetSotuStats } from './sheaf-sotu'
 import { type SheafFilters, useSheafFilters } from './use-sheaf-filters'
 import { useSheafKeyboard } from './use-sheaf-keyboard'
 
@@ -225,6 +226,7 @@ function Totals({ data, windowH }: { data: SheafResponse | null; windowH: number
           value={formatCost(t.cost.amount, t.cost.estimated)}
           heatClass={costHeatClass(t.cost.amount)}
         />
+        <FleetSotuStats sotu={data.sotu} />
       </div>
     </div>
   )
