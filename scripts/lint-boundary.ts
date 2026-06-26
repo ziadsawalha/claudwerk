@@ -91,8 +91,9 @@ const ALLOWED_CWD_TO_URI_FILES = new Set([
   //     are the real targets of the eradication plan: a raw `cwd` arrives from
   //     the agent-host / sentinel and is converted in broker core. The plan
   //     pushes the conversion onto the sentinel so the URI arrives pre-formed.
-  'handlers/boot-lifecycle.ts',
-  'handlers/conversation-lifecycle.ts',
+  //     boot-lifecycle.ts + conversation-lifecycle.ts ERADICATED (Phase 5b): the
+  //     agent host always sends the canonical `project` URI, so the broker
+  //     dropped the cwd fallback entirely.
   'handlers/daemon.ts',
   'backends/claude-daemon.ts',
   'backends/opencode.ts',

@@ -8,7 +8,6 @@
  * on the conversation (the conversationId store key stays the same).
  */
 
-import { cwdToProjectUri } from '../../shared/project-uri'
 import type {
   AgentHostCapability,
   AgentHostLaunchPhase,
@@ -31,13 +30,15 @@ const agentHostBoot: MessageHandler = (ctx, data) => {
 
   const conversationId = data.conversationId as string
   const project = data.project as string | undefined
-  const bootPath = data.cwd as string | undefined
-  if (!conversationId || (!project && !bootPath)) {
-    ctx.log.debug(`[boot] wrapper_boot missing conversationId or project/cwd, ignoring`)
+  if (!conversationId || !project) {
+    ctx.log.debug(`[boot] agent_host_boot missing conversationId or project, ignoring`)
     return
   }
 
-  const resolvedProject = project ?? cwdToProjectUri(bootPath as string)
+  // The agent host ALWAYS sends the canonical project URI (required wire field,
+  // computed host-side). The broker never derives it from a raw cwd
+  // (CWD-IS-INFORMATIONAL) -- the URI arrives pre-formed.
+  const resolvedProject = project
 
   // Track the WS so subsequent messages from this agent host are routed here.
   ctx.ws.data.conversationId = conversationId

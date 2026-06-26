@@ -3,7 +3,7 @@
  * heartbeat, conversation clear (re-key), notify, and end.
  */
 
-import { cwdToProjectUri, extractProjectLabel } from '../../shared/project-uri'
+import { extractProjectLabel } from '../../shared/project-uri'
 import type { Conversation, HookEvent, TerminationDetail, TerminationSource } from '../../shared/protocol'
 import { slugify } from '../address-book'
 import type { MessageHandler } from '../handler-context'
@@ -22,17 +22,18 @@ const meta: MessageHandler = (ctx, data) => {
   const ccSessionId = required.ccSessionId
 
   const projectField = data.project
-  const cwdField = data.cwd
-  if (typeof projectField !== 'string' && typeof cwdField !== 'string') {
+  if (typeof projectField !== 'string') {
     rejectBadMessage(ctx, {
       type: 'meta',
       field: 'project',
-      reason: 'either project (string) or cwd (string) is required',
-      received: { project: projectField, cwd: cwdField },
+      reason: 'project (string) is required',
+      received: { project: projectField },
     })
     return
   }
-  const project = (projectField as string | undefined) ?? cwdToProjectUri(cwdField as string)
+  // The agent host always sends the canonical project URI; the broker never
+  // derives it from a raw cwd (CWD-IS-INFORMATIONAL).
+  const project = projectField
   ctx.ws.data.conversationId = conversationId
   ctx.ws.data.ccSessionId = ccSessionId
   ctx.ws.data.connectionId = conversationId
@@ -193,7 +194,9 @@ const conversationReset: MessageHandler = (ctx, data) => {
   const conversationId = (data.conversationId as string) || ctx.ws.data.conversationId
   if (!conversationId) return
 
-  const resetProject = (data.project as string) ?? cwdToProjectUri(data.cwd as string)
+  // The agent host sends the canonical project URI on reset; no cwd derivation.
+  const resetProject = data.project as string
+  if (typeof resetProject !== 'string') return
   // /clear does not change the conversation's resolvedProfile -- it lives on
   // the conversation record, untouched by URI rewrites.
   const conversation = ctx.conversations.clearConversation(conversationId, resetProject, data.model as string)
