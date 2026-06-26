@@ -72,12 +72,10 @@ const ALLOWED_CCSESSION_FILES = new Set([
  * drives them to zero. DO NOT ADD to either set -- if you reach for one, the
  * conversion belongs on the sentinel.
  */
-const ALLOWED_URI_PATH_EXTRACTION_FILES = new Set([
-  // Sends the path to the sentinel in `project_watch` / `project_unwatch`. The
-  // wire message already carries the URI too; the plan moves extraction
-  // sentinel-side so the broker forwards the URI only.
-  'project-watch-registry.ts',
-])
+// EMPTY -- Rule 4a is fully eradicated. The broker never extracts `.path` from a
+// project URI; every site forwards the URI and lets the sentinel resolve it.
+// (plan-broker-cwd-eradication.md Phase 2 emptied this set.) DO NOT re-populate.
+const ALLOWED_URI_PATH_EXTRACTION_FILES = new Set<string>([])
 const ALLOWED_CWD_TO_URI_FILES = new Set([
   // --- Legacy one-time migrations: read an OLD persisted `cwd` column / field
   //     and upgrade it to a URI exactly once. Defensible long-term.

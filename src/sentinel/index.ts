@@ -3997,7 +3997,7 @@ function connect(
 
         case 'project_watch': {
           const m = msg as ProjectWatch
-          const root = expandPath(m.projectRoot, spawnRoot)
+          const root = expandPath(parseProjectUri(m.project).path, spawnRoot)
           watchProject(
             root,
             m.project,
@@ -4010,7 +4010,7 @@ function connect(
 
         case 'project_unwatch': {
           const m = msg as ProjectUnwatch
-          const root = expandPath(m.projectRoot, spawnRoot)
+          const root = expandPath(parseProjectUri(m.project).path, spawnRoot)
           unwatchProject(root, l => log(l))
           break
         }

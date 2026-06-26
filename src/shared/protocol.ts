@@ -3680,10 +3680,9 @@ export interface ProjectDiff {
  *  views the project; the lease is the failsafe if the broker dies. */
 export interface ProjectWatch {
   type: 'project_watch'
-  /** Absolute project root on the sentinel's filesystem (for the chokidar watch). */
-  projectRoot: string
-  /** Canonical project URI -- echoed back in `project_changed` so the broker can
-   *  broadcast-scope by project without re-deriving it from the host path. */
+  /** Canonical project URI. The SENTINEL resolves it to an absolute project root
+   *  (CWD-IS-INFORMATIONAL: the broker never derives the path). Echoed back in
+   *  `project_changed` so the broker can broadcast-scope by project. */
   project: string
   /** Lease duration in ms; sentinel self-stops if not renewed before expiry. */
   leaseMs: number
@@ -3692,7 +3691,8 @@ export interface ProjectWatch {
 /** Broker -> Sentinel: stop watching immediately (last viewer closed). */
 export interface ProjectUnwatch {
   type: 'project_unwatch'
-  projectRoot: string
+  /** Canonical project URI; the sentinel resolves it to the project root. */
+  project: string
 }
 
 /** Sentinel -> Broker: project board changed. Tagged with the project URI (NO

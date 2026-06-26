@@ -12,7 +12,6 @@
  */
 
 import type { ServerWebSocket } from 'bun'
-import { parseProjectUri } from '../shared/project-uri'
 
 /** Lease handed to the sentinel; it self-stops if not renewed before expiry. */
 const LEASE_MS = 20 * 60 * 1000
@@ -45,9 +44,8 @@ function sendWatch(project: string): void {
     deps.log(`[project-watch] no sentinel connected to arm ${project}`)
     return
   }
-  const projectRoot = parseProjectUri(project).path
   try {
-    sentinel.send(JSON.stringify({ type: 'project_watch', projectRoot, project, leaseMs: LEASE_MS }))
+    sentinel.send(JSON.stringify({ type: 'project_watch', project, leaseMs: LEASE_MS }))
   } catch {
     /* sentinel socket gone -- re-armed on its next connect */
   }
@@ -57,9 +55,8 @@ function sendUnwatch(project: string): void {
   if (!deps) return
   const sentinel = deps.getSentinelForProject(project)
   if (!sentinel) return
-  const projectRoot = parseProjectUri(project).path
   try {
-    sentinel.send(JSON.stringify({ type: 'project_unwatch', projectRoot }))
+    sentinel.send(JSON.stringify({ type: 'project_unwatch', project }))
   } catch {
     /* sentinel gone -- its watches died with it */
   }
