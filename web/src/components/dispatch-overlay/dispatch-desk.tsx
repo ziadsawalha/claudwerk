@@ -28,19 +28,48 @@ function RosterSection() {
   )
 }
 
-/** What the GLOBAL concierge is holding right now: the live roster ("active right
- *  now"), its durable memory, and scratch workspaces. The dispatcher is global
- *  (one per user, fronts ALL projects) -- it is NOT anchored to one project, so
- *  there is no by-project lead. Threads are SHORT-TERM memory folded into the
- *  dispatcher's context, not a panel. Light, not a fleet dashboard; renders
- *  nothing when everything is empty. */
+/** "Where things stand" (Phase 4b): a zero-LLM per-project status strip -- the
+ *  fleet by project + the condensed brief headline + an attention count. The "+
+ *  status" half the user expects on open, alongside the condensed memory. */
+function StatusSection() {
+  const status = useDispatchStore(s => s.status)
+  if (status.length === 0) return null
+  return (
+    <div>
+      <span className="text-[11px] uppercase tracking-[0.2em] text-comment">where things stand</span>
+      <div className="mt-3 flex flex-col gap-2">
+        {status.map(p => (
+          <div key={p.project} className="rounded-xl border border-border/70 bg-card/40 px-3.5 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[13px] font-medium text-foreground/90">{p.project}</span>
+              <span className="shrink-0 text-[11px] text-comment">
+                {p.needsYou > 0 && <span className="text-[color:var(--accent)]">{p.needsYou} needs you · </span>}
+                {p.live} live{p.working > 0 ? ` · ${p.working} working` : ''}
+              </span>
+            </div>
+            {p.headline && <p className="mt-1 text-[11.5px] leading-snug text-comment">{p.headline}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** What the GLOBAL concierge is holding right now: the per-project status strip,
+ *  the live roster ("active right now"), its durable memory, and scratch
+ *  workspaces. The dispatcher is global (one per user, fronts ALL projects) -- it
+ *  is NOT anchored to one project, so there is no by-project lead. Threads are
+ *  SHORT-TERM memory folded into the dispatcher's context, not a panel. Light, not
+ *  a fleet dashboard; renders nothing when everything is empty. */
 export function DispatchDesk() {
   const roster = useDispatchStore(s => s.roster)
+  const status = useDispatchStore(s => s.status)
   const memory = useDispatchStore(s => s.memory)
-  if (roster.length === 0 && !memory.trim()) return null
+  if (roster.length === 0 && status.length === 0 && !memory.trim()) return null
 
   return (
     <div className="flex flex-col gap-7 px-6 pt-8">
+      <StatusSection />
       <RosterSection />
       <MemorySection />
       <WorkspaceSection />

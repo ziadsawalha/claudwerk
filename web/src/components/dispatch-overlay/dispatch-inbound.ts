@@ -13,6 +13,7 @@ import type {
   DispatchCandidate,
   DispatchDecision,
   DispatchHistoryDump,
+  DispatchProjectStatus,
   DispatchToolCall,
   DispatchToolResult,
 } from '@shared/protocol'
@@ -28,6 +29,7 @@ export interface ThreadsResultMsg {
   ok?: boolean
   error?: string
   roster?: DispatchCandidate[]
+  status?: DispatchProjectStatus[]
   memory?: string
   workspaces?: WorkspaceInfo[]
   history?: DispatchHistoryDump
@@ -63,6 +65,7 @@ export function createInbound(set: Set, get: Get) {
       set(s => ({
         threadsLoading: false,
         roster: msg.roster ?? [],
+        status: msg.status ?? [],
         memory: msg.memory ?? '',
         workspaces: msg.workspaces ?? [],
         history: msg.history ?? s.history, // seed the living conversation on open (Slice C)

@@ -12,6 +12,7 @@ import type {
   DispatchCandidate,
   DispatchDecision,
   DispatchHistoryDump,
+  DispatchProjectStatus,
   DispatchToolCall,
   DispatchToolResult,
 } from '@shared/protocol'
@@ -40,6 +41,8 @@ export interface DispatchState {
   lastError: string | null
   /** Live conversations the desk currently covers (shown as "active right now"). */
   roster: DispatchCandidate[]
+  /** Per-project status (Phase 4b): the "where things stand" strip on open. */
+  status: DispatchProjectStatus[]
   threadsLoading: boolean
   activeConvId: string | null
   rightPane: RightPane
@@ -129,6 +132,7 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   pending: false,
   lastError: null,
   roster: [],
+  status: [],
   threadsLoading: false,
   activeConvId: null,
   rightPane: 'memory',

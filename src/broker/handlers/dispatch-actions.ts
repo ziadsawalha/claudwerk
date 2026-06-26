@@ -15,8 +15,9 @@
  *   dispatch_list_threads  -> listThreadsForUser   -> dispatch_list_threads_result
  */
 
-import type { DispatchDecision } from '../../shared/protocol'
+import type { DispatchDecision, DispatchProjectStatus } from '../../shared/protocol'
 import { runDispatchAgent } from '../desk/agent-runtime'
+import { projectOverviewRows } from '../desk/dispatch-tools'
 import {
   compactNow,
   consolidateOnOpen,
@@ -26,6 +27,7 @@ import {
 } from '../desk/history-store'
 import { readMemory } from '../desk/memory'
 import type { DispatchCommand } from '../desk/orchestrate'
+import type { ProjectOverviewRow } from '../desk/overview'
 import { type DispatchRuntime, listDispatchRosterCandidates, runDispatch } from '../desk/runtime'
 import { workspaceSnapshot } from '../desk/workspace'
 import { GuardError, type HandlerContext, type MessageData, type MessageHandler } from '../handler-context'
@@ -152,6 +154,28 @@ const dispatchRequest: MessageHandler = async (ctx: HandlerContext, data: Messag
 // history. The dispatcher fronts ALL projects -- there is no per-project view --
 // and THREADS are short-term memory folded into the dispatcher's context, not a
 // surfaced panel, so neither is sent to the overlay.
+/** Project STATUS strip (Phase 4b): the attention-ordered overview, slimmed to a
+ *  headline + counts. Zero LLM -- the brief is already condensed; this is a union of
+ *  the live fleet + that brief's first line. Projects with no live conv AND no brief
+ *  are dropped; top rows only (the overview is already attention/recency ordered). */
+function toStatusRows(rows: ProjectOverviewRow[]): DispatchProjectStatus[] {
+  return rows
+    .filter(r => r.live > 0 || r.brief.trim())
+    .slice(0, 6)
+    .map(r => {
+      const headline = (r.brief.split('\n').find(l => l.trim()) ?? '').replace(/^[-*]\s*/, '').slice(0, 120)
+      const row: DispatchProjectStatus = {
+        project: r.project,
+        headline,
+        live: r.live,
+        working: r.working,
+        needsYou: r.needsYou,
+      }
+      if (r.idleMin !== undefined) row.idleMin = r.idleMin
+      return row
+    })
+}
+
 const dispatchListThreads: MessageHandler = (ctx: HandlerContext, data: MessageData) => {
   ctx.requirePermission('spawn')
   const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
@@ -164,6 +188,8 @@ const dispatchListThreads: MessageHandler = (ctx: HandlerContext, data: MessageD
   // Age-gated + once-per-return (consolidateOnOpen); a no-op (zero cost) when nothing aged.
   void consolidateOnOpen(userId, Date.now(), req => chat(req)).catch(() => null)
   const roster = listDispatchRosterCandidates(ctx.conversations)
+  // STATUS strip (Phase 4b): the "where things stand" half on open, zero-LLM.
+  const status = toStatusRows(projectOverviewRows({ store: ctx.conversations, callerConversationId: null }))
   const memory = readMemory(userId)
   const workspaces = workspaceSnapshot()
   // The living conversation itself (transcript + state blocks) so opening the
@@ -173,7 +199,7 @@ const dispatchListThreads: MessageHandler = (ctx: HandlerContext, data: MessageD
   // dispatchListThreads (permission gate) is auto-replied by the router as
   // `dispatch_list_threads_result` ok:false, which must reach the same client
   // handler -- else the overlay wedges on "loading" forever.
-  ctx.reply({ type: 'dispatch_list_threads_result', requestId, roster, memory, workspaces, history, userId })
+  ctx.reply({ type: 'dispatch_list_threads_result', requestId, roster, status, memory, workspaces, history, userId })
 }
 
 type ControlAction = 'clear' | 'compact' | 'forget'

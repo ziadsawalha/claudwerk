@@ -1671,6 +1671,23 @@ export interface DispatchToolResult {
   userId?: string | null
 }
 
+/** One project's at-a-glance STATUS for the dispatcher overlay's status strip
+ *  (Phase 4b). A zero-LLM union of the live fleet + the condensed per-project brief
+ *  HEADLINE -- the "where do I look" half on open, without a narrative LLM pass. */
+export interface DispatchProjectStatus {
+  project: string
+  /** First non-empty line of the condensed brief (headline); '' if none learned. */
+  headline: string
+  /** Live (non-ended) conversations in this project. */
+  live: number
+  /** Currently working. */
+  working: number
+  /** Flagged needs_you / blocked -- where the user's attention is wanted. */
+  needsYou: number
+  /** Minutes since the most recent activity, if any. */
+  idleMin?: number
+}
+
 /** broker -> the requesting control panel: the user's near-memory threads PLUS
  *  the live roster (active conversations the desk currently covers), so the
  *  overlay can SHOW what the concierge is holding -- not just route into it. */
@@ -1688,6 +1705,10 @@ export interface DispatchThreadsResult {
    *  now"). The dispatcher is GLOBAL -- not project-scoped. Threads are short-term
    *  memory folded into the dispatcher's context, NOT surfaced here. */
   roster?: DispatchCandidate[]
+  /** Per-project at-a-glance STATUS (Phase 4b): the fleet + condensed brief
+   *  headlines, so opening the dispatcher shows "where things stand" without an
+   *  LLM pass. Attention-first ordered, top projects only. Absent on older brokers. */
+  status?: DispatchProjectStatus[]
   /** The dispatcher's durable memory file (markdown), so the overlay can show
    *  what it remembers long-term. Absent on older brokers. */
   memory?: string
