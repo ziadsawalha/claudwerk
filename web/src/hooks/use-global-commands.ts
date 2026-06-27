@@ -480,6 +480,15 @@ export function useGlobalCommands(toggleSidebar: () => void) {
   )
 
   useCommand(
+    'remount-app',
+    async () => {
+      const { remountApp } = await import('@/lib/remount')
+      remountApp()
+    },
+    { label: 'Remount App (tear down + rebuild React tree)', group: 'Debug' },
+  )
+
+  useCommand(
     'clear-reload',
     async () => {
       const { clearCacheAndReload } = await import('@/lib/utils')
