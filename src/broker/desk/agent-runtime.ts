@@ -16,7 +16,7 @@ import { MEMORY_BLOCK_ID } from './consolidate'
 import { buildDispatchToolset, projectOverviewRows } from './dispatch-tools'
 import { consolidateIfDue, getUserHistory, markDirty, recordTurn, refreshLiveBlocks } from './history-store'
 import { appendTurn, getBlock, toMessages } from './living-history'
-import { readMemory } from './memory'
+import { readMemory, readSystemAppend } from './memory'
 import { activeContextRows } from './overview'
 import type { QuestSpawn } from './quest-tool'
 import type { DispatchRuntime } from './runtime'
@@ -93,6 +93,12 @@ const DISPATCHER_SYSTEM = [
   '- Keep replies short and plain-spoken, like a good assistant talking out loud.',
   '  After acting, say what you did in one line.',
 ].join('\n')
+
+function buildSystemPrompt(override?: string): string {
+  const base = override || DISPATCHER_SYSTEM
+  const append = readSystemAppend().trim()
+  return append ? `${base}\n\n${append}` : base
+}
 
 /** Near-memory thread tools (the dispatcher`s "what am I working on" board). */
 function threadTools(): Toolset {
@@ -218,7 +224,7 @@ export async function runDispatchAgent(
   const result = await runAgent(
     {
       intent,
-      system: opts.systemOverride || DISPATCHER_SYSTEM,
+      system: buildSystemPrompt(opts.systemOverride),
       seedMessages: toMessages(history),
       model,
       toolset: buildAgentToolset(rt, opts.confirmedExpensive ?? false, opts.userId, opts.questSpawn),

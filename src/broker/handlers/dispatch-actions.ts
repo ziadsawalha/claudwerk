@@ -19,7 +19,7 @@ import type { DispatchDecision, DispatchProjectStatus } from '../../shared/proto
 import { runDispatchAgent } from '../desk/agent-runtime'
 import { projectOverviewRows } from '../desk/dispatch-tools'
 import { compactNow, dumpUserHistory, forgetUserMemory, maintainOnOpen, resetUserHistory } from '../desk/history-store'
-import { readMemory } from '../desk/memory'
+import { readMemory, readMemoryRaw, readSystemAppend, refineMemory, writeMemory, writeSystemAppend } from '../desk/memory'
 import type { DispatchCommand } from '../desk/orchestrate'
 import type { ProjectOverviewRow } from '../desk/overview'
 import { type DispatchRuntime, listDispatchRosterCandidates, runDispatch } from '../desk/runtime'
@@ -234,6 +234,46 @@ async function applyControlVerb(action: ControlAction, userId: string | null): P
   return res.ran ? `Compacted ${res.foldedTurns} turn(s) into memory.` : 'Nothing to compact -- already condensed.'
 }
 
+// ─── Memory + system-append file operations (/memory, /system) ─────
+
+type FileAction = 'memory_read' | 'memory_write' | 'memory_refine' | 'system_read' | 'system_write'
+
+const FILE_ACTIONS: Record<string, FileAction> = {
+  memory_read: 'memory_read',
+  memory_write: 'memory_write',
+  memory_refine: 'memory_refine',
+  system_read: 'system_read',
+  system_write: 'system_write',
+}
+
+async function handleFileAction(
+  action: FileAction,
+  data: MessageData,
+): Promise<Record<string, unknown>> {
+  if (action === 'memory_read') {
+    return { content: readMemoryRaw() }
+  }
+  if (action === 'memory_write') {
+    const content = typeof data.content === 'string' ? data.content : ''
+    writeMemory(content)
+    return { ok: true }
+  }
+  if (action === 'memory_refine') {
+    const instruction = typeof data.instruction === 'string' ? data.instruction.trim() : ''
+    if (!instruction) return { ok: false, error: 'empty instruction' }
+    const model = typeof data.model === 'string' && data.model ? data.model : undefined
+    const result = await refineMemory(instruction, req => chat(req), model)
+    return { ok: true, before: result.before, after: result.after, model: result.model }
+  }
+  if (action === 'system_read') {
+    return { content: readSystemAppend() }
+  }
+  // system_write
+  const content = typeof data.content === 'string' ? data.content : ''
+  writeSystemAppend(content)
+  return { ok: true }
+}
+
 /** Render a control verb's confirmation as a `converse` decision for the feed. */
 function controlDecision(action: ControlAction, userId: string | null, reply: string): DispatchDecision {
   return {
@@ -260,19 +300,33 @@ const dispatchControl: MessageHandler = async (ctx: HandlerContext, data: Messag
   ctx.requirePermission('spawn')
   const requestId = typeof data.requestId === 'string' ? data.requestId : undefined
   const userId = ctx.ws.data.userName ?? null
-  const action = data.action
+  const action = typeof data.action === 'string' ? data.action : ''
+
+  // File operations (/memory, /system) return data, not decisions.
+  const fileAction = FILE_ACTIONS[action]
+  if (fileAction) {
+    try {
+      const result = await handleFileAction(fileAction, data)
+      ctx.reply({ type: 'dispatch_control_result', requestId, action, ...result })
+      ctx.log.debug(`dispatch_control [${userId ?? 'anon'}] ${action}`)
+    } catch (e) {
+      ctx.reply({ type: 'dispatch_control_result', requestId, action, ok: false, error: (e as Error).message })
+    }
+    return
+  }
+
   if (action !== 'clear' && action !== 'compact' && action !== 'forget') {
     ctx.reply({ type: 'dispatch_request_result', requestId, ok: false, error: 'unknown dispatch_control action' })
     return
   }
   try {
-    const reply = await applyControlVerb(action, userId)
+    const reply = await applyControlVerb(action as ControlAction, userId)
     ctx.log.debug(`dispatch_control [${userId ?? 'anon'}] ${action}`)
     ctx.reply({
       type: 'dispatch_request_result',
       requestId,
       ok: true,
-      decision: controlDecision(action, userId, reply),
+      decision: controlDecision(action as ControlAction, userId, reply),
     })
   } catch (e) {
     ctx.reply({ type: 'dispatch_request_result', requestId, ok: false, error: (e as Error).message })

@@ -14,8 +14,8 @@
  * reality); the userId param is the seam for per-user scoping later.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import type { ChatFn } from './classify'
 
 /** Keep the memory the loop reads TINY -- it travels in every turn's context. */
@@ -57,6 +57,97 @@ export function appendMemoryFacts(facts: string[], now: number, _userId?: string
   mkdirSync(dirname(memoryFile), { recursive: true })
   appendFileSync(memoryFile, `${clean.map(f => `- [${stamp}] ${f}`).join('\n')}\n`, 'utf8')
 }
+
+// ─── Version history (last 10 snapshots before each write) ─────────
+
+const MAX_VERSIONS = 10
+
+function versionDir(): string | null {
+  if (!memoryFile) return null
+  const dir = join(dirname(memoryFile), 'memory-versions')
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function saveVersion(): void {
+  if (!memoryFile || !existsSync(memoryFile)) return
+  const dir = versionDir()
+  if (!dir) return
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  copyFileSync(memoryFile, join(dir, `${stamp}.md`))
+  const files = readdirSync(dir).filter(f => f.endsWith('.md')).sort()
+  for (const old of files.slice(0, -MAX_VERSIONS)) {
+    try { require('node:fs').unlinkSync(join(dir, old)) } catch { /* ok */ }
+  }
+}
+
+/** Read the raw memory file (no cap). */
+export function readMemoryRaw(): string {
+  if (!memoryFile || !existsSync(memoryFile)) return ''
+  return readFileSync(memoryFile, 'utf8')
+}
+
+/** Write the memory file wholesale (version backup first). */
+export function writeMemory(content: string): void {
+  if (!memoryFile) return
+  saveVersion()
+  mkdirSync(dirname(memoryFile), { recursive: true })
+  writeFileSync(memoryFile, content, 'utf8')
+}
+
+// ─── LLM refinement (/memory x) ───────────────────────────────────
+
+const REFINE_SYSTEM = [
+  'You maintain a TINY durable memory file for a fleet dispatcher.',
+  'The user gives you the CURRENT memory file + an INSTRUCTION.',
+  'Apply the instruction: add facts, remove facts, reword, reorganize,',
+  'optimize -- whatever the instruction says. Output ONLY the new memory',
+  'file content (markdown bullets, dated). No preamble, no explanation.',
+  'Keep it under 4000 characters. Preserve existing facts unless the',
+  'instruction says to change or remove them.',
+].join('\n')
+
+export interface RefineResult {
+  before: string
+  after: string
+  model: string
+}
+
+export async function refineMemory(instruction: string, chat: ChatFn, model?: string): Promise<RefineResult> {
+  const before = readMemoryRaw()
+  const useModel = model || DIGEST_MODEL
+  const res = await chat({
+    model: useModel,
+    system: REFINE_SYSTEM,
+    user: `CURRENT MEMORY FILE:\n\`\`\`\n${before || '(empty)'}\n\`\`\`\n\nINSTRUCTION: ${instruction}`,
+    maxTokens: 2000,
+    temperature: 0,
+    timeoutMs: 30_000,
+    timeoutRetries: 1,
+  })
+  return { before, after: res.content.trim(), model: useModel }
+}
+
+// ─── Appended system prompt (/system) ──────────────────────────────
+
+let systemAppendFile: string | null = null
+
+export function initSystemAppend(cacheDir: string): void {
+  systemAppendFile = resolve(cacheDir, 'dispatch-system-append.md')
+}
+
+export function readSystemAppend(): string {
+  if (!systemAppendFile || !existsSync(systemAppendFile)) return ''
+  return readFileSync(systemAppendFile, 'utf8')
+}
+
+export function writeSystemAppend(content: string): void {
+  if (!systemAppendFile) return
+  mkdirSync(dirname(systemAppendFile), { recursive: true })
+  writeFileSync(systemAppendFile, content, 'utf8')
+}
+
+// ─── Post-turn digest ──────────────────────────────────────────────
 
 const DIGEST_SYSTEM = [
   'You maintain a TINY durable memory for a fleet dispatcher. Given the user`s',

@@ -42,7 +42,7 @@ import { type ContextDeps, createContext } from './create-context'
 import { closeDispatchAudit, initDispatchAudit } from './desk/audit'
 import { startDeskMemoryService, stopDeskMemoryService } from './desk/desk-memory-service'
 import { emitDeskEvent } from './desk/event-registry'
-import { initDispatchMemory } from './desk/memory'
+import { initDispatchMemory, initSystemAppend } from './desk/memory'
 import { closeProjectMemory, initProjectMemory } from './desk/project-memory'
 import { closeDispatchThreads, initDispatchThreads } from './desk/threads'
 import { startExternalStatusPolling, stopExternalStatusPolling } from './external-status'
@@ -333,6 +333,7 @@ async function main() {
   initDispatchAudit(authCacheDir)
   initDispatchThreads(authCacheDir)
   initDispatchMemory(authCacheDir)
+  initSystemAppend(authCacheDir)
   // Per-project condensed memory (the dispatcher BRAIN's durable store). The
   // always-on desk-memory SERVICE that feeds it is started after recap init
   // (it backfills from recaps).
