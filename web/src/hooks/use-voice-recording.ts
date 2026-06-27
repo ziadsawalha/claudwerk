@@ -46,6 +46,10 @@ function wsIsOpen(): boolean {
 
 interface UseVoiceRecordingResult {
   state: VoiceState
+  /** False until broker->Deepgram chain confirmed (voice_ready). Recording
+   *  starts immediately for instant feel; this tells UI when transcriber
+   *  warmup is done. If backend fails, state flips to 'error' honestly. */
+  backendReady: boolean
   interimText: string
   finalText: string
   refinedText: string
@@ -69,6 +73,7 @@ interface UseVoiceRecordingResult {
 
 export function useVoiceRecording(): UseVoiceRecordingResult {
   const [state, setState] = useState<VoiceState>('idle')
+  const [backendReady, setBackendReady] = useState(false)
   const [interimText, setInterimText] = useState('')
   const [finalText, setFinalText] = useState('')
   const [refinedText, setRefinedText] = useState('')
@@ -76,6 +81,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
   const [targetConversationId, setTargetConversationId] = useState<string | null>(null)
 
   const stateRef = useRef<VoiceState>('idle')
+  const backendReadyRef = useRef(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const wsListenerRef = useRef<((event: MessageEvent) => void) | null>(null)
@@ -84,10 +90,10 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
   const utteranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingDataRef = useRef<Promise<void>>(Promise.resolve())
   const startTsRef = useRef(0)
-  // Connection-integrity tracking. We do NOT claim "recording" (the "speak now"
-  // state) until ALL THREE legs are verified: browser->broker WS open, mic
-  // track live, and broker->Deepgram up (voice_ready). These refs let us prove
-  // each leg and phrase an honest error about whichever one failed.
+  // Connection-integrity tracking. Recording starts immediately for instant
+  // feel (mic + recorder live = 'recording'). The connect timer guards against
+  // a silent backend failure -- if voice_ready never arrives, we surface an
+  // honest error even though the user is already in 'recording' state.
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const brokerAckedRef = useRef(false) // saw voice_connecting (broker got our start)
   const droppedChunksRef = useRef(0) // voice_data sends dropped because WS wasn't open
@@ -142,16 +148,17 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
   }
 
   /**
-   * voice_ready = the FULL chain is confirmed (WS open + broker got start +
-   * Deepgram up). ONLY now do we tell the user they can speak. Audio captured
-   * during the 'connecting' window was buffered broker-side and already flushed
-   * to Deepgram, so nothing said early is lost.
+   * voice_ready = broker->Deepgram chain confirmed. User is already in
+   * 'recording' state (instant feel); this just clears the warmup indicator
+   * and confirms audio buffered during warmup was flushed to Deepgram.
    */
   function onVoiceReady(msg: { flushedChunks?: number; flushedBytes?: number }) {
     console.log(
       `[voice] ${elapsed()} voice_ready (Deepgram connected, flushed ${msg.flushedChunks ?? '?'} chunks / ${msg.flushedBytes ?? '?'}B)`,
     )
     clearConnectTimer()
+    backendReadyRef.current = true
+    setBackendReady(true)
 
     // Reconnect path: replay buffered audio, then resume
     if (reconnectingRef.current) {
@@ -163,11 +170,11 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
         offlineBufferRef.current = []
       }
       droppedChunksRef.current = 0
+      setState('recording')
     }
 
-    setState('recording')
-    // If the user already released during 'connecting' or offline (quick tap),
-    // honour that stop now that the chain is live.
+    // If the user already released during 'connecting' (quick tap during mic
+    // acquire), honour that stop now.
     if (pendingStopRef.current) {
       pendingStopRef.current = false
       setTimeout(() => stop(), 300)
@@ -262,6 +269,8 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
   const reset = useCallback(() => {
     cleanup()
     setState('idle')
+    backendReadyRef.current = false
+    setBackendReady(false)
     setInterimText('')
     setFinalText('')
     setRefinedText('')
@@ -283,16 +292,17 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     setState('error')
   }
 
-  /** Leg 3 guard: if voice_ready never lands, never sit in a fake 'recording'. */
+  /** Backend guard: if voice_ready never lands, surface the failure honestly
+   *  even though the user is already in 'recording' state (instant feel). */
   function armConnectTimeout() {
     connectTimerRef.current = setTimeout(() => {
       connectTimerRef.current = null
-      if (stateRef.current !== 'connecting') return
+      if (backendReadyRef.current) return
       const leg = brokerAckedRef.current
         ? 'transcriber did not connect'
         : 'server never acknowledged (connection dropped?)'
       failVoice('Voice service did not connect. Try again.', `connect timeout after ${CONNECT_TIMEOUT_MS}ms -- ${leg}`)
-      sendWs({ type: 'voice_stop' }) // tear down any half-open broker session
+      sendWs({ type: 'voice_stop' })
     }, CONNECT_TIMEOUT_MS)
   }
 
@@ -405,11 +415,13 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     cancelledRef.current = false
     pendingStopRef.current = false
     brokerAckedRef.current = false
+    backendReadyRef.current = false
     droppedChunksRef.current = 0
     setInterimText('')
     setFinalText('')
     setRefinedText('')
     setErrorMsg('')
+    setBackendReady(false)
     setState('connecting')
 
     // attachWsListener refuses (and sets error state) if the socket isn't OPEN.
@@ -445,11 +457,12 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
       const recorder = buildRecorder(stream)
       recorder.start(100)
       mediaRecorderRef.current = recorder
-      console.log(`[voice] ${elapsed()} recorder started -- waiting for voice_ready before 'recording'`)
-      // Stay in 'connecting'. A running local recorder proves NOTHING about the
-      // broker/Deepgram chain; the voice_ready handler flips us to 'recording'
-      // once the whole chain is verified. Audio captured now is buffered
-      // broker-side and flushed on Deepgram open, so nothing said early is lost.
+      // Instant feel: flip to 'recording' NOW. Mic is live, recorder is
+      // capturing, chunks flow to broker immediately. Broker buffers them
+      // until Deepgram connects, then flushes -- zero audio loss. The
+      // connect timeout still guards against a silent backend failure.
+      setState('recording')
+      console.log(`[voice] ${elapsed()} recorder started -- recording (backend warming up)`)
     } catch (err) {
       failVoice(err instanceof Error ? err.message : 'Mic access denied', `recording failed: ${err}`)
     }
@@ -485,8 +498,9 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: doStop is a stable function
   const stop = useCallback(() => {
-    console.log(`[voice] ${elapsed()} stop() (state=${stateRef.current})`)
+    console.log(`[voice] ${elapsed()} stop() (state=${stateRef.current}, backendReady=${backendReadyRef.current})`)
 
+    // 'connecting' = still acquiring mic (brief). Defer until recorder starts.
     if (stateRef.current === 'connecting' || stateRef.current === 'recording-offline') {
       pendingStopRef.current = true
       return
@@ -519,6 +533,7 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
 
   return {
     state,
+    backendReady,
     interimText,
     finalText,
     refinedText,

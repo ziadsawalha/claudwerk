@@ -219,7 +219,7 @@ export function VoiceFab() {
               <div className="flex items-center gap-2 mb-1">
                 {voice.state === 'connecting' && (
                   <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-                    Connecting…
+                    Starting mic…
                   </span>
                 )}
                 {voice.state === 'recording' && !isCancelling && (
@@ -231,6 +231,11 @@ export function VoiceFab() {
                     <span className="text-[10px] text-red-400 font-mono uppercase tracking-wider">
                       Recording - release to send
                     </span>
+                    {!voice.backendReady && (
+                      <span className="text-[10px] text-muted-foreground/50 font-mono uppercase tracking-wider ml-auto">
+                        warming up
+                      </span>
+                    )}
                   </>
                 )}
                 {voice.state === 'recording-offline' && (

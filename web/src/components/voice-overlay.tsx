@@ -92,7 +92,7 @@ export function VoiceOverlay({ onResult, onClose, holdMode = false, onMicGranted
         {voice.state === 'connecting' && (
           <>
             <Loader2 className="size-4 animate-spin text-accent" />
-            <span className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Connecting…</span>
+            <span className="text-xs text-muted-foreground font-mono uppercase tracking-wider">Starting mic…</span>
           </>
         )}
         {voice.state === 'recording' && (
@@ -104,6 +104,9 @@ export function VoiceOverlay({ onResult, onClose, holdMode = false, onMicGranted
             <span className="text-xs text-red-400 font-mono uppercase tracking-wider">
               {holdMode ? 'Release to send...' : 'Listening...'}
             </span>
+            {!voice.backendReady && (
+              <span className="text-xs text-muted-foreground/40 font-mono uppercase tracking-wider">(warming up)</span>
+            )}
           </>
         )}
         {voice.state === 'recording-offline' && (
@@ -145,7 +148,7 @@ export function VoiceOverlay({ onResult, onClose, holdMode = false, onMicGranted
         >
           {!displayText && !displayInterim && voice.state !== 'error' && (
             <span className="text-muted-foreground/40 italic text-lg">
-              {voice.state === 'connecting' ? 'Connecting...' : 'Speak now...'}
+              {voice.state === 'connecting' ? 'Starting mic...' : 'Speak now...'}
             </span>
           )}
           {displayText && (

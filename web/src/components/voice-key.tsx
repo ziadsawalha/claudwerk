@@ -96,7 +96,9 @@ export function VoiceKey() {
           {/* Status line */}
           <div className="flex items-center gap-2 mb-1">
             {voice.state === 'connecting' && (
-              <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Connecting…</span>
+              <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                Starting mic…
+              </span>
             )}
             {voice.state === 'recording' && (
               <>
@@ -108,6 +110,11 @@ export function VoiceKey() {
                   Recording - release{' '}
                   <kbd className="px-1 py-0.5 bg-muted border border-border rounded text-[9px]">{keyLabel}</kbd> to send
                 </span>
+                {!voice.backendReady && (
+                  <span className="text-[10px] text-muted-foreground/50 font-mono uppercase tracking-wider ml-auto">
+                    warming up
+                  </span>
+                )}
               </>
             )}
             {voice.state === 'refining' && (
