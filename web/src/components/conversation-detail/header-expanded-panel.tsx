@@ -16,6 +16,7 @@ import {
   ProjectPathRow,
   RateLimitBanner,
   RecapRow,
+  SpawnLineageRow,
   SummaryRow,
   TrustLevelBadge,
 } from './header-info-rows'
@@ -62,6 +63,7 @@ export function HeaderExpandedPanel({
         <CostSparkline timeline={conversation.costTimeline} />
       )}
       <ConversationStats conversation={conversation} stats={s} />
+      <SpawnLineageRow conversation={conversation} />
       <ErrorBanner lastError={conversation.lastError} />
       <RateLimitBanner rateLimit={conversation.rateLimit} />
       <ProjectPathRow project={conversation.project} />

@@ -4,6 +4,7 @@ import { ChevronRight, Copy, GitBranch } from 'lucide-react'
 import { useState } from 'react'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { isShareView } from '@/lib/share-mode'
+import { selectConversations } from '@/lib/slim-conversation'
 import type { Conversation } from '@/lib/types'
 import { projectPath } from '@/lib/types'
 import { cn, formatTime, haptic } from '@/lib/utils'
@@ -321,6 +322,49 @@ export function LinkedProjects({
           </button>
         </span>
       ))}
+    </div>
+  )
+}
+
+export function SpawnLineageRow({ conversation }: { conversation: Conversation }) {
+  const selectConversation = useConversationsStore(s => s.selectConversation)
+  const parentId = conversation.parentConversationId
+  const parentTitle = useConversationsStore(s => {
+    if (!parentId) return null
+    const p = s.conversationsById[parentId]
+    return p ? p.title || p.agentName || p.id.slice(0, 8) : null
+  })
+  const childCount = useConversationsStore(s => {
+    if (typeof conversation.directChildCount === 'number') return conversation.directChildCount
+    let n = 0
+    for (const c of selectConversations(s.conversationsById)) if (c.parentConversationId === conversation.id) n++
+    return n
+  })
+  if (!parentId && childCount <= 0) return null
+  const deleted = parentId && parentTitle === null
+  return (
+    <div className="flex items-center gap-2 text-[10px] font-mono flex-wrap">
+      {parentId && (
+        <span className="inline-flex items-center gap-1">
+          <span className="text-muted-foreground/60">spawned from</span>
+          <button
+            type="button"
+            disabled={!!deleted}
+            onClick={() => {
+              if (deleted) return
+              haptic('tap')
+              selectConversation(parentId, 'lineage')
+            }}
+            className={cn(
+              'text-teal-400 transition-colors',
+              deleted ? 'opacity-50 cursor-default' : 'hover:text-teal-300 hover:underline cursor-pointer',
+            )}
+          >
+            {deleted ? '(deleted)' : parentTitle}
+          </button>
+        </span>
+      )}
+      {childCount > 0 && <span className="text-muted-foreground/60">{childCount} spawned</span>}
     </div>
   )
 }
