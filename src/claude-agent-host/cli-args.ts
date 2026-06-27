@@ -250,74 +250,106 @@ export async function parseCliArgs(args: string[]): Promise<CliConfig> {
     )
   }
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
+  // Terminal action: backfill this machine's local Claude history to the
+  // broker, then exit. Sub-flags are scanned from the whole argv so order
+  // relative to --broker/--rclaude-secret doesn't matter.
+  const importHistoryAction = async (): Promise<never> => {
+    const flagValue = (name: string): string | undefined => {
+      const idx = args.indexOf(name)
+      return idx >= 0 ? args[idx + 1] : undefined
+    }
+    // No hostname fallback: the alias becomes the project-URI authority and
+    // is validated against the broker's sentinel registry -- a guessed name
+    // would either fail validation or mint a phantom machine.
+    const sentinel = flagValue('--sentinel') ?? process.env.CLAUDWERK_SENTINEL_NAME
+    if (!sentinel) {
+      console.error(
+        'ERROR: --sentinel <alias> is required (or set CLAUDWERK_SENTINEL_NAME).\n' +
+          'Use the alias this machine is registered under on the broker (see broker-cli sentinel list).',
+      )
+      process.exit(1)
+    }
+    const sinceRaw = flagValue('--since')
+    const sinceMs = sinceRaw ? Date.parse(sinceRaw) : Number.NaN
+    const { runImportHistory } = await import('./import-history')
+    try {
+      await runImportHistory({
+        brokerUrl: flagValue('--broker') ?? brokerUrl,
+        brokerSecret: flagValue('--rclaude-secret') ?? brokerSecret,
+        sentinel,
+        dryRun: args.includes('--dry-run'),
+        includeAgents: args.includes('--include-agents'),
+        since: Number.isNaN(sinceMs) ? undefined : sinceMs,
+      })
+    } catch (err) {
+      console.error(`ERROR: ${err instanceof Error ? err.message : err}`)
+      process.exit(1)
+    }
+    process.exit(0)
+  }
 
-    if (arg === '--rclaude-help') {
+  // Flag -> handler returning the last index it consumed: value flags advance
+  // past their argument, boolean flags return `i` unchanged, terminal flags
+  // `process.exit` (never). Unknown args fall through to claudeArgs (the claude
+  // binary parses them).
+  type ArgHandler = (i: number) => number | Promise<number>
+  const setHeadless =
+    (value: boolean): ArgHandler =>
+    i => {
+      headless = value
+      return i
+    }
+  const setChannels =
+    (value: boolean): ArgHandler =>
+    i => {
+      channelEnabled = value
+      return i
+    }
+  const flagHandlers: Record<string, ArgHandler> = {
+    '--rclaude-help': () => {
       printHelp()
-      process.exit(0)
-    } else if (arg === '--rclaude-version') {
+      return process.exit(0)
+    },
+    '--rclaude-version': () => {
       console.log(formatVersion(detectClaudeVersion()))
-      process.exit(0)
-    } else if (arg === '--rclaude-check-update') {
+      return process.exit(0)
+    },
+    '--rclaude-check-update': async () => {
       const result = await checkForUpdate()
       console.log(formatUpdateResult(result, detectClaudeVersion()))
-      process.exit(0)
-    } else if (arg === '--rclaude-import-history') {
-      // Terminal action: backfill this machine's local Claude history to the
-      // broker, then exit. Sub-flags are scanned from the whole argv so order
-      // relative to --broker/--rclaude-secret doesn't matter.
-      const flagValue = (name: string): string | undefined => {
-        const idx = args.indexOf(name)
-        return idx >= 0 ? args[idx + 1] : undefined
-      }
-      // No hostname fallback: the alias becomes the project-URI authority and
-      // is validated against the broker's sentinel registry -- a guessed name
-      // would either fail validation or mint a phantom machine.
-      const sentinel = flagValue('--sentinel') ?? process.env.CLAUDWERK_SENTINEL_NAME
-      if (!sentinel) {
-        console.error(
-          'ERROR: --sentinel <alias> is required (or set CLAUDWERK_SENTINEL_NAME).\n' +
-            'Use the alias this machine is registered under on the broker (see broker-cli sentinel list).',
-        )
-        process.exit(1)
-      }
-      const sinceRaw = flagValue('--since')
-      const sinceMs = sinceRaw ? Date.parse(sinceRaw) : Number.NaN
-      const { runImportHistory } = await import('./import-history')
-      try {
-        await runImportHistory({
-          brokerUrl: flagValue('--broker') ?? brokerUrl,
-          brokerSecret: flagValue('--rclaude-secret') ?? brokerSecret,
-          sentinel,
-          dryRun: args.includes('--dry-run'),
-          includeAgents: args.includes('--include-agents'),
-          since: Number.isNaN(sinceMs) ? undefined : sinceMs,
-        })
-      } catch (err) {
-        console.error(`ERROR: ${err instanceof Error ? err.message : err}`)
-        process.exit(1)
-      }
-      process.exit(0)
-    } else if (arg === '--broker') {
-      brokerUrl = args[++i] || DEFAULT_BROKER_URL
-    } else if (arg === '--rclaude-secret') {
-      brokerSecret = args[++i]
-    } else if (arg === '--no-broker') {
+      return process.exit(0)
+    },
+    '--rclaude-import-history': importHistoryAction,
+    '--broker': i => {
+      brokerUrl = args[i + 1] || DEFAULT_BROKER_URL
+      return i + 1
+    },
+    '--rclaude-secret': i => {
+      brokerSecret = args[i + 1]
+      return i + 1
+    },
+    '--no-broker': i => {
       noBroker = true
-    } else if (arg === '--no-terminal') {
+      return i
+    },
+    '--no-terminal': i => {
       noTerminal = true
-    } else if (arg === '--headless') {
-      headless = true
-    } else if (arg === '--no-headless' || arg === '--pty') {
-      headless = false
-    } else if (arg === '--channels') {
-      channelEnabled = true
-    } else if (arg === '--no-channels') {
-      channelEnabled = false
-    } else {
-      claudeArgs.push(arg)
+      return i
+    },
+    '--headless': setHeadless(true),
+    '--no-headless': setHeadless(false),
+    '--pty': setHeadless(false),
+    '--channels': setChannels(true),
+    '--no-channels': setChannels(false),
+  }
+
+  for (let i = 0; i < args.length; i++) {
+    const handler = flagHandlers[args[i]]
+    if (!handler) {
+      claudeArgs.push(args[i])
+      continue
     }
+    i = await handler(i)
   }
 
   // Capture --model and --resume from claudeArgs

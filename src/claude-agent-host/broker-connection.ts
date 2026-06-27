@@ -362,24 +362,44 @@ function handleInput(ctx: AgentHostContext, deps: BrokerConnectionDeps, input: s
   if (deps.headless) {
     if (!ctx.streamProc || !input) return
     const trimmed = input.trimEnd()
-    if (trimmed === '/exit' || trimmed === '/quit' || trimmed === ':q' || trimmed === ':q!') {
-      executeControl(ctx, 'quit', { source: 'headless-input' })
-    } else if (trimmed === '/clear') {
-      executeControl(ctx, 'clear', { source: 'headless-input' })
-    } else if (trimmed.startsWith('/model ')) {
-      const model = trimmed.slice(7).trim()
-      if (model) executeControl(ctx, 'set_model', { model, source: 'headless-input' })
-    } else if (trimmed.startsWith('/effort ')) {
-      const effort = trimmed.slice(8).trim()
-      if (effort) executeControl(ctx, 'set_effort', { effort, source: 'headless-input' })
-    } else if (trimmed.startsWith('/mode ')) {
-      const mode = trimmed.slice(6).trim()
-      if (mode) executeControl(ctx, 'set_permission_mode', { permissionMode: mode, source: 'headless-input' })
-    } else if (trimmed === '/plan') {
-      executeControl(ctx, 'set_permission_mode', { permissionMode: 'plan', source: 'headless-input' })
-    } else {
-      ctx.streamProc.sendUserMessage(input)
+
+    // Exact-match slash commands (no argument).
+    const exactCommands: Record<string, () => void> = {
+      '/exit': () => executeControl(ctx, 'quit', { source: 'headless-input' }),
+      '/quit': () => executeControl(ctx, 'quit', { source: 'headless-input' }),
+      ':q': () => executeControl(ctx, 'quit', { source: 'headless-input' }),
+      ':q!': () => executeControl(ctx, 'quit', { source: 'headless-input' }),
+      '/clear': () => executeControl(ctx, 'clear', { source: 'headless-input' }),
+      '/plan': () => executeControl(ctx, 'set_permission_mode', { permissionMode: 'plan', source: 'headless-input' }),
     }
+    // Prefix slash commands that take a trailing argument (ignored when blank).
+    const prefixCommands: Array<{ prefix: string; run: (arg: string) => void }> = [
+      {
+        prefix: '/model ',
+        run: model => model && executeControl(ctx, 'set_model', { model, source: 'headless-input' }),
+      },
+      {
+        prefix: '/effort ',
+        run: effort => effort && executeControl(ctx, 'set_effort', { effort, source: 'headless-input' }),
+      },
+      {
+        prefix: '/mode ',
+        run: mode =>
+          mode && executeControl(ctx, 'set_permission_mode', { permissionMode: mode, source: 'headless-input' }),
+      },
+    ]
+
+    const exact = exactCommands[trimmed]
+    if (exact) {
+      exact()
+      return
+    }
+    const prefixed = prefixCommands.find(c => trimmed.startsWith(c.prefix))
+    if (prefixed) {
+      prefixed.run(trimmed.slice(prefixed.prefix.length).trim())
+      return
+    }
+    ctx.streamProc.sendUserMessage(input)
     return
   }
 

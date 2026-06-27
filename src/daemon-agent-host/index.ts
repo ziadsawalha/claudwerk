@@ -348,14 +348,21 @@ async function main(): Promise<void> {
     void daemonControl.setModel(model).catch((err: unknown) => log(`set_model: ${(err as Error).message}`))
   }
 
+  /** Live-controllable verbs on a daemon worker, keyed on `action`. Anything
+   *  absent (set_permission_mode / clear / quit) is not live-controllable --
+   *  surface it via the fallback, do not pretend. */
+  const controlActions: Record<string, (msg: ControlDeliver) => void> = {
+    set_model: msg => applySetModel(msg.model),
+    set_effort: msg => applySetEffort(msg.effort),
+    interrupt: () => applyInterrupt(),
+  }
+
   /** Route a unified `control` verb onto the daemon control surface. */
   function handleControl(msg: ControlDeliver): void {
-    if (msg.action === 'set_model') applySetModel(msg.model)
-    else if (msg.action === 'set_effort') applySetEffort(msg.effort)
-    else if (msg.action === 'interrupt') applyInterrupt()
-    // set_permission_mode / clear / quit are not live-controllable on a daemon
-    // worker (regression -- see daemon-mode docs). Surface it, do not pretend.
-    else log(`[daemon-control] control action ${msg.action} not supported live on a daemon worker`)
+    const action =
+      controlActions[msg.action] ??
+      ((m: ControlDeliver) => log(`[daemon-control] control action ${m.action} not supported live on a daemon worker`))
+    action(msg)
   }
 
   function handleInbound(msg: BrokerMessage): void {
