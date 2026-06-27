@@ -13,7 +13,9 @@ import { chat } from './recap/shared/openrouter-client'
 
 const VOICE_REFINER_MODEL = 'anthropic/claude-haiku-4.5'
 
-const DEEPGRAM_LIVE_URL = 'wss://api.deepgram.com/v1/listen'
+const DEEPGRAM_V1_URL = 'wss://api.deepgram.com/v1/listen'
+const DEEPGRAM_V2_URL = 'wss://api.deepgram.com/v2/listen'
+const FLUX_MODELS = new Set(['flux-general-en', 'flux-general-multi'])
 const VOICE_TIMEOUT_MS = 120_000 // Max 120s recording conversation
 const KEEPALIVE_INTERVAL_MS = 5_000 // Deepgram kills connection after 10s of no audio
 
@@ -82,7 +84,8 @@ export function handleVoiceStart(
     params.append('keyterm', `${kt}:3`)
   }
 
-  const dgUrl = `${DEEPGRAM_LIVE_URL}?${params}`
+  const dgBaseUrl = FLUX_MODELS.has(params.get('model') || '') ? DEEPGRAM_V2_URL : DEEPGRAM_V1_URL
+  const dgUrl = `${dgBaseUrl}?${params}`
   console.log(
     `[voice-stream] Opening Deepgram live WS (model=${globalSettings.deepgramModel || 'flux'}, ${keyterms.length} keyterms)`,
   )
