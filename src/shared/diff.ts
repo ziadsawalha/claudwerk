@@ -51,25 +51,17 @@ export function merge3way(base: string, ours: string, theirs: string): { result:
       baseIdx++
     }
 
-    if (region.type === 'ours') {
-      result.push(...region.lines)
-      baseIdx = region.baseEnd
-    } else if (region.type === 'theirs') {
-      result.push(...region.lines)
-      baseIdx = region.baseEnd
-    } else if (region.type === 'both-same') {
-      // Both sides made the same change
-      result.push(...region.lines)
-      baseIdx = region.baseEnd
-    } else if (region.type === 'conflict') {
+    if (region.type === 'conflict') {
       hasConflicts = true
       result.push('<<<<<<< yours')
       result.push(...region.ourLines)
       result.push('=======')
       result.push(...region.theirLines)
       result.push('>>>>>>> theirs')
-      baseIdx = region.baseEnd
+    } else {
+      result.push(...region.lines)
     }
+    baseIdx = region.baseEnd
   }
 
   // Copy remaining unchanged lines

@@ -98,11 +98,23 @@ function tryCompleteProfile(e: React.KeyboardEvent, ctx: KeyHandlerContext): boo
 
 function handleEnter(e: React.KeyboardEvent, ctx: KeyHandlerContext, callbacks: KeyHandlerCallbacks): void {
   e.preventDefault()
-  if (ctx.isThemeMode) submitTheme(ctx)
-  else if (ctx.isCommandMode) submitCommand(ctx)
-  else if (ctx.isSpawnMode) submitSpawn(ctx)
-  else if (ctx.isTaskMode) submitTask(ctx)
-  else submitConversation(ctx, callbacks)
+  const activeMode = ctx.isThemeMode
+    ? 'theme'
+    : ctx.isCommandMode
+      ? 'command'
+      : ctx.isSpawnMode
+        ? 'spawn'
+        : ctx.isTaskMode
+          ? 'task'
+          : 'default'
+  const modeHandlers: Record<string, () => void> = {
+    theme: () => submitTheme(ctx),
+    command: () => submitCommand(ctx),
+    spawn: () => submitSpawn(ctx),
+    task: () => submitTask(ctx),
+    default: () => submitConversation(ctx, callbacks),
+  }
+  modeHandlers[activeMode]()
 }
 
 function submitTheme(ctx: KeyHandlerContext): void {

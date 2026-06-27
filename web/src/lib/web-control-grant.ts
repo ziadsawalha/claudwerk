@@ -52,16 +52,20 @@ function webControlCapabilities(): WebControlOp[] {
 /** A human label for the agent's client picker, e.g. "jonas - macOS / Chrome". */
 function webControlLabel(userName?: string): string {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
-  let browser = 'browser'
-  if (/Edg\//.test(ua)) browser = 'Edge'
-  else if (/Chrome\//.test(ua)) browser = 'Chrome'
-  else if (/Firefox\//.test(ua)) browser = 'Firefox'
-  else if (/Safari\//.test(ua)) browser = 'Safari'
-  let os = ''
-  if (/Mac|iPhone|iPad/.test(ua)) os = 'macOS/iOS'
-  else if (/Windows/.test(ua)) os = 'Windows'
-  else if (/Android/.test(ua)) os = 'Android'
-  else if (/Linux/.test(ua)) os = 'Linux'
+  const BROWSER_PATTERNS: Array<[RegExp, string]> = [
+    [/Edg\//, 'Edge'],
+    [/Chrome\//, 'Chrome'],
+    [/Firefox\//, 'Firefox'],
+    [/Safari\//, 'Safari'],
+  ]
+  const OS_PATTERNS: Array<[RegExp, string]> = [
+    [/Mac|iPhone|iPad/, 'macOS/iOS'],
+    [/Windows/, 'Windows'],
+    [/Android/, 'Android'],
+    [/Linux/, 'Linux'],
+  ]
+  const browser = BROWSER_PATTERNS.find(([re]) => re.test(ua))?.[1] ?? 'browser'
+  const os = OS_PATTERNS.find(([re]) => re.test(ua))?.[1] ?? ''
   const who = userName ? `${userName} - ` : ''
   return `${who}${[os, browser].filter(Boolean).join(' / ')}`
 }

@@ -73,18 +73,26 @@ function parseChannelContent(channelMatch: RegExpMatchArray, items: RenderItem[]
       intent: intent || undefined,
       isInterConversation: true,
     })
-  } else if (sender === 'dialog') {
+    return
+  }
+  if (sender === 'dialog') {
     pushDialogResult(getAttr, msg, items)
-  } else if (sender === 'dialog-untrusted') {
+    return
+  }
+  if (sender === 'dialog-untrusted') {
     pushDialogSubmit(getAttr, msg, items)
-  } else if (source === 'rclaude' && sender === 'system') {
+    return
+  }
+  if (source === 'rclaude' && sender === 'system') {
     pushSystemChannelItem(getAttr, msg, items)
-  } else if (source === 'rclaude') {
+    return
+  }
+  if (source === 'rclaude') {
     const pt = parseProjectTask(msg)
     items.push(pt || { kind: 'text', text: msg })
-  } else {
-    items.push({ kind: 'channel', text: msg, source })
+    return
   }
+  items.push({ kind: 'channel', text: msg, source })
 }
 
 type AttrFn = (name: string) => string | undefined

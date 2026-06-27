@@ -40,22 +40,29 @@ export function messageImpactStats(entries: readonly PerfEntry[]): MessageImpact
     }
     return v
   }
+  type CategoryFn = (v: MessageImpact, e: PerfEntry) => void
+  const categoryHandlers: Record<string, CategoryFn> = {
+    message: (v, e) => {
+      v.applies += 1
+      v.applyMs += e.durationMs
+    },
+    render: (v, e) => {
+      if (e.label.endsWith('.commit->paint')) v.paintMs += e.durationMs
+      else v.renderMs += e.durationMs
+    },
+    grouping: (v, e) => {
+      v.groupingMs += e.durationMs
+    },
+  }
+  const applyOther: CategoryFn = (v, e) => {
+    v.otherMs += e.durationMs
+  }
   for (const e of entries) {
     if (!e.msgType || e.detail?.includes('suspended')) continue
     if (e.category === 'ws') continue // transport overhead wraps apply -- would double-count
     const v = get(e.msgType)
     v.totalMs += e.durationMs
-    if (e.category === 'message') {
-      v.applies += 1
-      v.applyMs += e.durationMs
-    } else if (e.category === 'render') {
-      if (e.label.endsWith('.commit->paint')) v.paintMs += e.durationMs
-      else v.renderMs += e.durationMs
-    } else if (e.category === 'grouping') {
-      v.groupingMs += e.durationMs
-    } else {
-      v.otherMs += e.durationMs
-    }
+    ;(categoryHandlers[e.category] ?? applyOther)(v, e)
   }
   return [...map.values()].sort((a, b) => b.totalMs - a.totalMs)
 }
