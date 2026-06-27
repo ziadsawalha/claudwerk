@@ -120,12 +120,9 @@ export class ShellDataWs {
     }
   }
 
-  /** Route a broker -> sentinel data-plane frame to the registry handlers.
-   *  Ignores anything that is not a recognized shell control message. A flat
-   *  4-way wire router: branch count is irreducible and each arm is a trivial
-   *  one-line forward (CRAP is coverage-inflated -- not unit-testable without a
-   *  live socket). */
-  // fallow-ignore-next-line complexity
+  /** Route a broker -> sentinel data-plane frame to the registry handlers via a
+   *  type-keyed strategy map. Anything that is not a recognized shell control
+   *  message is ignored (no map entry). */
   private dispatch(raw: string): void {
     let msg: BrokerSentinelMessage | { type: string }
     try {
@@ -134,19 +131,25 @@ export class ShellDataWs {
       return
     }
     const h = this.opts.handlers
-    if (msg.type === 'shell_input') {
-      const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_input' }>
-      h.onInput(m.shellId, m.data)
-    } else if (msg.type === 'shell_resize') {
-      const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_resize' }>
-      h.onResize(m.shellId, m.cols, m.rows)
-    } else if (msg.type === 'shell_attach') {
-      const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_attach' }>
-      h.onAttach(m.shellId, m.cols, m.rows, m.replay)
-    } else if (msg.type === 'shell_detach') {
-      const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_detach' }>
-      h.onDetach(m.shellId)
+    const routes: Record<string, () => void> = {
+      shell_input: () => {
+        const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_input' }>
+        h.onInput(m.shellId, m.data)
+      },
+      shell_resize: () => {
+        const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_resize' }>
+        h.onResize(m.shellId, m.cols, m.rows)
+      },
+      shell_attach: () => {
+        const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_attach' }>
+        h.onAttach(m.shellId, m.cols, m.rows, m.replay)
+      },
+      shell_detach: () => {
+        const m = msg as Extract<BrokerSentinelMessage, { type: 'shell_detach' }>
+        h.onDetach(m.shellId)
+      },
     }
+    routes[msg.type]?.()
   }
 
   private scheduleReconnect(): void {

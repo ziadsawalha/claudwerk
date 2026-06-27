@@ -66,13 +66,26 @@ function parseWorktreeBlock(block: string): WorktreeEntry | null {
   let entry: WorktreeEntry | null = null
   for (const raw of block.split('\n')) {
     const line = raw.trim()
-    if (line.startsWith('worktree ')) entry = { path: line.slice('worktree '.length) }
-    else if (!entry) continue
-    else if (line.startsWith('HEAD ')) entry.head = line.slice('HEAD '.length)
-    else if (line.startsWith('branch ')) entry.branch = shortRef(line.slice('branch '.length))
-    else if (line === 'detached') entry.detached = true
+    if (line.startsWith('worktree ')) {
+      entry = { path: line.slice('worktree '.length) }
+      continue
+    }
+    if (entry) applyWorktreeField(entry, line)
   }
   return entry
+}
+
+/** Apply one porcelain field line (HEAD/branch/detached) onto the open entry. */
+function applyWorktreeField(entry: WorktreeEntry, line: string): void {
+  if (line.startsWith('HEAD ')) {
+    entry.head = line.slice('HEAD '.length)
+    return
+  }
+  if (line.startsWith('branch ')) {
+    entry.branch = shortRef(line.slice('branch '.length))
+    return
+  }
+  if (line === 'detached') entry.detached = true
 }
 
 /** `refs/heads/foo` -> `foo`; anything else returned verbatim. */

@@ -1509,28 +1509,55 @@ function parseArgs() {
   // RCE as the host user, so the operator can hard-disable it per host.
   let noShell = process.env.CLAUDWERK_NO_SHELL === '1'
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--broker') {
-      brokerUrl = args[++i] || DEFAULT_BROKER_URL
-    } else if (arg === '--secret') {
-      secret = args[++i]
-    } else if (arg === '--revive-script') {
-      reviveScript = resolve(args[++i])
-    } else if (arg === '--spawn-root') {
-      spawnRoot = resolve(args[++i])
-    } else if (arg === '--no-spawn') {
+  const setVerbose = (i: number): number => {
+    verbose = true
+    return i
+  }
+  const showHelp = (): number => {
+    printHelp()
+    return process.exit(0)
+  }
+  // Flag -> handler returning the last consumed index (value flags advance past
+  // their argument; boolean/terminal flags return `i` unchanged). Unknown args
+  // are ignored, as the old chain did.
+  const flagHandlers: Record<string, (i: number) => number> = {
+    '--broker': i => {
+      brokerUrl = args[i + 1] || DEFAULT_BROKER_URL
+      return i + 1
+    },
+    '--secret': i => {
+      secret = args[i + 1]
+      return i + 1
+    },
+    '--revive-script': i => {
+      reviveScript = resolve(args[i + 1])
+      return i + 1
+    },
+    '--spawn-root': i => {
+      spawnRoot = resolve(args[i + 1])
+      return i + 1
+    },
+    '--no-spawn': i => {
       noSpawn = true
-    } else if (arg === '--no-shell') {
+      return i
+    },
+    '--no-shell': i => {
       noShell = true
-    } else if (arg === '--config') {
-      configPath = resolve(args[++i])
-    } else if (arg === '-v' || arg === '--verbose') {
-      verbose = true
-    } else if (arg === '--help' || arg === '-h') {
-      printHelp()
-      process.exit(0)
-    }
+      return i
+    },
+    '--config': i => {
+      configPath = resolve(args[i + 1])
+      return i + 1
+    },
+    '-v': setVerbose,
+    '--verbose': setVerbose,
+    '--help': showHelp,
+    '-h': showHelp,
+  }
+
+  for (let i = 0; i < args.length; i++) {
+    const handler = flagHandlers[args[i]]
+    if (handler) i = handler(i)
   }
 
   if (!secret) {
