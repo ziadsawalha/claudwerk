@@ -934,7 +934,6 @@ async function main() {
             }
           }
         },
-        // fallow-ignore-next-line complexity
         message(ws, message) {
           try {
             const msgStr = message as string
@@ -942,9 +941,6 @@ async function main() {
             recordInboundForSocket(ws, msgStr.length)
             const data = JSON.parse(msgStr)
 
-            if (data.type === 'voice_start') {
-              console.log(`[ws] voice_start received (keys: ${Object.keys(data).join(',')})`)
-            }
             // Route to registered handler
             const ctx = createContext(ws, contextDeps)
             if (!routeMessage(ctx, data.type, data) && verbose) {

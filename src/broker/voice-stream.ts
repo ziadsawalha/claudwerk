@@ -13,9 +13,18 @@ import { chat } from './recap/shared/openrouter-client'
 
 const VOICE_REFINER_MODEL = 'anthropic/claude-haiku-4.5'
 
-const DEEPGRAM_V1_URL = 'wss://api.deepgram.com/v1/listen'
-const DEEPGRAM_V2_URL = 'wss://api.deepgram.com/v2/listen'
-const FLUX_MODELS = new Set(['flux-general-en', 'flux-general-multi'])
+const DEEPGRAM_LIVE_URL = 'wss://api.deepgram.com/v1/listen'
+// The v1 streaming pipeline (webm/opus auto-detect, smart_format, interim_results,
+// endpointing, Results-schema parsing) only works with the nova family. Flux is a
+// different API entirely -- v2 endpoint, raw-PCM audio, turn-based TurnInfo events,
+// and it REJECTS every v1 transcription param. Until that's a separate integration,
+// any non-nova model falls back to nova-3 so a stale/unsupported setting can't brick
+// voice. (Proven 2026-06-27: flux-general-en on v2 rejects smart_format/punctuate/
+// interim_results/endpointing/vad_events/language at the WS handshake.)
+const DEFAULT_DEEPGRAM_MODEL = 'nova-3'
+function resolveDeepgramModel(configured: string | undefined): string {
+  return configured?.startsWith('nova') ? configured : DEFAULT_DEEPGRAM_MODEL
+}
 const VOICE_TIMEOUT_MS = 120_000 // Max 120s recording conversation
 const KEEPALIVE_INTERVAL_MS = 5_000 // Deepgram kills connection after 10s of no audio
 
@@ -70,8 +79,14 @@ export function handleVoiceStart(
   // Build Deepgram live WS URL with params
   // webm/opus is a containerized format - Deepgram auto-detects, no encoding/sample_rate needed
   const globalSettings = getGlobalSettings()
+  const model = resolveDeepgramModel(globalSettings.deepgramModel)
+  if (globalSettings.deepgramModel && model !== globalSettings.deepgramModel) {
+    console.warn(
+      `[voice-stream] Unsupported model "${globalSettings.deepgramModel}" -- falling back to ${model} (v1 pipeline is nova-only)`,
+    )
+  }
   const params = new URLSearchParams({
-    model: globalSettings.deepgramModel || 'flux',
+    model,
     smart_format: 'true',
     punctuate: 'true',
     filler_words: 'false',
@@ -84,11 +99,8 @@ export function handleVoiceStart(
     params.append('keyterm', `${kt}:3`)
   }
 
-  const dgBaseUrl = FLUX_MODELS.has(params.get('model') || '') ? DEEPGRAM_V2_URL : DEEPGRAM_V1_URL
-  const dgUrl = `${dgBaseUrl}?${params}`
-  console.log(
-    `[voice-stream] Opening Deepgram live WS (model=${globalSettings.deepgramModel || 'flux'}, ${keyterms.length} keyterms)`,
-  )
+  const dgUrl = `${DEEPGRAM_LIVE_URL}?${params}`
+  console.log(`[voice-stream] Opening Deepgram live WS (model=${model}, ${keyterms.length} keyterms)`)
 
   const dgWs = new WebSocket(dgUrl, {
     headers: { Authorization: `Token ${deepgramKey}` },
