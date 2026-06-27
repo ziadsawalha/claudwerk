@@ -19,6 +19,9 @@ import { notifyNeedsYou, rearmAttentionNotify } from '../attention-notify'
 import { emitDeskEvent } from '../desk/event-registry'
 import type { MessageHandler } from '../handler-context'
 import { AGENT_HOST_ONLY, registerHandlers } from '../message-router'
+import { recordContribution } from '../sotu/contribute'
+import { projectSlug } from '../sotu/paths'
+import type { StatusContrib } from '../sotu/types'
 
 /** True when this status is older-or-equal than the stored one (host stamps a
  *  monotonic seq), so it must be dropped. */
@@ -43,6 +46,25 @@ function handleNeedsYouSignal(conv: Conversation, conversationId: string, status
       summary: status.pending || status.blocked || 'Needs your input',
     })
   }
+}
+
+/** Feed the SotU contribution queue so the chronicle sees every status change.
+ *  Weight=3 (declared intent, same as callouts). */
+function emitSotuContribution(conv: Conversation, conversationId: string, status: LiveStatus): void {
+  if (!conv.project) return
+  const contrib: StatusContrib = {
+    kind: 'status',
+    convId: conversationId,
+    ts: status.updatedAt ?? Date.now(),
+    state: status.state,
+  }
+  if (status.done) contrib.done = status.done
+  if (status.pending) contrib.pending = status.pending
+  if (status.blocked) contrib.blocked = status.blocked
+  if (status.caveats) contrib.caveats = status.caveats
+  if (status.notes) contrib.notes = status.notes
+  if (status.safe_to_close) contrib.safe_to_close = true
+  recordContribution(projectSlug(conv.project), contrib, conv.project)
 }
 
 // Parse + validate + staleness in one place so the handler body stays a thin
@@ -88,6 +110,7 @@ const agentStatus: MessageHandler = (ctx, data) => {
     })
   }
   handleNeedsYouSignal(conv, conversationId, status)
+  emitSotuContribution(conv, conversationId, status)
 
   ctx.log.info(`[status] conv=${conversationId.slice(0, 8)} state=${prevState}->${status.state} seq=${status.seq}`)
 }

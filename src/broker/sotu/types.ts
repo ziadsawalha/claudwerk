@@ -91,7 +91,23 @@ export interface LifecycleContrib extends ContribBase {
   event: 'created' | 'ended' | 'resumed'
 }
 
-export type Contribution = CalloutContrib | TurnDigestContrib | GitScanContrib | LifecycleContrib
+/** Agent self-reported status via set_status -- the RICHEST per-conversation
+ *  signal (declared intent + structured text fields, often citing commit hashes).
+ *  Emitted as a side-effect of the agent_status handler so the chronicle sees
+ *  every status change without agents needing a second tool call. Weight=3
+ *  (same as callouts -- declared intent is gold). */
+export interface StatusContrib extends ContribBase {
+  kind: 'status'
+  state: 'working' | 'done' | 'needs_you' | 'blocked'
+  done?: string
+  pending?: string
+  blocked?: string
+  caveats?: string
+  notes?: string
+  safe_to_close?: boolean
+}
+
+export type Contribution = CalloutContrib | TurnDigestContrib | GitScanContrib | LifecycleContrib | StatusContrib
 
 // Git fabric (derived state, Phase 2) -- the shapes (GitFabric/BranchFabric/
 // IntegrationStatus/GitAlert) live in `src/shared/protocol.ts` (the wire home,

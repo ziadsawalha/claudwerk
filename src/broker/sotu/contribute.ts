@@ -19,6 +19,7 @@ import type { Contribution } from './types'
 export function contribWeight(contrib: Contribution): number {
   switch (contrib.kind) {
     case 'callout':
+    case 'status':
       return 3
     case 'lifecycle':
       return 2

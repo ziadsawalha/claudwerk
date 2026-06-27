@@ -6145,7 +6145,7 @@ export interface SotuContribution {
   pendingContribs: number
   latest: {
     convId: string
-    kind: 'callout' | 'turn_digest' | 'git_scan' | 'lifecycle'
+    kind: 'callout' | 'turn_digest' | 'git_scan' | 'lifecycle' | 'status'
     ts: number
   }
 }

@@ -6,7 +6,7 @@ import { contribWeight, recordContribution } from './contribute'
 import { initSotuStore, projectSlug } from './index'
 import { readLiveQueue, readQueue } from './queue'
 import { readState } from './state'
-import type { CalloutContrib, GitScanContrib, LifecycleContrib, TurnDigestContrib } from './types'
+import type { CalloutContrib, GitScanContrib, LifecycleContrib, StatusContrib, TurnDigestContrib } from './types'
 
 const SLUG = 'remote-claude'
 let dir: string
@@ -51,10 +51,35 @@ test('recordContribution bumps weighted pendingContribs', () => {
 
 test('contribWeight matches the design weights', () => {
   expect(contribWeight(callout())).toBe(3)
+  const status: StatusContrib = { kind: 'status', convId: 'c', ts: 0, state: 'done', done: 'shipped' }
+  expect(contribWeight(status)).toBe(3)
   expect(contribWeight({ kind: 'lifecycle', convId: 'c', ts: 0, event: 'ended' })).toBe(2)
   const td: TurnDigestContrib = { kind: 'turn_digest', convId: 'c', ts: 0, intent: 'x' }
   expect(contribWeight(td)).toBe(1)
   expect(contribWeight({ kind: 'git_scan', convId: 'c', ts: 0, git: { branches: [], scannedAt: 0 } })).toBe(1)
+})
+
+test('StatusContrib records with weight=3 and preserves text fields', () => {
+  const status: StatusContrib = {
+    kind: 'status',
+    convId: 'conv-done',
+    ts: 5000,
+    state: 'done',
+    done: 'Fixed N+1 query (commit abc123)',
+    pending: 'Deploy to prod',
+    caveats: 'Watch for cache invalidation',
+  }
+  const r = recordContribution(SLUG, status)
+  expect(r.pendingContribs).toBe(3)
+  const q = readQueue(SLUG)
+  expect(q).toHaveLength(1)
+  expect(q[0]).toMatchObject({
+    kind: 'status',
+    state: 'done',
+    done: 'Fixed N+1 query (commit abc123)',
+    pending: 'Deploy to prod',
+    caveats: 'Watch for cache invalidation',
+  })
 })
 
 test('readLiveQueue drops expired entries, keeps non-expired', () => {
