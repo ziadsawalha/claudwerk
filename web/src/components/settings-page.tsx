@@ -387,6 +387,27 @@ const SETTINGS: SettingItem[] = [
   {
     tab: 'input',
     group: 'Voice',
+    label: 'Deepgram model',
+    description: 'STT model for voice transcription',
+    server: true,
+    keywords: 'speech recognition deepgram nova flux',
+    render: (ctx, ariaLabel) => (
+      <select
+        aria-label={ariaLabel}
+        value={(ctx.server.deepgramModel as string) ?? 'nova-3'}
+        onChange={e => ctx.setServer('deepgramModel', e.target.value)}
+        className="px-2 py-1 text-xs font-mono bg-muted border border-border text-foreground"
+      >
+        <option value="nova-3">nova-3</option>
+        <option value="nova-2">nova-2</option>
+        <option value="flux-general-en">flux-general-en (v2)</option>
+        <option value="flux-general-multi">flux-general-multi (v2)</option>
+      </select>
+    ),
+  },
+  {
+    tab: 'input',
+    group: 'Voice',
     label: 'LLM refinement',
     description: 'Post-process voice transcripts with Haiku to fix ASR errors',
     server: true,
