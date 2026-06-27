@@ -15,6 +15,7 @@ import { z } from 'zod'
 import type { Conversation, DispatchDecision } from '../../shared/protocol'
 import { buildControlDeps } from './control-deps'
 import { buildControlToolset } from './control-tools'
+import { computeCostSignal } from './cost'
 import { condenseProjectNow } from './desk-memory-service'
 import { lookupTools } from './lookup-tools'
 import type { DispatchCommand } from './orchestrate'
@@ -24,6 +25,11 @@ import { listDeskProjects, projectKeyOf, resolveDeskProject } from './projects'
 import { type QuestSpawn, questTools } from './quest-tool'
 import { type DispatchRuntime, runDispatch } from './runtime'
 import { defineTool, type Toolset } from './tool-def'
+
+function contextTokensOf(c: Conversation): number | undefined {
+  const tu = c.tokenUsage
+  return tu ? tu.input + tu.cacheCreation + tu.cacheRead : undefined
+}
 
 function toOverviewConv(c: Conversation): OverviewConv {
   const o: OverviewConv = { projectKey: projectKeyOf(c.project), ended: c.status === 'ended' }
@@ -85,15 +91,25 @@ function projectTools(rt: DispatchRuntime): Toolset {
           await condenseProjectNow(dp.key, dp.projectUri, dp.label)
           brief = getBrief(dp.key)
         }
+        const now = Date.now()
         const conversations = rt.store
           .getAllConversations()
           .filter(c => projectKeyOf(c.project) === dp.key && c.status !== 'ended')
-          .map(c => ({
-            conversationId: c.id,
-            title: c.title,
-            state: c.liveStatus?.state ?? 'live',
-            idleMin: c.lastActivity ? Math.round((Date.now() - c.lastActivity) / 60000) : undefined,
-          }))
+          .map(c => {
+            const idleMs = c.lastActivity ? now - c.lastActivity : undefined
+            const cost = computeCostSignal({ contextTokens: contextTokensOf(c), idleMs, model: c.model })
+            const entry: Record<string, unknown> = {
+              conversationId: c.id,
+              title: c.title,
+              state: c.liveStatus?.state ?? 'live',
+              idleMin: idleMs !== undefined ? Math.round(idleMs / 60000) : undefined,
+            }
+            if (cost.tier !== 'cheap') {
+              entry.interactionCost = cost.tier.replace('_', ' ')
+              entry.costNote = cost.note
+            }
+            return entry
+          })
         return {
           project: dp.label,
           projectUri: dp.projectUri,
