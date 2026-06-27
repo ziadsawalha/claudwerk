@@ -67,8 +67,9 @@ export function handleVoiceStart(
 
   // Build Deepgram live WS URL with params
   // webm/opus is a containerized format - Deepgram auto-detects, no encoding/sample_rate needed
+  const globalSettings = getGlobalSettings()
   const params = new URLSearchParams({
-    model: 'nova-3',
+    model: globalSettings.deepgramModel || 'flux',
     smart_format: 'true',
     punctuate: 'true',
     filler_words: 'false',
@@ -82,7 +83,9 @@ export function handleVoiceStart(
   }
 
   const dgUrl = `${DEEPGRAM_LIVE_URL}?${params}`
-  console.log(`[voice-stream] Opening Deepgram live WS (${keyterms.length} keyterms)`)
+  console.log(
+    `[voice-stream] Opening Deepgram live WS (model=${globalSettings.deepgramModel || 'flux'}, ${keyterms.length} keyterms)`,
+  )
 
   const dgWs = new WebSocket(dgUrl, {
     headers: { Authorization: `Token ${deepgramKey}` },

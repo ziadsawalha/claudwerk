@@ -17,6 +17,7 @@ const GlobalSettingsSchema = z.object({
   agentColor: z.string().max(50).default(''),
   userSize: z.string().max(4).default(''),
   agentSize: z.string().max(4).default(''),
+  deepgramModel: z.string().max(30).default('flux'),
   voiceRefinement: z.boolean().default(true),
   voiceRefinementPrompt: z.string().max(2000).default(''),
   carriageReturnDelay: z.number().min(0).max(2000).default(0),
