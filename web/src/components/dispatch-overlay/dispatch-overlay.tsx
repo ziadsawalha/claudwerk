@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from '../ui/dialog'
 import { DispatchFlow } from './dispatch-flow'
 import { DispatchHeader } from './dispatch-header'
 import { DispatchIntentInput } from './dispatch-intent-input'
+import { MemoryEditorModal, RefinePreviewModal } from './dispatch-memory-editor'
 import { useDispatchStore } from './dispatch-store'
 import './dispatch.css'
 
@@ -60,6 +61,8 @@ export default function DispatchOverlay() {
         )}
         <DispatchFlow />
         <DispatchIntentInput />
+        <MemoryEditorModal />
+        <RefinePreviewModal />
       </DialogContent>
     </Dialog>
   )

@@ -1625,6 +1625,11 @@ function handleDispatchRequestResult(msg: DashboardMessage) {
     .onRequestResult(msg as DashboardMessage & { ok?: boolean; error?: string; decision?: DispatchDecision })
 }
 
+function handleDispatchControlResult(msg: DashboardMessage) {
+  const data = msg as DashboardMessage & { action?: string; content?: string; before?: string; after?: string; model?: string; ok?: boolean; error?: string }
+  useDispatchStore.getState().onControlResult(data)
+}
+
 function handleDispatchThreadsResult(msg: DashboardMessage) {
   useDispatchStore.getState().onThreadsResult(
     msg as DashboardMessage & {
@@ -1748,6 +1753,7 @@ export const handlers: Record<string, MessageHandler> = {
   recap_list_result: handleRecapListResult,
   // dispatch cockpit (per-user Front Desk overlay)
   dispatch_request_result: handleDispatchRequestResult,
+  dispatch_control_result: handleDispatchControlResult,
   dispatch_list_threads_result: handleDispatchThreadsResult,
   dispatch_history: handleDispatchHistory,
   dispatch_decision: handleDispatchDecision,

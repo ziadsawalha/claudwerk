@@ -58,6 +58,11 @@ export interface DispatchState {
   /** The dispatcher's virtual-fs scratch workspaces (/work/<x>). */
   workspaces: WorkspaceInfo[]
 
+  /** Editor modal state for /memory and /system. */
+  editorModal: { kind: 'memory' | 'system'; content: string } | null
+  /** Refine preview state for /memory x. */
+  refinePreview: { before: string; after: string; model: string } | null
+
   // intent / submission
   setIntent(intent: string): void
   setModel(slug: string): void
@@ -84,6 +89,19 @@ export interface DispatchState {
   onDecisionBroadcast(decision: DispatchDecision): void
   onToolCall(msg: DispatchToolCall): void
   onToolResult(msg: DispatchToolResult): void
+  onControlResult(msg: {
+    action?: string
+    content?: string
+    before?: string
+    after?: string
+    model?: string
+    ok?: boolean
+    error?: string
+  }): void
+  closeEditor(): void
+  saveEditor(content: string): void
+  confirmRefine(): void
+  cancelRefine(): void
 }
 
 let reqSeq = 0
@@ -100,6 +118,64 @@ const SLASH_CONTROL: Record<string, 'clear' | 'compact' | 'forget'> = {
 }
 
 const NOT_CONNECTED = 'Not connected -- your message was not sent. It is still here; try again in a moment.'
+
+// ─── /memory and /system slash commands ────────────────────────────
+
+interface MemorySlash {
+  kind: 'memory_editor' | 'memory_refine' | 'system_editor'
+  instruction?: string
+  model?: string
+}
+
+const MODEL_BRACKET = /^\[([^\]]+)]\s*/
+
+function parseMemorySlash(intent: string): MemorySlash | null {
+  const lower = intent.toLowerCase()
+  if (lower === '/system') return { kind: 'system_editor' }
+  if (lower === '/memory') return { kind: 'memory_editor' }
+  if (!lower.startsWith('/memory ')) return null
+  let rest = intent.slice('/memory '.length).trim()
+  let model: string | undefined
+  const m = rest.match(MODEL_BRACKET)
+  if (m) {
+    model = m[1]
+    rest = rest.slice(m[0].length).trim()
+  }
+  if (!rest) return { kind: 'memory_editor' }
+  return { kind: 'memory_refine', instruction: rest, model }
+}
+
+type SetFn = (partial: Partial<DispatchState>) => void
+
+function handleMemorySlash(cmd: MemorySlash, set: SetFn): void {
+  if (cmd.kind === 'memory_editor') {
+    const requestId = nextRequestId()
+    if (wsSend('dispatch_control', { action: 'memory_read', requestId })) {
+      set({ intent: '', lastError: null })
+    } else {
+      set({ lastError: NOT_CONNECTED })
+    }
+    return
+  }
+  if (cmd.kind === 'system_editor') {
+    const requestId = nextRequestId()
+    if (wsSend('dispatch_control', { action: 'system_read', requestId })) {
+      set({ intent: '', lastError: null })
+    } else {
+      set({ lastError: NOT_CONNECTED })
+    }
+    return
+  }
+  // memory_refine
+  const requestId = nextRequestId()
+  const payload: Record<string, unknown> = { action: 'memory_refine', requestId, instruction: cmd.instruction }
+  if (cmd.model) payload.model = cmd.model
+  if (wsSend('dispatch_control', payload)) {
+    set({ intent: '', pending: true, lastError: null })
+  } else {
+    set({ lastError: NOT_CONNECTED })
+  }
+}
 
 // The dispatcher is a single, per-user GLOBAL managed modal -- parkable + maximizable,
 // folded into the same dock as THE DIALOGUE / Nightshift (see use-modal-manager).
@@ -141,6 +217,8 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
   verbose: false,
   memory: '',
   workspaces: [],
+  editorModal: null,
+  refinePreview: null,
 
   // Enforce the `intent: string` invariant at the write boundary. CodeMirror's
   // onChange always hands us a string, but the `window.__dispatch` debug seam
@@ -163,6 +241,12 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
       if (action) {
         if (wsSend('dispatch_control', { action, requestId: nextRequestId() })) set({ intent: '', lastError: null })
         else set({ lastError: NOT_CONNECTED })
+        return
+      }
+      // /memory and /system: editor or refine, outside the agent loop.
+      const memoryCmd = parseMemorySlash(intent)
+      if (memoryCmd) {
+        handleMemorySlash(memoryCmd, set)
         return
       }
       const requestId = nextRequestId()
@@ -226,6 +310,39 @@ export const useDispatchStore = create<DispatchState>((set, get) => ({
     useConversationsStore.getState().selectConversation(id, 'dispatch')
     get().closeOverlay()
   },
+
+  // /memory + /system control results
+  onControlResult: msg => {
+    if (msg.action === 'memory_read') {
+      set({ editorModal: { kind: 'memory', content: msg.content ?? '' } })
+    } else if (msg.action === 'system_read') {
+      set({ editorModal: { kind: 'system', content: msg.content ?? '' } })
+    } else if (msg.action === 'memory_refine') {
+      set({
+        pending: false,
+        refinePreview: msg.ok ? { before: msg.before ?? '', after: msg.after ?? '', model: msg.model ?? '' } : null,
+      })
+      if (!msg.ok) set({ lastError: msg.error ?? 'refine failed' })
+    } else if (msg.action === 'memory_write' || msg.action === 'system_write') {
+      // write confirmed -- just close any open modal
+      set({ editorModal: null })
+    }
+  },
+  closeEditor: () => set({ editorModal: null }),
+  saveEditor: content => {
+    const modal = get().editorModal
+    if (!modal) return
+    const action = modal.kind === 'memory' ? 'memory_write' : 'system_write'
+    wsSend('dispatch_control', { action, content, requestId: nextRequestId() })
+    set({ editorModal: null })
+  },
+  confirmRefine: () => {
+    const preview = get().refinePreview
+    if (!preview) return
+    wsSend('dispatch_control', { action: 'memory_write', content: preview.after, requestId: nextRequestId() })
+    set({ refinePreview: null })
+  },
+  cancelRefine: () => set({ refinePreview: null }),
 
   // inbound WS reducers (history seed/stream, decision feed, tool gears)
   ...createInbound(set, get),
