@@ -214,6 +214,7 @@ function handleUser(entry: TranscriptEntry, state: GroupingState): boolean {
   }
 
   if (textContent.includes('<system-reminder>')) return true
+  if (textContent.includes('Your previous response had no visible output')) return true
   if (
     textContent.includes('<command-name>') ||
     textContent.includes('<local-command-caveat>') ||

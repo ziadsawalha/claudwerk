@@ -57,6 +57,22 @@ describe('processEntry - Stop hook feedback', () => {
   })
 })
 
+describe('processEntry - harness nag suppression', () => {
+  it('suppresses the "no visible output" nag injected by CC harness', () => {
+    const { groups } = group([
+      userEntry(textBlocks('[Your previous response had no visible output. Please continue and produce a user-visible response.]')),
+    ])
+    expect(groups).toHaveLength(0)
+  })
+
+  it('suppresses the nag delivered as a bare string too', () => {
+    const { groups } = group([
+      userEntry('[Your previous response had no visible output. Please continue and produce a user-visible response.]'),
+    ])
+    expect(groups).toHaveLength(0)
+  })
+})
+
 // The Skill tool produces a tool_result carrying `toolUseResult.commandName`,
 // then the big markdown dump. The agent host marks the dump `isMeta` -- native
 // in CC's JSONL (PTY), normalized from stream-json `isSynthetic` (headless).
