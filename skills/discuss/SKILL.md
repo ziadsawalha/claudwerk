@@ -1,32 +1,52 @@
 ---
 name: discuss
-description: Present ANY artifact as a LIVE, persistent, agent-mutable dialog the human can comment on, tweak, and watch you redraw in place across turns -- instead of a wall of text. The general "show it -> I react -> you redraw" loop, for anything: a design or wireframe sketch, an API/schema review, a comparison, a config wizard, a refactor proposal, a decision to talk through. Use when the user says "discuss", "/discuss", "let's discuss this", "workshop", "workshop this", "let's workshop X", "make this interactive", "let me comment on this", "show me X so I can tweak it", "iterate on this with me", "present this so I can edit/react", or any live show-and-refine / workshop loop. Rides the rclaude live-dialog primitive (the `dialog` MCP tool with persistent:true -> update_dialog -> close/reopen). For a plan specifically use `visual-plan`; for a recap use `visual-recap`; this is the agnostic core for everything else.
+description: Present ANY artifact as a LIVE, persistent, agent-mutable dialog the human can comment on, tweak, and watch you redraw in place across turns -- instead of a wall of text. The general "show it -> I react -> you redraw" loop, for anything: a plan, a recap, a design sketch, an API/schema review, a comparison, a config wizard, a refactor proposal, a decision to talk through. Use when the user says "discuss", "/discuss", "let's discuss this", "workshop", "workshop this", "let's workshop X", "make this interactive", "let me comment on this", "show me X so I can tweak it", "iterate on this with me", "present this so I can edit/react", "visual plan", "visual recap", or any live show-and-refine / workshop loop. Rides the rclaude live-dialog primitive (the `dialog` MCP tool with persistent:true -> update_dialog -> close/reopen).
 ---
 
 # discuss
 
-Present an artifact as a **living dialog** and talk it through: you render it from rich blocks, the human reads + comments + tweaks **locally** (instant, zero agent turns), hits ONE "Send to agent" button, and you receive their input in one earned turn and **patch the artifact in place** (redraw a block, answer inline, add/remove sections). It persists, survives reload, reopens later. This is the general engine; `visual-plan` (plans) and `visual-recap` (recaps) are named specializations of it.
+Present an artifact as a **living dialog** and talk it through: you render it from rich blocks, the human reads + comments + tweaks **locally** (instant, zero agent turns), hits ONE "Send to agent" button, and you receive their input in one earned turn and **patch the artifact in place** (redraw a block, answer inline, add/remove sections). It persists, survives reload, reopens later. This is THE skill for live dialogs -- plans, recaps, reviews, comparisons, anything that needs multi-round iteration.
 
 Requires the rclaude live-dialog tools: `dialog` (with `persistent: true`), `update_dialog`, `close_dialog`, `reopen_dialog`. If unavailable in this conversation, fall back to a one-shot `dialog` or markdown.
 
-## STEP 0 -- THE DECISION RULE (read this BEFORE building anything)
+## STEP 0 -- THE HARD GATE (read this BEFORE building anything)
 
-A persistent/live dialog spends an agent round-trip on every "Send to agent". Use it ONLY when BOTH are true:
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  A persistent/live dialog is ONLY for MULTI-ROUND ITERATION where the        ┃
+┃  user provides SUBSTANTIVE INPUT that changes the artifact and you REDRAW.    ┃
+┃                                                                               ┃
+┃  THE LITMUS TEST: does the dialog contain a free-text input where the user    ┃
+┃  writes something you will act on to CHANGE the content? If not -- if it's    ┃
+┃  just buttons, just a confirmation, just "approve / reject" -- it is NOT a    ┃
+┃  live dialog. Use a one-shot dialog instead. NO EXCEPTIONS.                   ┃
+┃                                                                               ┃
+┃  A live dialog with no feedback loop is WORSE than useless -- it sends no     ┃
+┃  signal back, just sits there. The user clicks a button and nothing happens.  ┃
+┃  That is the anti-pattern this gate exists to kill.                           ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
 
-1. **The artifact must survive across turns** (the human reviews, leaves, returns, iterates), AND
-2. **You will genuinely re-derive content from their interaction** (their input changes the artifact and you redraw it).
+Use persistent dialog ONLY when ALL THREE are true:
 
-If you will NOT redraw from their input, do NOT use a persistent dialog:
+1. **The artifact must survive across turns** (the human reviews, leaves, returns, iterates).
+2. **The user provides substantive input** -- free-text comments, diagram annotations, detailed feedback. NOT just picking from buttons.
+3. **You will genuinely re-derive content from that input** -- their words change what the artifact says and you redraw it.
+
+If ANY of these is false, use a one-shot `dialog` or plain markdown.
 
 | Situation | Use | NOT |
 |---|---|---|
 | Show an artifact + iterate across turns, redraw from comments | **persistent dialog** (this skill) | one-shot |
+| Present a plan for approval (approve / reject) | **one-shot `dialog`** with buttons | persistent |
+| Show a recap of what shipped | **one-shot `dialog`** (or markdown) | persistent |
 | Just SHOW something once, no iteration | a one-shot `dialog` (or markdown) | persistent |
 | Collect N answers in sequence, then act | one-shot `dialog` with **`pages`** (instant) | a turn per page |
-| A choice that only changes the local view (switch tab, toggle a section) | **client-side** local interaction (no submit) | an agent round-trip |
-| A quick yes/no / approve gate | one-shot `dialog` | persistent |
+| A choice that only changes the local view | **client-side** local interaction (no submit) | an agent round-trip |
+| A quick yes/no / approve gate | **one-shot `dialog`** | persistent |
+| A confirmation with two buttons | **one-shot `dialog`** | persistent |
 
-Default interactions to client-side. An agent round-trip must be EARNED -- one per real revision round, never per keystroke. Specializations: a **plan** before coding -> `visual-plan`; a **recap** after -> `visual-recap`; anything else (review, comparison, wizard, refinement, a decision to talk through) -> this skill.
+Default to one-shot. A persistent dialog must be EARNED -- real multi-round revision with substantive user input, not per-keystroke and not just button clicks.
 
 ## STEP 1 -- Draft the artifact as blocks
 
@@ -90,3 +110,7 @@ The dialog STAYS OPEN across the turn -- you patch, the human reacts again. Loop
 ## STEP 4 -- Close / reopen
 
 `close_dialog(dialogId)` -> terminal but reopenable; final state persists as the record. `reopen_dialog(dialogId)` -> brings it back live when the human returns.
+
+## Reminder: plans and recaps are usually ONE-SHOT
+
+A plan presentation ("here's what I'll build, approve?") or a recap ("here's what shipped") is almost always a one-shot dialog -- show it, get a yes/no, done. Only use this persistent skill if the user explicitly asks to WORKSHOP or ITERATE on the plan/recap content across multiple rounds.
