@@ -21,7 +21,7 @@ export function TerminalOverlay({ conversationId }: TerminalOverlayProps) {
         onClose={() => {
           const store = useConversationsStore.getState()
           store.setShowTerminal(false)
-          if (store.selectedConversationId) store.openTab(store.selectedConversationId, 'transcript')
+          store.openTab(conversationId, 'transcript')
         }}
       />
     </Suspense>

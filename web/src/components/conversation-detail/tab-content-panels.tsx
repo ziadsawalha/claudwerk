@@ -95,6 +95,7 @@ export function TabContentPanels({
             </div>
           )}
           <TranscriptView
+            conversationId={selectedConversationId}
             cacheKey={selectedConversationId}
             entries={transcript}
             follow={follow}

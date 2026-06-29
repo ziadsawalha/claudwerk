@@ -115,23 +115,23 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('ConversationDetail - empty state', () => {
+describe('ConversationDetail - no conversation in store', () => {
   beforeEach(() => {
-    setStoreState({ selectedConversationId: null })
+    setStoreState({ conversationsById: {} })
   })
 
-  it('renders EmptyState when no conversation selected', () => {
-    render(<ConversationDetail />)
-    expect(screen.getByTestId('empty-state')).toBeDefined()
+  it('renders nothing when conversation not in store', () => {
+    const { container } = render(<ConversationDetail conversationId="test-conversation-1" />)
+    expect(container.innerHTML).toBe('')
   })
 
   it('does not render header when no conversation', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('conversation-header')).toBeNull()
   })
 
   it('does not render tabs when no conversation', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('conversation-tabs')).toBeNull()
   })
 })
@@ -148,42 +148,42 @@ describe('ConversationDetail - active conversation', () => {
   })
 
   it('renders conversation header', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('conversation-header')).toBeDefined()
   })
 
   it('renders conversation tabs', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('conversation-tabs')).toBeDefined()
   })
 
   it('renders tab content panels', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('tab-content-panels')).toBeDefined()
   })
 
   it('renders input bar for active conversation with chat permission', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('input-bar')).toBeDefined()
   })
 
   it('renders dialog overlay', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('dialog-overlay')).toBeDefined()
   })
 
   it('does not render EmptyState', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('empty-state')).toBeNull()
   })
 
   it('does not render revive footer for active conversation', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('revive-footer')).toBeNull()
   })
 
   it('renders clipboard banners', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('clipboard-banners')).toBeDefined()
   })
 })
@@ -201,12 +201,12 @@ describe('ConversationDetail - ended conversation', () => {
   })
 
   it('renders revive footer when ended + sentinel connected + canSpawn', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('revive-footer')).toBeDefined()
   })
 
   it('does not render input bar for ended conversation', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('input-bar')).toBeNull()
   })
 })
@@ -232,7 +232,7 @@ describe('ConversationDetail - ended without spawn permission', () => {
   })
 
   it('does not render revive footer without canSpawn', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('revive-footer')).toBeNull()
   })
 })
@@ -250,7 +250,7 @@ describe('ConversationDetail - ended without sentinel', () => {
   })
 
   it('still renders revive footer (button disabled internally)', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('revive-footer')).toBeDefined()
   })
 })
@@ -275,7 +275,7 @@ describe('ConversationDetail - admin permissions', () => {
   })
 
   it('renders share banner for admin', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('share-banner')).toBeDefined()
   })
 })
@@ -300,7 +300,7 @@ describe('ConversationDetail - non-admin permissions', () => {
   })
 
   it('does not render share banner for non-admin', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('share-banner')).toBeNull()
   })
 })
@@ -325,7 +325,7 @@ describe('ConversationDetail - no chat permission', () => {
   })
 
   it('does not render input bar without chat permission', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('input-bar')).toBeNull()
   })
 })
@@ -347,22 +347,22 @@ describe('ConversationDetail - subagent view', () => {
   })
 
   it('renders subagent detail view', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('subagent-detail-view')).toBeDefined()
   })
 
   it('does not render tabs when viewing subagent', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('conversation-tabs')).toBeNull()
   })
 
   it('does not render tab content panels when viewing subagent', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('tab-content-panels')).toBeNull()
   })
 
   it('does not render input bar when viewing subagent', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('input-bar')).toBeNull()
   })
 })
@@ -381,7 +381,7 @@ describe('ConversationDetail - terminal overlay', () => {
   })
 
   it('renders terminal overlay when showTerminal + terminalWrapperId', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.getByTestId('terminal-overlay')).toBeDefined()
   })
 })
@@ -400,7 +400,7 @@ describe('ConversationDetail - terminal overlay hidden', () => {
   })
 
   it('does not render terminal overlay when hidden', () => {
-    render(<ConversationDetail />)
+    render(<ConversationDetail conversationId="test-conversation-1" />)
     expect(screen.queryByTestId('terminal-overlay')).toBeNull()
   })
 })

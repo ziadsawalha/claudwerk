@@ -8,13 +8,12 @@ import { cn, haptic } from '@/lib/utils'
 // LinkRequestBanners
 // ---------------------------------------------------------------------------
 
-export function LinkRequestBanners() {
+export function LinkRequestBanners({ conversationId }: { conversationId: string }) {
   const requests = useConversationsStore(s => s.pendingProjectLinks)
   const respond = useConversationsStore(s => s.respondToProjectLink)
-  const selectedConversation = useConversationsStore(s => s.selectedConversationId)
 
   const relevant = requests.filter(
-    r => r.toConversation === selectedConversation || r.fromConversation === selectedConversation,
+    r => r.toConversation === conversationId || r.fromConversation === conversationId,
   )
 
   return (
@@ -160,15 +159,14 @@ function formatPermissionInput(toolName: string, inputPreview: string, root?: st
 // PermissionBanners
 // ---------------------------------------------------------------------------
 
-export function PermissionBanners() {
+export function PermissionBanners({ conversationId }: { conversationId: string }) {
   const permissions = useConversationsStore(s => s.pendingPermissions)
   const respond = useConversationsStore(s => s.respondToPermission)
   const sendRule = useConversationsStore(s => s.sendPermissionRule)
-  const selectedConversation = useConversationsStore(s => s.selectedConversationId)
   const conversationPath = useConversationsStore(s =>
-    s.selectedConversationId ? projectPath(s.conversationsById[s.selectedConversationId]?.project ?? '') : undefined,
+    projectPath(s.conversationsById[conversationId]?.project ?? ''),
   )
-  const relevant = permissions.filter(p => p.conversationId === selectedConversation)
+  const relevant = permissions.filter(p => p.conversationId === conversationId)
   return (
     <BannerStack
       items={relevant}
@@ -232,26 +230,21 @@ function relativizeCwd(cwd: unknown, root?: string): string {
   return cwd
 }
 
-export function SpawnApprovalBanners() {
-  const selectedConversation = useConversationsStore(s => s.selectedConversationId)
-  const conversation = useConversationsStore(s =>
-    s.selectedConversationId ? s.conversationsById[s.selectedConversationId] : undefined,
-  )
+export function SpawnApprovalBanners({ conversationId }: { conversationId: string }) {
+  const conversation = useConversationsStore(s => s.conversationsById[conversationId])
   const respond = useConversationsStore(s => s.respondToSpawnApproval)
   const conversationPath = useConversationsStore(s =>
-    s.selectedConversationId ? projectPath(s.conversationsById[s.selectedConversationId]?.project ?? '') : undefined,
+    projectPath(s.conversationsById[conversationId]?.project ?? ''),
   )
   const [persistChecked, setPersistChecked] = useState(false)
 
   const pending = conversation?.pendingSpawnApproval
-  const items = useMemo(() => (pending && selectedConversation ? [pending] : []), [pending, selectedConversation])
+  const items = useMemo(() => (pending ? [pending] : []), [pending])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: only react to id swap
   useEffect(() => {
     setPersistChecked(false)
   }, [pending?.requestId])
-
-  if (!selectedConversation) return null
 
   return (
     <BannerStack
@@ -282,7 +275,7 @@ export function SpawnApprovalBanners() {
                   label="ALLOW"
                   onClick={() => {
                     haptic('success')
-                    respond(selectedConversation, req.requestId, 'allow', persistChecked)
+                    respond(conversationId, req.requestId, 'allow', persistChecked)
                   }}
                 />
                 <BannerButton
@@ -290,7 +283,7 @@ export function SpawnApprovalBanners() {
                   label="DENY"
                   onClick={() => {
                     haptic('error')
-                    respond(selectedConversation, req.requestId, 'deny', false)
+                    respond(conversationId, req.requestId, 'deny', false)
                   }}
                 />
               </>
@@ -341,11 +334,10 @@ export function SpawnApprovalBanners() {
 // ClipboardBanners
 // ---------------------------------------------------------------------------
 
-export function ClipboardBanners() {
+export function ClipboardBanners({ conversationId }: { conversationId: string }) {
   const captures = useConversationsStore(s => s.clipboardCaptures)
   const dismiss = useConversationsStore(s => s.dismissClipboard)
-  const selectedConversation = useConversationsStore(s => s.selectedConversationId)
-  const relevant = captures.filter(c => c.conversationId === selectedConversation)
+  const relevant = captures.filter(c => c.conversationId === conversationId)
 
   return (
     <BannerStack
@@ -414,11 +406,10 @@ export function ClipboardBanners() {
 // AskQuestionBanners + AskQuestionCard
 // ---------------------------------------------------------------------------
 
-export function AskQuestionBanners() {
+export function AskQuestionBanners({ conversationId }: { conversationId: string }) {
   const questions = useConversationsStore(s => s.pendingAskQuestions)
   const respond = useConversationsStore(s => s.respondToAskQuestion)
-  const selectedConversation = useConversationsStore(s => s.selectedConversationId)
-  const relevant = questions.filter(q => q.conversationId === selectedConversation)
+  const relevant = questions.filter(q => q.conversationId === conversationId)
 
   return (
     <BannerStack

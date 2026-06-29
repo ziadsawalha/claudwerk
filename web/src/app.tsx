@@ -8,6 +8,8 @@ import { checklistAddNotesBus, checklistArchiveBus, checklistBulkEditBus } from 
 import { ChordOverlay } from '@/components/chord-overlay'
 import { CommandPalette } from '@/components/command-palette'
 import { ConversationDetail } from '@/components/conversation-detail'
+import { EmptyState } from '@/components/conversation-detail/empty-state'
+import { ProjectActionPanel } from '@/components/conversation-detail/project-action-panel'
 import { DebugConsole } from '@/components/debug-console'
 import { dispatchBus } from '@/components/dispatch-overlay/dispatch-bus'
 import { Dock } from '@/components/dock'
@@ -277,6 +279,19 @@ function DesktopSidebar({
 // cyclomatic, via DesktopSidebar/SidebarTools extraction); a full shell split is
 // tracked separately. Suppress so the gate doesn't attribute inherited debt here.
 // fallow-ignore-next-line complexity
+function DashboardContent() {
+  const selectedConversationId = useConversationsStore(s => s.selectedConversationId)
+  const selectedProjectUri = useConversationsStore(s => s.selectedProjectUri)
+
+  if (!selectedConversationId) {
+    if (selectedProjectUri) return <ProjectActionPanel projectUri={selectedProjectUri} />
+    return <EmptyState />
+  }
+
+  return <ConversationDetail conversationId={selectedConversationId} />
+}
+
+// fallow-ignore-next-line complexity
 function Dashboard() {
   const [sheetOpen, setSheetOpen] = useState(
     () => isMobileViewport() && !useConversationsStore.getState().selectedConversationId,
@@ -466,7 +481,7 @@ function Dashboard() {
 
         <div className="flex-1 border border-border overflow-hidden flex flex-col min-w-0">
           <PanelBoundary name="Conversation">
-            <ConversationDetail />
+            <DashboardContent />
           </PanelBoundary>
         </div>
       </div>

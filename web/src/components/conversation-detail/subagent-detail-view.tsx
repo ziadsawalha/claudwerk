@@ -9,6 +9,7 @@ import { TranscriptView } from '../transcript'
 import { shortModel } from '../transcript/agent-task-badge'
 
 interface SubagentDetailViewProps {
+  conversationId: string
   subagent: { agentId: string; description?: string; agentType?: string; model?: string; status: string } | undefined
   subagentId: string
   transcript: TranscriptEntry[]
@@ -21,6 +22,7 @@ interface SubagentDetailViewProps {
 }
 
 export function SubagentDetailView({
+  conversationId,
   subagent,
   subagentId,
   transcript,
@@ -74,6 +76,7 @@ export function SubagentDetailView({
           </div>
         ) : (
           <TranscriptView
+            conversationId={conversationId}
             entries={transcript}
             follow={follow}
             showThinking={showThinking}

@@ -165,7 +165,7 @@ export function SharedConversationView({ token: _token }: { token: string }) {
 
       {/* Conversation detail (transcript + input) */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-        {selectedConversationId && <ConversationDetail />}
+        {selectedConversationId && <ConversationDetail conversationId={selectedConversationId} />}
       </div>
 
       {/* Global media lightbox -- transcript markdown emits chips that open this */}

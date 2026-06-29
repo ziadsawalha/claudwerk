@@ -259,6 +259,7 @@ function MaybeProfiler({ enabled, id, children }: { enabled: boolean; id: string
 }
 
 interface TranscriptViewProps {
+  conversationId: string
   entries: TranscriptEntry[]
   follow?: boolean
   showThinking?: boolean
@@ -272,6 +273,7 @@ interface TranscriptViewProps {
 }
 
 export const TranscriptView = memo(function TranscriptView({
+  conversationId,
   entries,
   follow = false,
   showThinking = false,
@@ -420,16 +422,11 @@ export const TranscriptView = memo(function TranscriptView({
     return { mainGroups: main, queuedGroups: queued }
   }, [groups])
 
-  // Live-turn state (drives the live tail item + suppresses the enter animation
-  // during streaming so the in-place streaming->committed swap never flashes).
-  const selectedConversationId = useConversationsStore(state => state.selectedConversationId)
   const convActive = useConversationsStore(state =>
-    selectedConversationId ? state.conversationsById[selectedConversationId]?.status === 'active' : false,
+    state.conversationsById[conversationId]?.status === 'active',
   )
   const streamingPresent = useConversationsStore(state =>
-    selectedConversationId
-      ? !!(state.streamingText[selectedConversationId] || state.streamingThinking[selectedConversationId])
-      : false,
+    !!(state.streamingText[conversationId] || state.streamingThinking[conversationId]),
   )
   const liveActive = convActive || streamingPresent
 
@@ -496,7 +493,7 @@ export const TranscriptView = memo(function TranscriptView({
   // detected during render off the true->false edge of the text buffer.
   const [settlingKey, setSettlingKey] = useState<string | null>(null)
   const streamingTextPresent = useConversationsStore(state =>
-    selectedConversationId ? !!state.streamingText[selectedConversationId] : false,
+    conversationId ? !!state.streamingText[conversationId] : false,
   )
   const prevStreamingTextRef = useRef(streamingTextPresent)
   const pendingSettleRef = useRef<string | null>(null)
@@ -585,8 +582,8 @@ export const TranscriptView = memo(function TranscriptView({
     )
   }
   prevSpacerHeightRef.current = phantomHeightRef.current
-  const spacerKey = selectedConversationId ? `scrollback-${selectedConversationId}` : 'scrollback'
-  const liveKey = selectedConversationId ? `live-${selectedConversationId}` : 'live'
+  const spacerKey = conversationId ? `scrollback-${conversationId}` : 'scrollback'
+  const liveKey = conversationId ? `live-${conversationId}` : 'live'
   // The live slot is the last renderGroups item while the turn is live, keyed
   // liveKey so the synthetic group and the committed assistant group are the
   // SAME virtualizer item across the transition. When the turn ends it reverts
@@ -1051,8 +1048,8 @@ export const TranscriptView = memo(function TranscriptView({
                         }
                         const reportRel = detectReportArtifactRelPath(content)
                         const reportArtifact =
-                          reportRel && selectedConversationId
-                            ? { conversationId: selectedConversationId, relPath: reportRel }
+                          reportRel && conversationId
+                            ? { conversationId: conversationId, relPath: reportRel }
                             : undefined
                         return (
                           <SkillDivider
@@ -1083,15 +1080,15 @@ export const TranscriptView = memo(function TranscriptView({
                     renders only its committed content + any pending banners. */}
                 {isLast && (
                   <>
-                    <StreamingThinkingBlock conversationId={selectedConversationId} />
-                    <StreamingTextBlock conversationId={selectedConversationId} />
-                    <ThinkingPill conversationId={selectedConversationId} />
-                    <ThinkingSpinner conversationId={selectedConversationId} />
+                    <StreamingThinkingBlock conversationId={conversationId} />
+                    <StreamingTextBlock conversationId={conversationId} />
+                    <ThinkingPill conversationId={conversationId} />
+                    <ThinkingSpinner conversationId={conversationId} />
                     <div className="mt-2">
-                      <LinkRequestBanners />
-                      <PermissionBanners />
-                      <SpawnApprovalBanners />
-                      <AskQuestionBanners />
+                      <LinkRequestBanners conversationId={conversationId} />
+                      <PermissionBanners conversationId={conversationId} />
+                      <SpawnApprovalBanners conversationId={conversationId} />
+                      <AskQuestionBanners conversationId={conversationId} />
                     </div>
                     {queuedGroups.length > 0 && (
                       <div className="mt-2 border-t border-dashed border-amber-500/30 pt-2">

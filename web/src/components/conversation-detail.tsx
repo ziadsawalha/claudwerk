@@ -9,8 +9,6 @@ import { ClipboardBanners } from './conversation-detail/conversation-banners'
 import { ConversationHeader } from './conversation-detail/conversation-header'
 import { DialogOverlay, InputBar } from './conversation-detail/conversation-input'
 import { ConversationTabs } from './conversation-detail/conversation-tabs'
-import { EmptyState } from './conversation-detail/empty-state'
-import { ProjectActionPanel } from './conversation-detail/project-action-panel'
 import { ReviveFooter } from './conversation-detail/revive-footer'
 import { SubagentDetailView } from './conversation-detail/subagent-detail-view'
 import { TabContentPanels } from './conversation-detail/tab-content-panels'
@@ -25,16 +23,20 @@ import { ShareBanner } from './share-panel'
 const EMPTY_EVENTS: HookEvent[] = []
 const EMPTY_TRANSCRIPT: TranscriptEntry[] = []
 
-export const ConversationDetail = memo(function ConversationDetail() {
+// fallow-ignore-next-line complexity
+export const ConversationDetail = memo(function ConversationDetail({
+  conversationId,
+}: {
+  conversationId: string
+}) {
   const showThinking = useConversationsStore(s => s.controlPanelPrefs.showThinking)
   const showDiag = useConversationsStore(s => s.controlPanelPrefs.showDiag)
   const showTerminal = useConversationsStore(state => state.showTerminal)
   const terminalWrapperId = useConversationsStore(state => state.terminalWrapperId)
-  const selectedConversationId = useConversationsStore(state => state.selectedConversationId)
   const expandAll = useConversationsStore(state => state.expandAll)
 
   const conversation = useConversationsStore(state =>
-    state.selectedConversationId ? state.conversationsById[state.selectedConversationId] : undefined,
+    state.conversationsById[conversationId],
   )
 
   const {
@@ -48,11 +50,11 @@ export const ConversationDetail = memo(function ConversationDetail() {
     setInfoExpanded,
     conversationTarget,
     setConversationTarget,
-  } = useConversationTab(selectedConversationId, conversation?.status)
+  } = useConversationTab(conversationId, conversation?.status)
 
   const { canAdmin, canChat, canReadTerminal, canFiles, canSpawn } = useConversationsStore(
     useShallow(s => {
-      const p = (s.selectedConversationId && s.conversationPermissions[s.selectedConversationId]) || s.permissions
+      const p = s.conversationPermissions[conversationId] || s.permissions
       return {
         canAdmin: p.canAdmin,
         canChat: p.canChat,
@@ -69,12 +71,12 @@ export const ConversationDetail = memo(function ConversationDetail() {
   const events = useConversationsStore(state => {
     const tab = activeTabRef.current
     if (tab !== 'events' && tab !== 'transcript' && tab !== 'tty') return EMPTY_EVENTS
-    return selectedConversationId ? state.events[selectedConversationId] || EMPTY_EVENTS : EMPTY_EVENTS
+    return state.events[conversationId] || EMPTY_EVENTS
   })
   const transcript = useConversationsStore(state => {
     const tab = activeTabRef.current
     if (tab !== 'transcript' && tab !== 'tty') return EMPTY_TRANSCRIPT
-    return selectedConversationId ? state.transcripts[selectedConversationId] || EMPTY_TRANSCRIPT : EMPTY_TRANSCRIPT
+    return state.transcripts[conversationId] || EMPTY_TRANSCRIPT
   })
   const sentinelConnected = useConversationsStore(state => state.sentinelConnected)
   const projectSettings = useConversationsStore(state =>
@@ -82,23 +84,16 @@ export const ConversationDetail = memo(function ConversationDetail() {
   )
 
   const { selectedSubagentId, selectSubagent, subagentTranscript, subagentLoading } =
-    useSubagentFetch(selectedConversationId)
+    useSubagentFetch(conversationId)
   const { taskEditorTask, runTaskFromEditor, updateTask, moveTask, setRunTaskFromEditor, setTaskEditorTask } =
-    useTaskEditor(selectedConversationId ?? null)
+    useTaskEditor(conversationId)
 
   const inPlanMode = conversation?.planMode ?? false
 
-  // Perf-monitor-only: attribute slow switches to a concrete region (see hook).
-  useSwitchDiagnostics(selectedConversationId)
-  // On-demand hook events: only fetch when the events/agents tab needs them.
-  useEventsFetch(selectedConversationId, activeTab)
+  useSwitchDiagnostics(conversationId)
+  useEventsFetch(conversationId, activeTab)
 
-  const selectedProjectUri = useConversationsStore(state => state.selectedProjectUri)
-
-  if (!conversation) {
-    if (selectedProjectUri) return <ProjectActionPanel projectUri={selectedProjectUri} />
-    return <EmptyState />
-  }
+  if (!conversation) return null
 
   const model = (events.find(e => e.hookEvent === 'SessionStart')?.data as { model?: string } | undefined)?.model
   const canSendInput = conversation.status !== 'ended' && canChat
@@ -108,15 +103,14 @@ export const ConversationDetail = memo(function ConversationDetail() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
-      <ClipboardBanners />
-      {canAdmin && conversation && (
+      <ClipboardBanners conversationId={conversationId} />
+      {canAdmin && (
         <ShareBanner conversationProject={conversation.project} conversationId={conversation.id} />
       )}
-      {selectedConversationId && <DialogOverlay conversationId={selectedConversationId} />}
+      <DialogOverlay conversationId={conversationId} />
 
-      {selectedConversationId && (
-        <TaskEditorOverlay
-          conversationId={selectedConversationId}
+      <TaskEditorOverlay
+        conversationId={conversationId}
           taskEditorTask={taskEditorTask}
           runTaskFromEditor={runTaskFromEditor}
           onUpdateTask={updateTask}
@@ -126,7 +120,6 @@ export const ConversationDetail = memo(function ConversationDetail() {
           onCloseRunDialog={() => setRunTaskFromEditor(null)}
           onSetTaskEditorTask={setTaskEditorTask}
         />
-      )}
 
       <ConversationHeader
         conversation={conversation}
@@ -140,6 +133,7 @@ export const ConversationDetail = memo(function ConversationDetail() {
 
       {selectedSubagentId && (
         <SubagentDetailView
+          conversationId={conversationId}
           subagent={conversation.subagents.find(a => a.agentId === selectedSubagentId)}
           subagentId={selectedSubagentId}
           transcript={subagentTranscript}
@@ -172,7 +166,7 @@ export const ConversationDetail = memo(function ConversationDetail() {
           <TabContentPanels
             conversation={conversation}
             activeTab={activeTab}
-            selectedConversationId={selectedConversationId!}
+            selectedConversationId={conversationId}
             transcript={transcript}
             events={events}
             follow={follow}
@@ -194,14 +188,13 @@ export const ConversationDetail = memo(function ConversationDetail() {
       {!conversationTarget &&
         canSendInput &&
         (activeTab === 'transcript' || (activeTab === 'tty' && !hasTerminal)) &&
-        !selectedSubagentId &&
-        selectedConversationId && <InputBar conversationId={selectedConversationId} />}
+        !selectedSubagentId && <InputBar conversationId={conversationId} />}
 
       {showTerminal && terminalWrapperId && <TerminalOverlay conversationId={terminalWrapperId} />}
 
       {conversation.status === 'ended' && canSpawn && (
         <ReviveFooter
-          conversationId={selectedConversationId!}
+          conversationId={conversationId}
           project={conversation.project}
           sentinelConnected={sentinelConnected}
           canRevive={!!canRevive}
