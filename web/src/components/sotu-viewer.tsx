@@ -4,8 +4,8 @@
  * Subscribes to sotu_updated/sotu_contribution for live refresh.
  */
 
-import { useCallback, useEffect, useState } from 'react'
 import { Globe, Layers } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { useConversationsStore, wsSend } from '@/hooks/use-conversations'
 import { useManagedModal } from '@/hooks/use-modal-manager'
 import { useCommand } from '@/lib/commands'
@@ -59,7 +59,9 @@ function ChronicleSection({ label, entries, now }: { label: string; entries: Chr
   if (!entries.length) return null
   return (
     <div className="mt-4">
-      <h4 className="text-[10px] uppercase tracking-widest text-comment font-semibold mb-1">{label} ({entries.length})</h4>
+      <h4 className="text-[10px] uppercase tracking-widest text-comment font-semibold mb-1">
+        {label} ({entries.length})
+      </h4>
       <div className="space-y-1">
         {entries.map((e, i) => (
           <div key={`${e.convId}-${i}`} className="flex gap-2 text-xs">
@@ -77,13 +79,21 @@ function HoldsSection({ holds }: { holds: SotuViewData['holds'] }) {
   if (!holds.length) return null
   return (
     <div className="mt-4">
-      <h4 className="text-[10px] uppercase tracking-widest text-comment font-semibold mb-1">Active Holds ({holds.length})</h4>
+      <h4 className="text-[10px] uppercase tracking-widest text-comment font-semibold mb-1">
+        Active Holds ({holds.length})
+      </h4>
       <div className="space-y-1">
         {holds.map((h, i) => (
           <div key={`${h.target}-${i}`} className="flex items-center gap-2 text-xs">
-            {h.contended && <span className="px-1 py-0.5 rounded bg-amber-500 text-amber-950 text-[9px] font-bold uppercase">contended</span>}
+            {h.contended && (
+              <span className="px-1 py-0.5 rounded bg-amber-500 text-amber-950 text-[9px] font-bold uppercase">
+                contended
+              </span>
+            )}
             <span className="font-mono text-foreground/80">{h.target}</span>
-            <span className="text-comment">({h.holders.length} holder{h.holders.length > 1 ? 's' : ''})</span>
+            <span className="text-comment">
+              ({h.holders.length} holder{h.holders.length > 1 ? 's' : ''})
+            </span>
           </div>
         ))}
       </div>
@@ -107,9 +117,16 @@ function ProjectView({ view }: { view: SotuViewData | null }) {
       <HoldsSection holds={view.holds} />
       {view.alerts.length > 0 && (
         <div className="mt-4">
-          <h4 className="text-[10px] uppercase tracking-widest text-accent font-semibold mb-1">Alerts ({view.alerts.length})</h4>
+          <h4 className="text-[10px] uppercase tracking-widest text-accent font-semibold mb-1">
+            Alerts ({view.alerts.length})
+          </h4>
           {view.alerts.map((a, i) => (
-            <span key={i} className="inline-block mr-1 mb-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-rose-500/15 text-rose-300 border border-rose-500/40">{a}</span>
+            <span
+              key={i}
+              className="inline-block mr-1 mb-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-rose-500/15 text-rose-300 border border-rose-500/40"
+            >
+              {a}
+            </span>
           ))}
         </div>
       )}
@@ -135,7 +152,9 @@ function UniverseView({ projects }: { projects: FleetProject[] | null }) {
               <span className="text-[10px] text-comment ml-auto">{p.queueSize} queued</span>
             </div>
             {p.view.chronicle.narrative && (
-              <p className="text-[11px] text-foreground/70 leading-relaxed line-clamp-2">{p.view.chronicle.narrative}</p>
+              <p className="text-[11px] text-foreground/70 leading-relaxed line-clamp-2">
+                {p.view.chronicle.narrative}
+              </p>
             )}
           </div>
         ))}
@@ -152,8 +171,8 @@ export function SotuViewerModal() {
   const [fleetProjects, setFleetProjects] = useState<FleetProject[] | null>(null)
 
   const selectedConversationId = useConversationsStore(s => s.selectedConversationId)
-  const conversations = useConversationsStore(s => s.conversations)
-  const currentProject = selectedConversationId ? conversations.get(selectedConversationId)?.project : undefined
+  const conversations = useConversationsStore(s => s.conversationsById)
+  const currentProject = selectedConversationId ? conversations?.[selectedConversationId]?.project : undefined
 
   const fetchProject = useCallback(() => {
     if (currentProject) wsSend('sotu_view', { project: currentProject })
@@ -182,11 +201,7 @@ export function SotuViewerModal() {
     return () => window.removeEventListener('sotu-ws' as string, onSotuWs as EventListener)
   }, [tab, fetchProject, fetchFleet])
 
-  useCommand(
-    'sotu-viewer',
-    () => modal.open(),
-    { label: 'State of the Union', group: 'View' },
-  )
+  useCommand('sotu-viewer', () => modal.open(), { label: 'State of the Union', group: 'View' })
 
   return (
     <ModalSurface

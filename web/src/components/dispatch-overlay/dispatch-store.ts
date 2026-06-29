@@ -148,7 +148,6 @@ function parseMemorySlash(intent: string): MemorySlash | null {
 
 type SetFn = (partial: Partial<DispatchState>) => void
 
-
 function handleMemorySlash(cmd: MemorySlash, set: SetFn): void {
   if (cmd.kind === 'memory_editor') {
     const requestId = nextRequestId()

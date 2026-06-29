@@ -146,18 +146,14 @@ describe('page-level ops', () => {
   })
 
   test('addPage inserts after target by index', () => {
-    const r = applyDialogOps(pageSnap(), [
-      { op: 'addPage', label: 'Schema', body: [], after: 0 },
-    ])
+    const r = applyDialogOps(pageSnap(), [{ op: 'addPage', label: 'Schema', body: [], after: 0 }])
     expect(r.layout.pages).toHaveLength(4)
     expect(r.layout.pages![1].label).toBe('Schema')
     expect(r.layout.pages![2].label).toBe('Files')
   })
 
   test('addPage inserts after target by label', () => {
-    const r = applyDialogOps(pageSnap(), [
-      { op: 'addPage', label: 'Schema', body: [], after: 'Files' },
-    ])
+    const r = applyDialogOps(pageSnap(), [{ op: 'addPage', label: 'Schema', body: [], after: 'Files' }])
     expect(r.layout.pages![2].label).toBe('Schema')
     expect(r.layout.pages![3].label).toBe('Risks')
   })
@@ -190,7 +186,12 @@ describe('page-level ops', () => {
 
   test('replacePage updates label and body', () => {
     const r = applyDialogOps(pageSnap(), [
-      { op: 'replacePage', page: 'Files', label: 'Changed Files', body: [{ type: 'Markdown', id: 'new', content: 'new' }] },
+      {
+        op: 'replacePage',
+        page: 'Files',
+        label: 'Changed Files',
+        body: [{ type: 'Markdown', id: 'new', content: 'new' }],
+      },
     ])
     expect(r.layout.pages![1].label).toBe('Changed Files')
     expect(r.layout.pages![1].body).toHaveLength(1)
@@ -210,11 +211,7 @@ describe('page-level ops', () => {
   })
 
   test('validates page op shapes', () => {
-    const errs = validateDialogOps([
-      { op: 'addPage' },
-      { op: 'removePage' },
-      { op: 'replacePage', page: 0, label: 42 },
-    ])
+    const errs = validateDialogOps([{ op: 'addPage' }, { op: 'removePage' }, { op: 'replacePage', page: 0, label: 42 }])
     expect(errs.length).toBeGreaterThan(0)
     expect(errs.some(e => e.includes('label'))).toBe(true)
     expect(errs.some(e => e.includes('body'))).toBe(true)
