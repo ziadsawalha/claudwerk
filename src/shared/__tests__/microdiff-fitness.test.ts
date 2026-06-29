@@ -21,6 +21,7 @@ function fullSize(obj: unknown): number {
   return JSON.stringify(obj).length
 }
 
+// fallow-ignore-next-line code-duplication
 function applyPatch<T extends Record<string, unknown>>(base: T, diffs: Difference[]): T {
   const out = structuredClone(base)
   for (const d of diffs) {
