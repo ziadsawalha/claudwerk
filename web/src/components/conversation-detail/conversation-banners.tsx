@@ -12,9 +12,7 @@ export function LinkRequestBanners({ conversationId }: { conversationId: string 
   const requests = useConversationsStore(s => s.pendingProjectLinks)
   const respond = useConversationsStore(s => s.respondToProjectLink)
 
-  const relevant = requests.filter(
-    r => r.toConversation === conversationId || r.fromConversation === conversationId,
-  )
+  const relevant = requests.filter(r => r.toConversation === conversationId || r.fromConversation === conversationId)
 
   return (
     <BannerStack
@@ -163,9 +161,7 @@ export function PermissionBanners({ conversationId }: { conversationId: string }
   const permissions = useConversationsStore(s => s.pendingPermissions)
   const respond = useConversationsStore(s => s.respondToPermission)
   const sendRule = useConversationsStore(s => s.sendPermissionRule)
-  const conversationPath = useConversationsStore(s =>
-    projectPath(s.conversationsById[conversationId]?.project ?? ''),
-  )
+  const conversationPath = useConversationsStore(s => projectPath(s.conversationsById[conversationId]?.project ?? ''))
   const relevant = permissions.filter(p => p.conversationId === conversationId)
   return (
     <BannerStack
@@ -233,9 +229,7 @@ function relativizeCwd(cwd: unknown, root?: string): string {
 export function SpawnApprovalBanners({ conversationId }: { conversationId: string }) {
   const conversation = useConversationsStore(s => s.conversationsById[conversationId])
   const respond = useConversationsStore(s => s.respondToSpawnApproval)
-  const conversationPath = useConversationsStore(s =>
-    projectPath(s.conversationsById[conversationId]?.project ?? ''),
-  )
+  const conversationPath = useConversationsStore(s => projectPath(s.conversationsById[conversationId]?.project ?? ''))
   const [persistChecked, setPersistChecked] = useState(false)
 
   const pending = conversation?.pendingSpawnApproval

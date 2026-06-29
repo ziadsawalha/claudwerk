@@ -422,11 +422,9 @@ export const TranscriptView = memo(function TranscriptView({
     return { mainGroups: main, queuedGroups: queued }
   }, [groups])
 
-  const convActive = useConversationsStore(state =>
-    state.conversationsById[conversationId]?.status === 'active',
-  )
-  const streamingPresent = useConversationsStore(state =>
-    !!(state.streamingText[conversationId] || state.streamingThinking[conversationId]),
+  const convActive = useConversationsStore(state => state.conversationsById[conversationId]?.status === 'active')
+  const streamingPresent = useConversationsStore(
+    state => !!(state.streamingText[conversationId] || state.streamingThinking[conversationId]),
   )
   const liveActive = convActive || streamingPresent
 

@@ -11,7 +11,9 @@ function conversationIdFromPath(): string | null {
 export function ConversationWindow() {
   const conversationId = conversationIdFromPath()
   if (!conversationId) {
-    return <div className="fixed inset-0 grid place-items-center text-muted-foreground text-sm">No conversation ID.</div>
+    return (
+      <div className="fixed inset-0 grid place-items-center text-muted-foreground text-sm">No conversation ID.</div>
+    )
   }
   return <ConversationWindowInner conversationId={conversationId} />
 }

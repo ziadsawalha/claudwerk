@@ -24,20 +24,14 @@ const EMPTY_EVENTS: HookEvent[] = []
 const EMPTY_TRANSCRIPT: TranscriptEntry[] = []
 
 // fallow-ignore-next-line complexity
-export const ConversationDetail = memo(function ConversationDetail({
-  conversationId,
-}: {
-  conversationId: string
-}) {
+export const ConversationDetail = memo(function ConversationDetail({ conversationId }: { conversationId: string }) {
   const showThinking = useConversationsStore(s => s.controlPanelPrefs.showThinking)
   const showDiag = useConversationsStore(s => s.controlPanelPrefs.showDiag)
   const showTerminal = useConversationsStore(state => state.showTerminal)
   const terminalWrapperId = useConversationsStore(state => state.terminalWrapperId)
   const expandAll = useConversationsStore(state => state.expandAll)
 
-  const conversation = useConversationsStore(state =>
-    state.conversationsById[conversationId],
-  )
+  const conversation = useConversationsStore(state => state.conversationsById[conversationId])
 
   const {
     activeTab,
@@ -83,8 +77,7 @@ export const ConversationDetail = memo(function ConversationDetail({
     conversation?.project ? state.projectSettings[projectIdentityKey(conversation.project)] : undefined,
   )
 
-  const { selectedSubagentId, selectSubagent, subagentTranscript, subagentLoading } =
-    useSubagentFetch(conversationId)
+  const { selectedSubagentId, selectSubagent, subagentTranscript, subagentLoading } = useSubagentFetch(conversationId)
   const { taskEditorTask, runTaskFromEditor, updateTask, moveTask, setRunTaskFromEditor, setTaskEditorTask } =
     useTaskEditor(conversationId)
 
@@ -104,22 +97,20 @@ export const ConversationDetail = memo(function ConversationDetail({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
       <ClipboardBanners conversationId={conversationId} />
-      {canAdmin && (
-        <ShareBanner conversationProject={conversation.project} conversationId={conversation.id} />
-      )}
+      {canAdmin && <ShareBanner conversationProject={conversation.project} conversationId={conversation.id} />}
       <DialogOverlay conversationId={conversationId} />
 
       <TaskEditorOverlay
         conversationId={conversationId}
-          taskEditorTask={taskEditorTask}
-          runTaskFromEditor={runTaskFromEditor}
-          onUpdateTask={updateTask}
-          onMoveTask={moveTask}
-          onRunTask={setRunTaskFromEditor}
-          onCloseEditor={() => setTaskEditorTask(null)}
-          onCloseRunDialog={() => setRunTaskFromEditor(null)}
-          onSetTaskEditorTask={setTaskEditorTask}
-        />
+        taskEditorTask={taskEditorTask}
+        runTaskFromEditor={runTaskFromEditor}
+        onUpdateTask={updateTask}
+        onMoveTask={moveTask}
+        onRunTask={setRunTaskFromEditor}
+        onCloseEditor={() => setTaskEditorTask(null)}
+        onCloseRunDialog={() => setRunTaskFromEditor(null)}
+        onSetTaskEditorTask={setTaskEditorTask}
+      />
 
       <ConversationHeader
         conversation={conversation}
