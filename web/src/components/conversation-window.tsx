@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ConversationDetail } from '@/components/conversation-detail'
+import { VoiceKey } from '@/components/voice-key'
 import { useConversationsStore } from '@/hooks/use-conversations'
+import { useGlobalCommands } from '@/hooks/use-global-commands'
 import { useSyncEffects } from '@/hooks/use-sync-effects'
 import { useWebSocket } from '@/hooks/use-websocket'
 
@@ -23,6 +25,8 @@ export function ConversationWindow() {
 function ConversationWindowInner({ conversationId }: { conversationId: string }) {
   useWebSocket()
   useSyncEffects()
+  const noop = useCallback(() => {}, [])
+  useGlobalCommands(noop)
 
   const conversation = useConversationsStore(s => s.conversationsById[conversationId])
   const isConnected = useConversationsStore(s => s.isConnected)
@@ -51,6 +55,7 @@ function ConversationWindowInner({ conversationId }: { conversationId: string })
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
       <ConversationDetail conversationId={conversationId} />
+      <VoiceKey />
     </div>
   )
 }
