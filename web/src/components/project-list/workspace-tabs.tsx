@@ -13,11 +13,10 @@ export function WorkspaceTabs() {
   const actions = useWorkspaceActions()
 
   const workspaces = projectOrder.workspaces ?? []
-  if (workspaces.length === 0 && !creating) return null
 
   return (
     <div className="flex items-center gap-0.5 px-1 pb-1.5 overflow-x-auto scrollbar-none">
-      <button
+      {workspaces.length > 0 && <button
         type="button"
         onClick={() => {
           haptic('tick')
@@ -32,7 +31,7 @@ export function WorkspaceTabs() {
         )}
       >
         All
-      </button>
+      </button>}
       {workspaces.map(ws => (
         <WorkspaceTabItem
           key={ws.id}
