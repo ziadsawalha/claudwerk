@@ -46,7 +46,11 @@ import {
   type UsageUpdate,
 } from '@/lib/types'
 import { getConversationTab, getLastConversationId, initUIState, setLastConversationId } from '@/lib/ui-state'
-import { isProjectInWorkspace, saveLastWorkspaceConversation } from '@/lib/workspace-membership'
+import {
+  isProjectInWorkspace,
+  saveLastWorkspaceConversation,
+  workspaceForProject,
+} from '@/lib/workspace-membership'
 import { recordOut } from './ws-stats'
 
 export type { ProjectSettingsMap }
@@ -1151,14 +1155,16 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
       )
     }
     // Jumping to a conversation outside the active workspace (CMD+P, ctrl+Tab,
-    // deep links, notifications) must reveal it rather than silently no-op --
-    // fall back to the "All" workspace instead of leaving it invisible.
+    // deep links, notifications) must reveal it rather than silently no-op.
+    // Follow it into ITS OWN workspace so the switch feels like a real
+    // navigation; fall back to "All" only when it belongs to no workspace.
     const activeWs = get().controlPanelPrefs.activeWorkspaceId
     if (id && activeWs) {
       const projectUri = get().conversationsById[id]?.project
       if (projectUri && !isProjectInWorkspace(get().projectOrder, activeWs, projectUri)) {
         if (prev) saveLastWorkspaceConversation(activeWs, prev)
-        get().updateControlPanelPrefs({ activeWorkspaceId: null })
+        const targetWs = workspaceForProject(get().projectOrder, projectUri)
+        get().updateControlPanelPrefs({ activeWorkspaceId: targetWs })
       }
     }
     clearExpandedState()

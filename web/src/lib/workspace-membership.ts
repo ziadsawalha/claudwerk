@@ -16,6 +16,16 @@ export function isProjectInWorkspace(order: ProjectOrder, wsId: string, projectU
   return projectIdsInTree(order.workspaceTrees?.[wsId] ?? []).has(projectUri)
 }
 
+// The workspace a project lives in, or null if it belongs to none (i.e. only
+// visible under "All"). If a project somehow sits in several workspaces, the
+// first match wins -- membership is treated as single-home for navigation.
+export function workspaceForProject(order: ProjectOrder, projectUri: string): string | null {
+  for (const [wsId, tree] of Object.entries(order.workspaceTrees ?? {})) {
+    if (projectIdsInTree(tree).has(projectUri)) return wsId
+  }
+  return null
+}
+
 const WS_LAST_CONV_KEY = 'workspace-last-conversation'
 
 export function loadLastWorkspaceConversations(): Record<string, string> {
