@@ -124,6 +124,7 @@ export function ReviveDialog() {
       setJobId(null)
       setConversationId(null)
       progressReset()
+      closedOnDoneRef.current = false
       setState({ open: true, options })
     })
     return () => {
@@ -133,6 +134,8 @@ export function ReviveDialog() {
 
   // Add "Conversation connected" step when conversation connects
   const addedConnectedStepRef = useRef(false)
+  // Guards the close-on-done effect so it fires exactly once per launch.
+  const closedOnDoneRef = useRef(false)
   useEffect(() => {
     if (!progress.isConnected || addedConnectedStepRef.current) return
     addedConnectedStepRef.current = true
@@ -157,18 +160,22 @@ export function ReviveDialog() {
         ? progress.spawnedConversation.id
         : null)
 
-    if (sid && !userNavigatedAway) {
+    // Only re-select if not already focused (rekey-follow may have moved the
+    // viewport there already) and the user hasn't navigated away mid-launch.
+    if (sid && sid !== currentId && !userNavigatedAway) {
       useConversationsStore.getState().selectConversation(sid, 'revive-dialog-close')
     }
     setState({ open: false, options: null })
     setJobId(null)
   }, [progress.launch.conversationId, progress.spawnedConversation])
 
-  // Auto-redirect when countdown reaches 0
+  // Done is done: close the instant the conversation connects (which focuses it
+  // via handleClose). No countdown, no lingering timer. One-shot per launch.
   useEffect(() => {
-    if (progress.viewCountdown !== 0) return
+    if (!progress.isConnected || progress.hasError || closedOnDoneRef.current) return
+    closedOnDoneRef.current = true
     handleClose()
-  }, [progress.viewCountdown, handleClose])
+  }, [progress.isConnected, progress.hasError, handleClose])
 
   // Legacy agent events -- keep the listeners from the old ReviveMonitor for
   // backwards compat with older agents that don't emit launch channel events.
@@ -205,10 +212,9 @@ export function ReviveDialog() {
   const handleViewConversation = useCallback(() => {
     const sid = progress.launch.conversationId || progress.spawnedConversation?.id
     if (sid) useConversationsStore.getState().selectConversation(sid, 'revive-dialog-view-conversation')
-    progress.setViewCountdown(null)
     setState({ open: false, options: null })
     setJobId(null)
-  }, [progress.launch.conversationId, progress.spawnedConversation, progress.setViewCountdown])
+  }, [progress.launch.conversationId, progress.spawnedConversation])
 
   const handleRevive = useCallback(() => {
     if (!state.options || phase !== 'config' || !conversation) return
@@ -411,11 +417,7 @@ export function ReviveDialog() {
             isConnected={progress.isConnected}
             isComplete={progress.isComplete}
             hasError={progress.hasError}
-            viewCountdown={progress.viewCountdown}
-            onViewConversation={() => {
-              progress.setViewCountdown(null)
-              handleViewConversation()
-            }}
+            onViewConversation={handleViewConversation}
           />
         </div>
       </DialogContent>

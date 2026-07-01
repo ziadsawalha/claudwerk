@@ -96,14 +96,12 @@ export function LaunchFooterActions({
   isConnected,
   isComplete,
   hasError,
-  viewCountdown,
   onViewConversation,
   onClose,
 }: {
   isConnected: boolean
   isComplete: boolean
   hasError: boolean
-  viewCountdown: number | null
   onViewConversation: () => void
   onClose: () => void
 }) {
@@ -119,7 +117,7 @@ export function LaunchFooterActions({
             'hover:bg-emerald-500/25 transition-colors',
           )}
         >
-          View Conversation{viewCountdown != null && viewCountdown > 0 ? ` (${viewCountdown}s)` : ''}
+          View Conversation
           <Kbd className="bg-emerald-500/20 text-emerald-400/70">↵</Kbd>
         </button>
       )}
@@ -164,7 +162,6 @@ export function LaunchDialogBottom({
   isConnected,
   isComplete,
   hasError,
-  viewCountdown,
   onViewConversation,
 }: {
   phase: 'config' | 'launching'
@@ -179,7 +176,6 @@ export function LaunchDialogBottom({
   isConnected: boolean
   isComplete: boolean
   hasError: boolean
-  viewCountdown: number | null
   onViewConversation: () => void
 }) {
   return (
@@ -234,7 +230,6 @@ export function LaunchDialogBottom({
             isConnected={isConnected}
             isComplete={isComplete}
             hasError={hasError}
-            viewCountdown={viewCountdown}
             onViewConversation={onViewConversation}
             onClose={onClose}
           />

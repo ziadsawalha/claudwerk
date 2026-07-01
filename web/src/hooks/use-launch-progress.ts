@@ -28,8 +28,6 @@ interface UseLaunchProgressOptions {
   conversationId: string | null
   /** Timeout in ms (default 30000) */
   timeoutMs?: number
-  /** Auto-redirect countdown seconds after connection (default 3, null to disable) */
-  autoRedirectSec?: number | null
   /** Auto-insert launch channel events as steps (default true) */
   autoInsertEvents?: boolean
   /** Whether monitoring is active (default true) */
@@ -42,7 +40,6 @@ export function useLaunchProgress({
   jobId,
   conversationId: externalWrapperId,
   timeoutMs = 30_000,
-  autoRedirectSec = 3,
   autoInsertEvents = true,
   enabled = true,
   onTimeout,
@@ -52,7 +49,6 @@ export function useLaunchProgress({
   const [startTime, setStartTime] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [copied, setCopied] = useState(false)
-  const [viewCountdown, setViewCountdown] = useState<number | null>(null)
   const connectedRef = useRef(false)
   const onTimeoutRef = useRef(onTimeout)
   onTimeoutRef.current = onTimeout
@@ -67,7 +63,6 @@ export function useLaunchProgress({
     setError(null)
     setElapsed(0)
     setCopied(false)
-    setViewCountdown(null)
     connectedRef.current = false
   }
 
@@ -80,7 +75,6 @@ export function useLaunchProgress({
     setStartTime(0)
     setElapsed(0)
     setCopied(false)
-    setViewCountdown(null)
     connectedRef.current = false
   }
 
@@ -182,18 +176,6 @@ export function useLaunchProgress({
     return () => clearInterval(timer)
   }, [enabled, effectiveWrapperId, isConnected, hasError, timeoutMs, spawnedConversation, startTime])
 
-  // Auto-redirect countdown - starts when conversation connects
-  useEffect(() => {
-    if (!isConnected || viewCountdown !== null || autoRedirectSec == null) return
-    setViewCountdown(autoRedirectSec)
-  }, [isConnected, viewCountdown, autoRedirectSec])
-
-  useEffect(() => {
-    if (viewCountdown === null || viewCountdown <= 0) return
-    const timer = globalThis.setTimeout(() => setViewCountdown(prev => (prev !== null ? prev - 1 : null)), 1000)
-    return () => globalThis.clearTimeout(timer)
-  }, [viewCountdown])
-
   // Copy to clipboard with fallback
   async function copyToClipboard(text: string) {
     try {
@@ -221,7 +203,6 @@ export function useLaunchProgress({
     isRunning,
     isComplete,
     hasError,
-    viewCountdown,
     launch,
     copied,
     startTime,
@@ -230,7 +211,6 @@ export function useLaunchProgress({
     reset,
     setSteps,
     setError,
-    setViewCountdown,
     copyToClipboard,
   }
 }

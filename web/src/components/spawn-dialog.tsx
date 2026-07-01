@@ -302,6 +302,7 @@ export function SpawnDialog() {
       // Drop any stale error/steps from a prior failed launch so reopening
       // the dialog doesn't show the old "Conversation failed to connect" banner.
       progressReset()
+      closedOnDoneRef.current = false
       setState({ open: true, options })
     })
     return () => {
@@ -311,6 +312,8 @@ export function SpawnDialog() {
 
   // Add "Conversation connected" step when conversation connects
   const addedConnectedStepRef = useRef(false)
+  // Guards the close-on-done effect so it fires exactly once per launch.
+  const closedOnDoneRef = useRef(false)
   useEffect(() => {
     if (!progress.isConnected || addedConnectedStepRef.current) return
     addedConnectedStepRef.current = true
@@ -335,7 +338,11 @@ export function SpawnDialog() {
         ? progress.spawnedConversation.id
         : null)
 
-    if (sid && !userNavigatedAway) {
+    // Focus the spawned conversation on close -- but only if it isn't already
+    // selected (the rekey-follow in use-websocket-handlers already moves the
+    // viewport onto the real id, so re-selecting is a redundant double-select)
+    // and only if the user hasn't deliberately navigated elsewhere mid-launch.
+    if (sid && sid !== currentId && !userNavigatedAway) {
       useConversationsStore.getState().selectConversation(sid, 'spawn-dialog-close')
     } else if (sid && userNavigatedAway) {
       console.log(
@@ -347,23 +354,22 @@ export function SpawnDialog() {
     // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [progress.launch.conversationId, progress.spawnedConversation?.id, progress.spawnedConversation?.status])
 
-  // Auto-redirect when countdown reaches 0
+  // Done is done: the instant the conversation connects, close the modal (which
+  // focuses it via handleClose). No countdown, no lingering timer to yank the
+  // user back if they tabbed away. One-shot per launch via closedOnDoneRef.
   useEffect(() => {
-    if (progress.viewCountdown !== 0) return
-    // react-doctor-disable-next-line react-doctor/no-derived-state -- handleClose sets jobId + state as side effect of countdown reaching 0; jobId has multiple setters
+    if (!progress.isConnected || progress.hasError || closedOnDoneRef.current) return
+    closedOnDoneRef.current = true
     handleClose()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once when countdown hits 0, not on every handleClose recreation
-    // react-doctor-disable-next-line react-doctor/exhaustive-deps
-  }, [progress.viewCountdown])
+  }, [progress.isConnected, progress.hasError, handleClose])
 
   /** Explicitly navigate to the spawned conversation and close. */
   const handleViewConversation = useCallback(() => {
     const sid = progress.launch.conversationId || progress.spawnedConversation?.id
     if (sid) useConversationsStore.getState().selectConversation(sid, 'spawn-dialog-view-conversation')
-    progress.setViewCountdown(null)
     setState({ open: false, options: null })
     setJobId(null)
-  }, [progress.launch.conversationId, progress.spawnedConversation, progress.setViewCountdown])
+  }, [progress.launch.conversationId, progress.spawnedConversation])
 
   // Derived claude "Process model" (transport). The daemon is not a backend --
   // it is the third claude process model, tracked by the orthogonal `isDaemon`
@@ -1149,11 +1155,7 @@ export function SpawnDialog() {
             isConnected={progress.isConnected}
             isComplete={progress.isComplete}
             hasError={progress.hasError}
-            viewCountdown={progress.viewCountdown}
-            onViewConversation={() => {
-              progress.setViewCountdown(null)
-              handleViewConversation()
-            }}
+            onViewConversation={handleViewConversation}
           />
         </div>
       </DialogContent>

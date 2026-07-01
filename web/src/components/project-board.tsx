@@ -614,6 +614,8 @@ export function RunTaskDialog({
 
   // Task lifecycle tracking: add steps after conversation connects
   const connectedStepRef = useRef(false)
+  // Guards the close-on-done effect so it fires exactly once per run.
+  const closedOnDoneRef = useRef(false)
   useEffect(() => {
     if (!progress.isConnected || connectedStepRef.current || !progress.spawnedConversation) return
     connectedStepRef.current = true
@@ -677,22 +679,28 @@ export function RunTaskDialog({
     }
   }, [progress.spawnedConversation, progress.isComplete, progress.elapsed, progress.setSteps])
 
-  // Auto-redirect when countdown reaches 0
+  // Done is done: the instant the conversation connects, focus it and close.
+  // No countdown, no lingering timer to yank the user back if they tabbed away.
+  // One-shot per run via closedOnDoneRef. Only re-select if not already focused
+  // (rekey-follow may have moved the viewport there) and the user hasn't
+  // navigated away mid-launch.
   useEffect(() => {
-    if (progress.viewCountdown !== 0) return
+    if (!progress.isConnected || progress.hasError || closedOnDoneRef.current) return
+    closedOnDoneRef.current = true
     const sid = progress.launch.conversationId || progress.spawnedConversation?.id
-    if (!sid) return
-    const currentId = useConversationsStore.getState().selectedConversationId
-    const userNavigatedAway = currentId !== conversationAtLaunchRef.current && currentId !== null
-    if (!userNavigatedAway) {
-      useConversationsStore.getState().selectConversation(sid, 'project-board-auto-redirect')
-    } else {
-      console.log(
-        `[nav] project-board: NOT switching to ${sid.slice(0, 8)} -- user navigated to ${currentId?.slice(0, 8)} during launch`,
-      )
+    if (sid) {
+      const currentId = useConversationsStore.getState().selectedConversationId
+      const userNavigatedAway = currentId !== conversationAtLaunchRef.current && currentId !== null
+      if (sid !== currentId && !userNavigatedAway) {
+        useConversationsStore.getState().selectConversation(sid, 'project-board-launch-done')
+      } else if (userNavigatedAway) {
+        console.log(
+          `[nav] project-board: NOT switching to ${sid.slice(0, 8)} -- user navigated to ${currentId?.slice(0, 8)} during launch`,
+        )
+      }
     }
     onClose()
-  }, [progress.viewCountdown, progress.launch.conversationId, progress.spawnedConversation, onClose])
+  }, [progress.isConnected, progress.hasError, progress.launch.conversationId, progress.spawnedConversation, onClose])
 
   async function handleRun() {
     if (phase !== 'config' || !spawnPath) return
@@ -708,6 +716,7 @@ export function RunTaskDialog({
     })
     setPhase('launching')
     conversationAtLaunchRef.current = useConversationsStore.getState().selectedConversationId
+    closedOnDoneRef.current = false
     haptic('tap')
 
     const newJobId = crypto.randomUUID()
@@ -759,7 +768,6 @@ export function RunTaskDialog({
     const sid = progress.launch.conversationId || progress.spawnedConversation?.id
     if (sid) {
       useConversationsStore.getState().selectConversation(sid, 'project-board-view-conversation')
-      progress.setViewCountdown(null)
       onClose()
     }
   }
@@ -916,7 +924,6 @@ export function RunTaskDialog({
                 isConnected={progress.isConnected}
                 isComplete={progress.isComplete}
                 hasError={progress.hasError}
-                viewCountdown={progress.viewCountdown}
                 onViewConversation={handleViewConversation}
                 onClose={onClose}
               />
