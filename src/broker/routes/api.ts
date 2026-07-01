@@ -113,7 +113,11 @@ export function createApiRouter(
       .filter(s => !conversationId || s.id === conversationId)
       .filter(s => !projectPattern || matchProjectUri(projectPattern, s.project))
 
-    if (allowed.length === 0) return c.json({ hits: [], total: 0 })
+    // Echo `query`/`limit`/`offset` even on the empty path -- a legit zero-match
+    // (e.g. a `project` filter that matches no conversation) must render as
+    // "0 hits for <query>", never as `query: undefined` -> the client's
+    // misleading `for "undefined"` (looks like a broken tool, not a real miss).
+    if (allowed.length === 0) return c.json({ hits: [], total: 0, query: q, limit, offset })
 
     // If a single-conversation filter resolves to an unauthorized conversation, deny.
     if (conversationId && !allowed.some(s => s.id === conversationId)) {

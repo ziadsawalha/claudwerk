@@ -199,8 +199,26 @@ function aliasScheme(scheme: string): string {
   return scheme
 }
 
+/** The CC project-dir key: an absolute path with every '/', '.' and '_' turned
+ *  into '-' (e.g. '/Users/jonas/projects/foo.bar' -> '-Users-jonas-projects-foo-bar').
+ *  Kept byte-identical to the filesystem slug in `transcript-path.ts`. Lossy by
+ *  design -- '/a/b-c' and '/a/b/c' both slug to '-a-b-c' -- so it only ever
+ *  matches forward (path -> slug), never reconstructs a path from a slug. */
+function projectPathToCcSlug(path: string): string {
+  return path.replace(/[/._]/g, '-')
+}
+
 export function matchProjectUri(pattern: string, uri: string): boolean {
   if (pattern === '*') return true
+
+  // CC dashed-slug form (the dashboard / `~/.claude/projects` project key, e.g.
+  // '-Users-jonas-projects-foo'). Scheme-blind and leading-dash by nature; match
+  // by slugging the URI's path the same lossy way CC does. This makes the slug a
+  // first-class `project` filter value alongside the canonical `claude://` URI.
+  if (/^-[A-Za-z0-9-]+$/.test(pattern)) {
+    const parsed = tryParseProjectUri(uri)
+    return parsed ? projectPathToCcSlug(parsed.path) === pattern : false
+  }
 
   if (/^[a-z][a-z0-9+.-]*:\*$/i.test(pattern)) {
     const patternScheme = aliasScheme(pattern.slice(0, pattern.indexOf(':')).toLowerCase())

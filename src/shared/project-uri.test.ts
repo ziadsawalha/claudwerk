@@ -326,6 +326,35 @@ describe('matchProjectUri', () => {
   test('does not partial-match without trailing /*', () => {
     expect(matchProjectUri('claude:///Users/jonas/projects', target)).toBe(false)
   })
+
+  test('CC dashed-slug form matches the equivalent URI', () => {
+    // The dashboard / `~/.claude/projects` project key. '/' '.' '_' all -> '-'.
+    expect(matchProjectUri('-Users-jonas-projects-remote-claude', target)).toBe(true)
+    expect(
+      matchProjectUri(
+        '-Users-jonas-projects-growing-generations-portal2',
+        'claude://default/Users/jonas/projects/growing-generations/portal2',
+      ),
+    ).toBe(true)
+  })
+
+  test('CC dashed-slug is scheme-blind and authority-blind', () => {
+    expect(matchProjectUri('-Users-jonas-projects-remote-claude', 'codex://beast/Users/jonas/projects/remote-claude')).toBe(
+      true,
+    )
+    expect(
+      matchProjectUri('-Users-jonas-projects-remote-claude', 'claude://studio/Users/jonas/projects/remote-claude'),
+    ).toBe(true)
+  })
+
+  test('CC dashed-slug folds dots and underscores like CC does', () => {
+    expect(matchProjectUri('-Users-jonas-projects-foo-bar', 'claude:///Users/jonas/projects/foo.bar')).toBe(true)
+    expect(matchProjectUri('-Users-jonas-my-repo', 'claude:///Users/jonas/my_repo')).toBe(true)
+  })
+
+  test('CC dashed-slug does not match a different project', () => {
+    expect(matchProjectUri('-Users-jonas-projects-remote-claude', 'claude:///Users/jonas/projects/other')).toBe(false)
+  })
 })
 
 describe('normalizeProjectUri', () => {
