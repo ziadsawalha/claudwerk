@@ -36,9 +36,31 @@ function setTrees(o: ProjectOrder, trees: Record<string, ProjectOrderNode[]>): P
   return { ...o, workspaceTrees: Object.keys(trees).length > 0 ? trees : undefined }
 }
 
+const WS_LAST_CONV_KEY = 'workspace-last-conversation'
+
+function loadLastConversations(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(WS_LAST_CONV_KEY) ?? '{}') } catch { return {} }
+}
+
+function saveLastConversation(wsId: string, convId: string | null) {
+  const map = loadLastConversations()
+  if (convId) map[wsId] = convId
+  else delete map[wsId]
+  localStorage.setItem(WS_LAST_CONV_KEY, JSON.stringify(map))
+}
+
 export function useWorkspaceActions() {
   const updatePrefs = useConversationsStore(s => s.updateControlPanelPrefs)
-  const setActive = useCallback((id: string | null) => updatePrefs({ activeWorkspaceId: id }), [updatePrefs])
+  // fallow-ignore-next-line complexity
+  const setActive = useCallback((id: string | null) => {
+    const store = useConversationsStore.getState()
+    const prevWs = store.controlPanelPrefs.activeWorkspaceId ?? '_all'
+    if (store.selectedConversationId) saveLastConversation(prevWs, store.selectedConversationId)
+    updatePrefs({ activeWorkspaceId: id })
+    const targetWs = id ?? '_all'
+    const lastConv = loadLastConversations()[targetWs]
+    if (lastConv) store.selectConversation(lastConv, 'workspace-switch')
+  }, [updatePrefs])
 
   return {
     setActive,
