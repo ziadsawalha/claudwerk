@@ -112,6 +112,15 @@ export function VoiceFab() {
   }, [])
 
   async function handlePointerDown(e: React.PointerEvent) {
+    // Tap during a stuck/terminal state resets immediately so the NEXT tap
+    // starts fresh. Without this, a quick-tap that produced no transcript
+    // leaves the FAB dead for 30s (the refining safety timeout).
+    if (voice.state === 'refining' || voice.state === 'error' || voice.state === 'submitting') {
+      e.preventDefault()
+      voice.reset()
+      haptic('tick')
+      return
+    }
     if (voice.state !== 'idle') return
 
     if (micPermission === 'prompt' || micPermission === 'unknown') {

@@ -37,8 +37,27 @@ type VoiceState = 'idle' | 'connecting' | 'recording' | 'recording-offline' | 'r
 // must surface that rather than leave the user believing they're recording.
 const CONNECT_TIMEOUT_MS = 8000
 
+// getUserMedia can hang on iOS (revoked mic, system interruption). Without a
+// timeout the state sits in 'connecting' forever and the FAB becomes dead.
+const MIC_ACQUIRE_TIMEOUT_MS = 10_000
+
 // Offline audio ring buffer: ~60s at 100ms chunks, ~1-2MB of base64
 const OFFLINE_BUFFER_MAX = 600
+
+/** Base64-encode a buffer without spread operator. The naive
+ *  `btoa(String.fromCharCode(...u8))` spreads the entire Uint8Array as
+ *  Function.prototype.apply arguments -- on Safari/iOS with large chunks
+ *  (delayed first ondataavailable from audio/mp4 MediaRecorder) this hits
+ *  the engine's argument-count limit and throws RangeError silently. */
+function bufferToBase64(buffer: ArrayBuffer): string {
+  const u8 = new Uint8Array(buffer)
+  const CHUNK = 0x8000 // 32 KiB per fromCharCode call
+  const parts: string[] = []
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    parts.push(String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK) as unknown as number[]))
+  }
+  return btoa(parts.join(''))
+}
 
 /** True only when the browser->broker socket is actually open, not merely present. */
 function wsIsOpen(): boolean {
@@ -400,17 +419,32 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/mp4'
     const recorder = new MediaRecorder(stream, { mimeType })
 
+    let chunkSeq = 0
     recorder.ondataavailable = ev => {
       if (ev.data.size === 0) return
-      pendingDataRef.current = (async () => {
-        const buffer = await ev.data.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
-        if (wsIsOpen()) {
-          handleChunkWsOpen(base64)
-        } else {
-          handleChunkWsClosed(base64)
+      const seq = ++chunkSeq
+      const size = ev.data.size
+      // Chain onto previous chunk so doStop's await catches ALL in-flight
+      // chunks, not just the last one (previous code overwrote the ref,
+      // letting voice_stop race ahead of earlier chunks on Safari where the
+      // first ondataavailable can be delayed and large).
+      const prev = pendingDataRef.current
+      pendingDataRef.current = prev.then(async () => {
+        try {
+          const buffer = await ev.data.arrayBuffer()
+          const base64 = bufferToBase64(buffer)
+          if (seq === 1 || seq % 20 === 0) {
+            console.log(`[voice] ${elapsed()} chunk #${seq}: ${size}B (ws=${wsIsOpen() ? 'open' : 'closed'})`)
+          }
+          if (wsIsOpen()) {
+            handleChunkWsOpen(base64)
+          } else {
+            handleChunkWsClosed(base64)
+          }
+        } catch (err) {
+          console.error(`[voice] ${elapsed()} chunk #${seq} failed (${size}B):`, err)
         }
-      })()
+      })
     }
 
     // A mic track dying mid-recording (unplug / OS revoke) makes MediaRecorder
@@ -464,7 +498,12 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
     if (!attachWsListener(seq)) return
 
     try {
-      const stream = await acquireMicStream()
+      const stream = await Promise.race([
+        acquireMicStream(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Microphone timed out. Try again.')), MIC_ACQUIRE_TIMEOUT_MS),
+        ),
+      ])
       console.log(`[voice] ${elapsed()} stream ready`)
 
       if (cancelledRef.current) {
@@ -497,6 +536,10 @@ export function useVoiceRecording(): UseVoiceRecordingResult {
       // capturing, chunks flow to broker immediately. Broker buffers them
       // until Deepgram connects, then flushes -- zero audio loss. The
       // connect timeout still guards against a silent backend failure.
+      // Update ref BEFORE setState so the first ondataavailable (async,
+      // fires ~100ms later but sooner on fast devices) sees 'recording'
+      // and routes chunks to WS, not the offline buffer.
+      stateRef.current = 'recording'
       setState('recording')
       console.log(`[voice] ${elapsed()} recorder started -- recording (backend warming up)`)
     } catch (err) {
