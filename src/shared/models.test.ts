@@ -54,7 +54,7 @@ describe('Fable 5 / Mythos 5 registry', () => {
 
   test('the [1m] aliases resolve to their family + 1M window', () => {
     expect(resolveModelFamily('opus[1m]')?.familyId).toBe('claude-opus-4-8')
-    expect(resolveModelFamily('sonnet[1m]')?.familyId).toBe('claude-sonnet-4-6')
+    expect(resolveModelFamily('sonnet[1m]')?.familyId).toBe('claude-sonnet-5')
     expect(resolveContextWindow('opus[1m]')).toBe(1_000_000)
     expect(resolveContextWindow('sonnet[1m]')).toBe(1_000_000)
   })

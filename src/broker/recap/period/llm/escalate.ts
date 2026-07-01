@@ -5,7 +5,7 @@ import type { RecapAudience } from '../../../../shared/protocol'
 // and prose. Agent briefs stay on Sonnet (good judgment at lower cost). Both are
 // overridable via env for cost tuning without a code change. CLAUDWERK_ is the
 // canonical prefix (RCLAUDE_ legacy fallback).
-const SONNET_MODEL = 'anthropic/claude-sonnet-4'
+const SONNET_MODEL = 'anthropic/claude-sonnet-5'
 const OPUS_MODEL = 'anthropic/claude-opus-4.8'
 
 const HUMAN_MODEL = process.env.CLAUDWERK_RECAP_HUMAN_MODEL || process.env.RCLAUDE_RECAP_HUMAN_MODEL || OPUS_MODEL

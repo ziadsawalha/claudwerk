@@ -14,9 +14,11 @@
  * (`spawn-schema.ts`), and the runtime context-window resolver
  * (`context-window.ts`). Adding a model = ONE new object in `CC_MODELS`.
  *
- * Model data extracted from the CC v2.1.170 binary (2026-06-10) for the
- * `claude-fable-5` / `claude-mythos-5` / `claude-opus-4-8` families; older
- * entries reflect earlier extractions. When a new CC version ships, re-extract:
+ * Model data extracted from the CC v2.1.197 binary (2026-07-01) for the
+ * `claude-sonnet-5` family (default `sonnet` alias now resolves here);
+ * `claude-fable-5` / `claude-mythos-5` / `claude-opus-4-8` from the v2.1.170
+ * cut (2026-06-10); older entries reflect earlier extractions. When a new CC
+ * version ships, re-extract:
  *   strings $(readlink -f $(which claude)) | grep -oE \
  *     'key:value' patterns (see extraction notes in docs/ops.md)
  * and add/update the family in `CC_MODELS` below.
@@ -75,7 +77,7 @@ export interface CCModelFamily {
 export type ModelTier = 'current' | 'previous' | 'legacy'
 
 /**
- * Every model family CC v2.1.170 recognizes, with token limits extracted
+ * Every model family CC v2.1.197 recognizes, with token limits extracted
  * from the binary. Ordered newest-first within each tier.
  */
 const CC_MODELS: readonly CCModelFamily[] = [
@@ -143,6 +145,25 @@ const CC_MODELS: readonly CCModelFamily[] = [
     acceptedSlugs: ['claude-opus-4-6', 'claude-opus-4-6[1m]', 'claude-opus-4-6-20251101', 'claude-opus-4-6-fast'],
   },
   {
+    familyId: 'claude-sonnet-5',
+    displayName: 'Sonnet 5',
+    // Binary switch (2.1.197): claude-sonnet-5 -> t=64000, n=128000 -- richer
+    // default output than the 4.x sonnets (32K).
+    defaultOutputTokens: 64_000,
+    maxOutputTokens: 128_000,
+    supports1M: true,
+    // NOT in CC's default-[1m] alias set (only opus-4-7/4-8/fable/mythos are),
+    // so 1M is opt-in via the [1m] suffix -- same handling as every Sonnet.
+    default1M: false,
+    tier: 'current',
+    // CC v2.1.197 remaps the bare `sonnet` alias to this family
+    // (i8_={...sonnet:"claude-sonnet-5",...}); moved here off claude-sonnet-4-6.
+    acceptedSlugs: ['claude-sonnet-5', 'claude-sonnet-5[1m]', 'sonnet', 'sonnet[1m]'],
+    // Anthropic list price from the binary's pricing table (2.1.197): $3/$15
+    // ($2/$10 intro through 2026-08-31). Fallback until LiteLLM publishes it.
+    fallbackPriceUsdPerMTok: { input: 3, output: 15 },
+  },
+  {
     familyId: 'claude-sonnet-4-6',
     displayName: 'Sonnet 4.6',
     defaultOutputTokens: 32_000,
@@ -150,8 +171,9 @@ const CC_MODELS: readonly CCModelFamily[] = [
     supports1M: true,
     default1M: false,
     tier: 'current',
-    // `sonnet[1m]` is a valid bare alias in CC's alias array ($NH).
-    acceptedSlugs: ['claude-sonnet-4-6', 'claude-sonnet-4-6[1m]', 'sonnet', 'sonnet[1m]'],
+    // Bare `sonnet`/`sonnet[1m]` moved to claude-sonnet-5 (CC now resolves them
+    // there). 4.6 keeps only its qualified slugs.
+    acceptedSlugs: ['claude-sonnet-4-6', 'claude-sonnet-4-6[1m]'],
   },
   {
     familyId: 'claude-haiku-4-5',
@@ -394,7 +416,7 @@ export function validateModel(slug: string): ModelValidationResult {
 }
 
 function formatModelError(slug: string): string {
-  const lines = [`Unknown model "${slug}". Valid models (CC v2.1.170):`, '']
+  const lines = [`Unknown model "${slug}". Valid models (CC v2.1.197):`, '']
   const current = CC_MODELS.filter(m => !m.familyId.startsWith('claude-3-'))
   const legacy = CC_MODELS.filter(m => m.familyId.startsWith('claude-3-'))
 
@@ -472,9 +494,11 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
     // included on any subscription tier. Still accepted via `/model` typing
     // for API/PAYG/credits-enabled accounts. Profile-capabilities work will
     // surface it conditionally when we know the (sentinel, profile) tier.
-    id: 'claude-sonnet-4-6[1m]',
+    // Pinned to the qualified slug: `deriveModelName` would drop a bare
+    // `sonnet[1m]` back to the 200K family id.
+    id: 'claude-sonnet-5[1m]',
     label: 'Sonnet (latest, 1M)',
-    info: 'Sonnet 4.6 · 1M · 128K output (requires usage credits)',
+    info: 'Sonnet 5 · 1M · 128K output (requires usage credits)',
     window: 1_000_000,
     showInDropdown: false,
     showInCompleter: true,
@@ -518,6 +542,14 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
     id: 'claude-opus-4-6',
     label: 'Opus 4.6',
     info: 'Pinned · 200K · 128K output',
+    window: 200_000,
+    showInDropdown: true,
+    showInCompleter: true,
+  },
+  {
+    id: 'claude-sonnet-5',
+    label: 'Sonnet 5',
+    info: 'Pinned · 200K (1M via [1m]) · 128K output',
     window: 200_000,
     showInDropdown: true,
     showInCompleter: true,
@@ -637,7 +669,7 @@ const MODEL_CATALOG: readonly ModelEntry[] = [
   {
     id: 'sonnet',
     label: 'sonnet',
-    info: 'CC alias -> Sonnet 4.6 (200K)',
+    info: 'CC alias -> Sonnet 5 (200K)',
     window: 200_000,
     showInDropdown: false,
     showInCompleter: true,
