@@ -86,6 +86,15 @@ export function useWorkspaceActions() {
         return { workspaces: ws, assignments: next }
       })
     },
+    createAndAssign(name: string, existingCount: number, nodeId: string) {
+      const id = `ws-${Date.now().toString(36)}`
+      const color = WORKSPACE_COLORS[existingCount % WORKSPACE_COLORS.length]
+      mutateWorkspaces((ws, a) => ({
+        workspaces: [...ws, { id, name, color }],
+        assignments: { ...a, [nodeId]: id },
+      }))
+      setActive(id)
+    },
   }
 }
 
