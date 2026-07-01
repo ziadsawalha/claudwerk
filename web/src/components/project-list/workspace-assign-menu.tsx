@@ -8,8 +8,10 @@ import { colorDot, useWorkspaceActions } from './workspace-hooks'
 const menuItemClass =
   'flex items-center px-3 py-1.5 text-[11px] font-mono cursor-pointer outline-none data-[highlighted]:bg-accent/20 data-[highlighted]:text-accent'
 
+const EMPTY_WORKSPACES: Workspace[] = []
+
 function useWorkspaceAssignment(nodeId: string) {
-  const workspaces = useConversationsStore(s => (s.projectOrder as ProjectOrder).workspaces ?? []) as Workspace[]
+  const workspaces = useConversationsStore(s => (s.projectOrder as ProjectOrder).workspaces ?? EMPTY_WORKSPACES)
   const currentWsId = useConversationsStore(s => ((s.projectOrder as ProjectOrder).assignments ?? {})[nodeId] ?? null)
   return { workspaces, currentWsId }
 }
