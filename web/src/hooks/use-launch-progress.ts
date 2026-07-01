@@ -2,8 +2,12 @@
  * useLaunchProgress - Shared hook for spawn/revive/task launch progress tracking.
  *
  * Encapsulates: launch channel subscription, conversation detection, elapsed timer,
- * timeout watchdog, auto-redirect countdown, amber-stuck step fix,
- * and optional auto-insertion of launch channel events as steps.
+ * timeout watchdog, amber-stuck step fix, the optional "Conversation connected"
+ * step, and optional auto-insertion of launch channel events as steps.
+ *
+ * The `focusLaunchTargetAndClose` helper below is exported alongside so the
+ * spawn / revive / run-task dialogs share ONE definition of the
+ * done -> focus-conversation -> close behaviour.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -30,6 +34,10 @@ interface UseLaunchProgressOptions {
   timeoutMs?: number
   /** Auto-insert launch channel events as steps (default true) */
   autoInsertEvents?: boolean
+  /** Append a "Conversation connected" step once the conversation connects
+   *  (default false). Shared by the spawn + revive dialogs; the run-task board
+   *  manages its own richer step list instead. */
+  autoConnectedStep?: boolean
   /** Whether monitoring is active (default true) */
   enabled?: boolean
   /** Called when timeout fires (after setting error state) */
@@ -41,6 +49,7 @@ export function useLaunchProgress({
   conversationId: externalWrapperId,
   timeoutMs = 30_000,
   autoInsertEvents = true,
+  autoConnectedStep = false,
   enabled = true,
   onTimeout,
 }: UseLaunchProgressOptions) {
@@ -50,6 +59,7 @@ export function useLaunchProgress({
   const [elapsed, setElapsed] = useState(0)
   const [copied, setCopied] = useState(false)
   const connectedRef = useRef(false)
+  const connectedStepRef = useRef(false)
   const onTimeoutRef = useRef(onTimeout)
   onTimeoutRef.current = onTimeout
 
@@ -64,6 +74,7 @@ export function useLaunchProgress({
     setElapsed(0)
     setCopied(false)
     connectedRef.current = false
+    connectedStepRef.current = false
   }
 
   /** Clear all progress state without starting a new run. Call when re-entering
@@ -76,6 +87,7 @@ export function useLaunchProgress({
     setElapsed(0)
     setCopied(false)
     connectedRef.current = false
+    connectedStepRef.current = false
   }
 
   // Track spawned conversation by conversationId
@@ -113,6 +125,22 @@ export function useLaunchProgress({
     connectedRef.current = true
     setSteps(prev => prev.map(s => (s.status === 'active' ? { ...s, status: 'done' } : s)))
   }
+
+  // Optional "Conversation connected" step (spawn + revive dialogs opt in via
+  // autoConnectedStep; the run-task board keeps its own richer step list).
+  useEffect(() => {
+    if (!autoConnectedStep || !isConnected || connectedStepRef.current) return
+    connectedStepRef.current = true
+    setSteps(prev => [
+      ...prev,
+      {
+        label: 'Conversation connected',
+        status: 'done',
+        ts: Date.now(),
+        detail: (launch.conversationId || spawnedConversation?.id || '').slice(0, 8),
+      },
+    ])
+  }, [autoConnectedStep, isConnected, launch.conversationId, spawnedConversation?.id])
 
   // Auto-insert launch channel events as steps (insert before "Waiting for conversation..." if present)
   useEffect(() => {
@@ -213,4 +241,40 @@ export function useLaunchProgress({
     setError,
     copyToClipboard,
   }
+}
+
+/**
+ * Focus the just-launched conversation, then hand off to `close`. Shared by the
+ * spawn / revive / run-task dialogs so "done -> conversation" is defined once.
+ *
+ * The select is skipped when:
+ *  - the target is ALREADY focused -- the rekey-follow in use-websocket-handlers
+ *    may have moved the viewport onto the real id, so re-selecting would be a
+ *    redundant double-select; and
+ *  - the user deliberately navigated elsewhere mid-launch (currentId drifted off
+ *    `conversationAtLaunch`) -- re-selecting would yank them back.
+ * `close` always runs.
+ */
+export function focusLaunchTargetAndClose(opts: {
+  launchConversationId: string | null
+  spawnedConversation: Conversation | null
+  conversationAtLaunch: string | null
+  reason: string
+  close: () => void
+}): void {
+  const { launchConversationId, spawnedConversation, conversationAtLaunch, reason, close } = opts
+  const currentId = useConversationsStore.getState().selectedConversationId
+  const userNavigatedAway = currentId !== conversationAtLaunch && currentId !== null
+  const sid =
+    launchConversationId ||
+    (spawnedConversation && spawnedConversation.status !== 'ended' ? spawnedConversation.id : null)
+
+  if (sid && sid !== currentId && !userNavigatedAway) {
+    useConversationsStore.getState().selectConversation(sid, reason)
+  } else if (sid && userNavigatedAway) {
+    console.log(
+      `[nav] ${reason}: NOT switching to ${sid.slice(0, 8)} -- user navigated to ${currentId?.slice(0, 8)} mid-launch`,
+    )
+  }
+  close()
 }

@@ -48,7 +48,7 @@ import {
   useBoardViewConfig,
 } from '@/hooks/use-board-view-config'
 import { sendInput, useConversationsStore } from '@/hooks/use-conversations'
-import { useLaunchProgress } from '@/hooks/use-launch-progress'
+import { focusLaunchTargetAndClose, useLaunchProgress } from '@/hooks/use-launch-progress'
 import { enqueueNightshiftTask } from '@/hooks/use-nightshift-queue'
 import type { ProjectTask } from '@/hooks/use-project'
 import { type ProjectTaskMeta, type TaskStatus, useProject } from '@/hooks/use-project'
@@ -687,19 +687,13 @@ export function RunTaskDialog({
   useEffect(() => {
     if (!progress.isConnected || progress.hasError || closedOnDoneRef.current) return
     closedOnDoneRef.current = true
-    const sid = progress.launch.conversationId || progress.spawnedConversation?.id
-    if (sid) {
-      const currentId = useConversationsStore.getState().selectedConversationId
-      const userNavigatedAway = currentId !== conversationAtLaunchRef.current && currentId !== null
-      if (sid !== currentId && !userNavigatedAway) {
-        useConversationsStore.getState().selectConversation(sid, 'project-board-launch-done')
-      } else if (userNavigatedAway) {
-        console.log(
-          `[nav] project-board: NOT switching to ${sid.slice(0, 8)} -- user navigated to ${currentId?.slice(0, 8)} during launch`,
-        )
-      }
-    }
-    onClose()
+    focusLaunchTargetAndClose({
+      launchConversationId: progress.launch.conversationId,
+      spawnedConversation: progress.spawnedConversation,
+      conversationAtLaunch: conversationAtLaunchRef.current,
+      reason: 'project-board-launch-done',
+      close: onClose,
+    })
   }, [progress.isConnected, progress.hasError, progress.launch.conversationId, progress.spawnedConversation, onClose])
 
   async function handleRun() {

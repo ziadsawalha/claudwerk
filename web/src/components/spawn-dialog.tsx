@@ -28,7 +28,7 @@ import {
   wsSend,
 } from '@/hooks/use-conversations'
 import type { DaemonRosterEntry } from '@/hooks/use-daemon-roster'
-import { useLaunchProgress } from '@/hooks/use-launch-progress'
+import { focusLaunchTargetAndClose, useLaunchProgress } from '@/hooks/use-launch-progress'
 import { parseEnvText } from '@/lib/env-parse'
 import { useKeyLayer } from '@/lib/key-layers'
 import { cwdToProjectUri } from '@/lib/types'
@@ -173,6 +173,7 @@ export function SpawnDialog() {
     jobId,
     conversationId,
     timeoutMs: 60_000,
+    autoConnectedStep: true,
     enabled: phase === 'launching',
   })
 
@@ -310,47 +311,20 @@ export function SpawnDialog() {
     }
   }, [projectSettings, globalSettings, progressReset])
 
-  // Add "Conversation connected" step when conversation connects
-  const addedConnectedStepRef = useRef(false)
   // Guards the close-on-done effect so it fires exactly once per launch.
   const closedOnDoneRef = useRef(false)
-  useEffect(() => {
-    if (!progress.isConnected || addedConnectedStepRef.current) return
-    addedConnectedStepRef.current = true
-    progress.setSteps(prev => [
-      ...prev,
-      {
-        label: 'Conversation connected',
-        status: 'done',
-        ts: Date.now(),
-        detail: (progress.launch.conversationId || progress.spawnedConversation?.id || '').slice(0, 8),
-      },
-    ])
-  }, [progress.isConnected, progress.launch.conversationId, progress.spawnedConversation?.id, progress.setSteps])
 
   const handleClose = useCallback(() => {
-    addedConnectedStepRef.current = false
-    const currentId = useConversationsStore.getState().selectedConversationId
-    const userNavigatedAway = currentId !== conversationAtSpawnRef.current && currentId !== null
-    const sid =
-      progress.launch.conversationId ||
-      (progress.spawnedConversation && progress.spawnedConversation.status !== 'ended'
-        ? progress.spawnedConversation.id
-        : null)
-
-    // Focus the spawned conversation on close -- but only if it isn't already
-    // selected (the rekey-follow in use-websocket-handlers already moves the
-    // viewport onto the real id, so re-selecting is a redundant double-select)
-    // and only if the user hasn't deliberately navigated elsewhere mid-launch.
-    if (sid && sid !== currentId && !userNavigatedAway) {
-      useConversationsStore.getState().selectConversation(sid, 'spawn-dialog-close')
-    } else if (sid && userNavigatedAway) {
-      console.log(
-        `[nav] spawn-dialog: NOT switching to ${sid.slice(0, 8)} -- user navigated to ${currentId?.slice(0, 8)} during spawn`,
-      )
-    }
-    setState({ open: false, options: null })
-    setJobId(null)
+    focusLaunchTargetAndClose({
+      launchConversationId: progress.launch.conversationId,
+      spawnedConversation: progress.spawnedConversation,
+      conversationAtLaunch: conversationAtSpawnRef.current,
+      reason: 'spawn-dialog-close',
+      close: () => {
+        setState({ open: false, options: null })
+        setJobId(null)
+      },
+    })
     // react-doctor-disable-next-line react-doctor/exhaustive-deps
   }, [progress.launch.conversationId, progress.spawnedConversation?.id, progress.spawnedConversation?.status])
 

@@ -46,6 +46,7 @@ import type {
   TaskInfo,
   TranscriptEntry,
 } from '@/lib/types'
+import { setLastConversationId } from '@/lib/ui-state'
 import { formatRateBucketName, haptic } from '@/lib/utils'
 import { addDebugTraceEvent, setDebugTraceResult } from './debug-control-store'
 import { clearThinkingProgress, recordThinkingProgress } from './thinking-progress-store'
@@ -55,6 +56,7 @@ import {
   dropConversationPatch,
   fetchTranscript,
   type ProjectSettingsMap,
+  updateHash,
   useConversationsStore,
 } from './use-conversations'
 import { useLiveDialogsStore } from './use-live-dialogs'
@@ -332,12 +334,70 @@ function handleConversationCreated(msg: DashboardMessage) {
   })
 }
 
+type ConversationsState = ReturnType<typeof useConversationsStore.getState>
+
+/**
+ * Selection is following a rekey -- the conversation the user is viewing got a
+ * new id. Mirror ONLY the bookkeeping a rekey genuinely needs: swap the
+ * selection to the new id, swap the MRU entry so the dead placeholder id doesn't
+ * linger, and migrate any locally-cached events/transcripts from the placeholder
+ * id to the real id. Deliberately NOT selectConversation -- that carries switch
+ * semantics (closing the terminal, clearing expanded state, firing
+ * conversation_viewed) that are all wrong for a same-conversation rekey. The
+ * hash + last-viewed pointer are handled by the caller after the reducer.
+ * Mutates `newState`.
+ */
+function applyRekeyFollow(
+  state: ConversationsState,
+  prevId: string,
+  conversationId: string,
+  newState: Partial<ConversationsState>,
+): void {
+  newState.selectedConversationId = conversationId
+  newState.conversationMru = state.conversationMru
+    .map(x => (x === prevId ? conversationId : x))
+    .filter((x, i, arr) => arr.indexOf(x) === i)
+  const oldEvents = state.events[prevId]
+  const oldTranscripts = state.transcripts[prevId]
+  if (!oldEvents && !oldTranscripts) return
+  const events = { ...state.events }
+  const transcripts = { ...state.transcripts }
+  delete events[prevId]
+  delete transcripts[prevId]
+  // Preserve any data already received for the new conversation ID
+  // (e.g. compacting marker broadcast during rekey)
+  if (!events[conversationId]) events[conversationId] = []
+  if (!transcripts[conversationId]) transcripts[conversationId] = []
+  newState.events = events
+  newState.transcripts = transcripts
+}
+
+/** True when the conversation the user is currently viewing is the one being
+ *  rekeyed -- captured BEFORE the reducer swaps the selection. */
+function selectionFollowsRekey(prevId: string | undefined, conversationId: string): boolean {
+  return !!prevId && prevId !== conversationId && useConversationsStore.getState().selectedConversationId === prevId
+}
+
+/** Keep the URL hash and last-viewed pointer in sync after selection followed a
+ *  rekey (side-effects, so they run outside the reducer). Without this the hash
+ *  still points at the dead placeholder id and a reload would try to select a
+ *  conversation that no longer exists. No-op when the rekey wasn't followed. */
+function syncNavPointersAfterRekey(followed: boolean, conversationId: string): void {
+  if (!followed) return
+  updateHash(`conversation/${conversationId}`)
+  setLastConversationId(conversationId)
+}
+
 function handleConversationUpdate(msg: DashboardMessage) {
   if (!(msg.conversation && msg.conversationId)) return
   const conversationId = msg.conversationId
   const conversation = msg.conversation
   const prevId = msg.previousConversationId
   const matchId = prevId || conversationId
+  // Is the conversation the user is currently viewing the one being rekeyed?
+  // If so, selection follows the id swap (applyRekeyFollow, in the reducer) and
+  // the hash + last-viewed pointer are remapped after the reducer.
+  const followedRekey = selectionFollowsRekey(prevId, conversationId)
   useConversationsStore.setState(state => {
     const updated = toConversation(conversation)
     // W-H3: conversationsById is the source of truth -- patch ONE key instead of
@@ -384,24 +444,11 @@ function handleConversationUpdate(msg: DashboardMessage) {
       console.log(
         `[nav] conversation rekey: ${prevId.slice(0, 8)} -> ${conversationId.slice(0, 8)} (selected conversation rekeyed)`,
       )
-      newState.selectedConversationId = conversationId
-      const oldEvents = state.events[prevId]
-      const oldTranscripts = state.transcripts[prevId]
-      if (oldEvents || oldTranscripts) {
-        const events = { ...state.events }
-        const transcripts = { ...state.transcripts }
-        delete events[prevId]
-        delete transcripts[prevId]
-        // Preserve any data already received for the new conversation ID
-        // (e.g. compacting marker broadcast during rekey)
-        if (!events[conversationId]) events[conversationId] = []
-        if (!transcripts[conversationId]) transcripts[conversationId] = []
-        newState.events = events
-        newState.transcripts = transcripts
-      }
+      applyRekeyFollow(state, prevId, conversationId, newState)
     }
     return newState
   })
+  syncNavPointersAfterRekey(followedRekey, conversationId)
   // Rekey: transcript moved from old-id to new-id locally, but we may have
   // missed channel entries under new-id while backgrounded. Re-fetch.
   if (prevId) {

@@ -488,7 +488,7 @@ function generateShortId(length: number): string {
   return out
 }
 
-function updateHash(fragment: string) {
+export function updateHash(fragment: string) {
   const next = fragment ? `#${fragment}` : ''
   if (window.location.hash !== next) {
     history.replaceState(null, '', next || window.location.pathname)

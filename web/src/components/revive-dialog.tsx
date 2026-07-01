@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { TogglePill } from '@/components/ui/toggle-pill'
 import { reviveConversation, useConversationsStore } from '@/hooks/use-conversations'
-import { useLaunchProgress } from '@/hooks/use-launch-progress'
+import { focusLaunchTargetAndClose, useLaunchProgress } from '@/hooks/use-launch-progress'
 import { useKeyLayer } from '@/lib/key-layers'
 import { projectPath } from '@/lib/types'
 import { haptic } from '@/lib/utils'
@@ -80,6 +80,7 @@ export function ReviveDialog() {
     jobId,
     conversationId,
     timeoutMs: 30_000,
+    autoConnectedStep: true,
     enabled: phase === 'launching',
     onTimeout: () => {
       progress.setSteps(prev =>
@@ -132,41 +133,20 @@ export function ReviveDialog() {
     }
   }, [projectSettings, globalSettings, progressReset])
 
-  // Add "Conversation connected" step when conversation connects
-  const addedConnectedStepRef = useRef(false)
   // Guards the close-on-done effect so it fires exactly once per launch.
   const closedOnDoneRef = useRef(false)
-  useEffect(() => {
-    if (!progress.isConnected || addedConnectedStepRef.current) return
-    addedConnectedStepRef.current = true
-    progress.setSteps(prev => [
-      ...prev,
-      {
-        label: 'Conversation connected',
-        status: 'done',
-        ts: Date.now(),
-        detail: (progress.launch.conversationId || progress.spawnedConversation?.id || '').slice(0, 8),
-      },
-    ])
-  }, [progress.isConnected, progress.launch.conversationId, progress.spawnedConversation?.id, progress.setSteps])
 
   const handleClose = useCallback(() => {
-    addedConnectedStepRef.current = false
-    const currentId = useConversationsStore.getState().selectedConversationId
-    const userNavigatedAway = currentId !== conversationAtReviveRef.current && currentId !== null
-    const sid =
-      progress.launch.conversationId ||
-      (progress.spawnedConversation && progress.spawnedConversation.status !== 'ended'
-        ? progress.spawnedConversation.id
-        : null)
-
-    // Only re-select if not already focused (rekey-follow may have moved the
-    // viewport there already) and the user hasn't navigated away mid-launch.
-    if (sid && sid !== currentId && !userNavigatedAway) {
-      useConversationsStore.getState().selectConversation(sid, 'revive-dialog-close')
-    }
-    setState({ open: false, options: null })
-    setJobId(null)
+    focusLaunchTargetAndClose({
+      launchConversationId: progress.launch.conversationId,
+      spawnedConversation: progress.spawnedConversation,
+      conversationAtLaunch: conversationAtReviveRef.current,
+      reason: 'revive-dialog-close',
+      close: () => {
+        setState({ open: false, options: null })
+        setJobId(null)
+      },
+    })
   }, [progress.launch.conversationId, progress.spawnedConversation])
 
   // Done is done: close the instant the conversation connects (which focuses it
