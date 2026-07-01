@@ -1,7 +1,11 @@
 import { useCallback, useEffect } from 'react'
 import { saveProjectOrder, useConversationsStore } from '@/hooks/use-conversations'
 import type { ProjectOrder, ProjectOrderNode, Workspace } from '@/lib/types'
-import { loadLastWorkspaceConversations, saveLastWorkspaceConversation } from '@/lib/workspace-membership'
+import {
+  loadLastWorkspaceConversations,
+  saveConversationWorkspace,
+  saveLastWorkspaceConversation,
+} from '@/lib/workspace-membership'
 
 export const WORKSPACE_COLORS = ['emerald', 'blue', 'purple', 'amber', 'rose', 'cyan', 'orange', 'pink'] as const
 
@@ -42,7 +46,13 @@ function switchWorkspace(id: string | null) {
   const store = useConversationsStore.getState()
   const prevWs = store.controlPanelPrefs.activeWorkspaceId ?? '_all'
   const curConv = store.selectedConversationId
-  if (curConv) saveLastWorkspaceConversation(prevWs, curConv)
+  if (curConv) {
+    saveLastWorkspaceConversation(prevWs, curConv)
+    // Record that curConv was viewed in prevWs BEFORE we switch away, so a
+    // later quick-switch back to it restores this workspace (the conv-driven
+    // restore in selectConversation skips its own stamp for 'workspace-switch').
+    saveConversationWorkspace(curConv, prevWs)
+  }
   const targetWs = id ?? '_all'
   const lastConv = loadLastWorkspaceConversations()[targetWs]
   store.updateControlPanelPrefs({ activeWorkspaceId: id })

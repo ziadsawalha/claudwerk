@@ -16,15 +16,11 @@ export function isProjectInWorkspace(order: ProjectOrder, wsId: string, projectU
   return projectIdsInTree(order.workspaceTrees?.[wsId] ?? []).has(projectUri)
 }
 
-// The workspace a project lives in, or null if it belongs to none (i.e. only
-// visible under "All"). If a project somehow sits in several workspaces, the
-// first match wins -- membership is treated as single-home for navigation.
-export function workspaceForProject(order: ProjectOrder, projectUri: string): string | null {
-  for (const [wsId, tree] of Object.entries(order.workspaceTrees ?? {})) {
-    if (projectIdsInTree(tree).has(projectUri)) return wsId
-  }
-  return null
-}
+// Sentinel workspace id for the "All" view. A project can belong to ZERO or
+// MANY workspaces, so there is NO derivable "the workspace" for a project --
+// the only truthful workspace for a conversation is the one you were ACTUALLY
+// viewing it in. We record that, keyed by conversation, below.
+export const WORKSPACE_ALL = '_all'
 
 const WS_LAST_CONV_KEY = 'workspace-last-conversation'
 
@@ -41,4 +37,31 @@ export function saveLastWorkspaceConversation(wsId: string, convId: string | nul
   if (convId) map[wsId] = convId
   else delete map[wsId]
   localStorage.setItem(WS_LAST_CONV_KEY, JSON.stringify(map))
+}
+
+// "Which workspace was I in when I last had THIS conversation active?" -- the
+// dual of the map above. Recorded on every switch so a quick-switch (Ctrl+Tab)
+// back to a conversation restores the exact workspace context it was left in,
+// instead of guessing from project membership (impossible under many-to-many).
+// Stored id is a real workspace id or WORKSPACE_ALL; absent = never recorded.
+const CONV_LAST_WS_KEY = 'conversation-last-workspace'
+
+function loadConversationWorkspaces(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(CONV_LAST_WS_KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
+export function saveConversationWorkspace(convId: string, wsId: string): void {
+  const map = loadConversationWorkspaces()
+  map[convId] = wsId
+  localStorage.setItem(CONV_LAST_WS_KEY, JSON.stringify(map))
+}
+
+// The workspace this conversation was last viewed in: a real id, WORKSPACE_ALL,
+// or undefined if we have never recorded it.
+export function loadConversationWorkspace(convId: string): string | undefined {
+  return loadConversationWorkspaces()[convId]
 }

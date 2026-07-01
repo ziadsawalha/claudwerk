@@ -48,8 +48,10 @@ import {
 import { getConversationTab, getLastConversationId, initUIState, setLastConversationId } from '@/lib/ui-state'
 import {
   isProjectInWorkspace,
+  loadConversationWorkspace,
+  saveConversationWorkspace,
   saveLastWorkspaceConversation,
-  workspaceForProject,
+  WORKSPACE_ALL,
 } from '@/lib/workspace-membership'
 import { recordOut } from './ws-stats'
 
@@ -805,6 +807,49 @@ function buildEvictedConvData(state: ConversationsState, cachedIds: Set<string>)
   }
 }
 
+// Short id for nav logging: first 8 chars, or 'none' for a null/empty id.
+function shortId(id: string | null): string {
+  return id?.slice(0, 8) || 'none'
+}
+
+// The workspace to land in when selecting `id`: the one it was last viewed in,
+// else the reveal-via-All fallback when a never-recorded conversation would be
+// invisible in the active workspace, else stay put. A project can belong to
+// zero or many workspaces, so remembered context -- NOT project membership --
+// is the only truthful workspace for a conversation.
+function targetWorkspaceForSelect(
+  s: Pick<ConversationsState, 'projectOrder' | 'conversationsById'>,
+  activeWs: string | null,
+  id: string,
+): string | null {
+  const rememberedWs = loadConversationWorkspace(id)
+  if (rememberedWs !== undefined) return rememberedWs === WORKSPACE_ALL ? null : rememberedWs
+  if (!activeWs) return activeWs
+  const projectUri = s.conversationsById[id]?.project
+  return projectUri && !isProjectInWorkspace(s.projectOrder, activeWs, projectUri) ? null : activeWs
+}
+
+// Ctrl+Tab / CMD+P / deep links move you between conversations: record the
+// workspace the OUTGOING conversation was viewed in, then follow the INCOMING
+// one into the workspace it was last seen in.
+function followWorkspaceOnSelect(
+  get: () => ConversationsState,
+  prev: string | null,
+  id: string | null,
+  reason?: string,
+): void {
+  const s = get()
+  const activeWs = s.controlPanelPrefs.activeWorkspaceId // real id | null (=All)
+  // A workspace-switch drives its own selection and has already stamped the
+  // outgoing conversation against the correct (pre-switch) workspace.
+  if (prev && reason !== 'workspace-switch') saveConversationWorkspace(prev, activeWs ?? WORKSPACE_ALL)
+  if (!id) return
+  const targetWs = targetWorkspaceForSelect(s, activeWs, id)
+  if (targetWs === activeWs) return
+  if (activeWs && prev) saveLastWorkspaceConversation(activeWs, prev)
+  s.updateControlPanelPrefs({ activeWorkspaceId: targetWs })
+}
+
 export const useConversationsStore = create<ConversationsState>((set, get) => ({
   conversationsById: {},
   selectedConversationId: null,
@@ -1150,23 +1195,11 @@ export const useConversationsStore = create<ConversationsState>((set, get) => ({
   selectConversation: (id: string | null, reason?: string) => {
     const prev = get().selectedConversationId
     if (id !== prev) {
-      console.log(
-        `[nav] selectConversation: ${prev?.slice(0, 8) || 'none'} -> ${id?.slice(0, 8) || 'none'}${reason ? ` (${reason})` : ''}`,
-      )
+      console.log(`[nav] selectConversation: ${shortId(prev)} -> ${shortId(id)}${reason ? ` (${reason})` : ''}`)
     }
-    // Jumping to a conversation outside the active workspace (CMD+P, ctrl+Tab,
-    // deep links, notifications) must reveal it rather than silently no-op.
-    // Follow it into ITS OWN workspace so the switch feels like a real
-    // navigation; fall back to "All" only when it belongs to no workspace.
-    const activeWs = get().controlPanelPrefs.activeWorkspaceId
-    if (id && activeWs) {
-      const projectUri = get().conversationsById[id]?.project
-      if (projectUri && !isProjectInWorkspace(get().projectOrder, activeWs, projectUri)) {
-        if (prev) saveLastWorkspaceConversation(activeWs, prev)
-        const targetWs = workspaceForProject(get().projectOrder, projectUri)
-        get().updateControlPanelPrefs({ activeWorkspaceId: targetWs })
-      }
-    }
+    // Follow the conversation into the workspace it was last viewed in (records
+    // the outgoing one on the way out). See followWorkspaceOnSelect.
+    followWorkspaceOnSelect(get, prev, id, reason)
     clearExpandedState()
     const defaultView = get().controlPanelPrefs.defaultView
     const rememberedTab = id ? getConversationTab(id) : null
