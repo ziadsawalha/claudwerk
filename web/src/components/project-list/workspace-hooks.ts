@@ -49,23 +49,24 @@ function saveLastConversation(wsId: string, convId: string | null) {
   localStorage.setItem(WS_LAST_CONV_KEY, JSON.stringify(map))
 }
 
+// fallow-ignore-next-line complexity
+function switchWorkspace(id: string | null) {
+  const store = useConversationsStore.getState()
+  const prevWs = store.controlPanelPrefs.activeWorkspaceId ?? '_all'
+  const curConv = store.selectedConversationId
+  if (curConv) saveLastConversation(prevWs, curConv)
+  const targetWs = id ?? '_all'
+  const lastConv = loadLastConversations()[targetWs]
+  store.updateControlPanelPrefs({ activeWorkspaceId: id })
+  if (lastConv && lastConv !== curConv) {
+    requestAnimationFrame(() => {
+      useConversationsStore.getState().selectConversation(lastConv, 'workspace-switch')
+    })
+  }
+}
+
 export function useWorkspaceActions() {
-  const updatePrefs = useConversationsStore(s => s.updateControlPanelPrefs)
-  // fallow-ignore-next-line complexity
-  const setActive = useCallback((id: string | null) => {
-    const store = useConversationsStore.getState()
-    const prevWs = store.controlPanelPrefs.activeWorkspaceId ?? '_all'
-    const curConv = store.selectedConversationId
-    if (curConv) saveLastConversation(prevWs, curConv)
-    const targetWs = id ?? '_all'
-    const lastConv = loadLastConversations()[targetWs]
-    updatePrefs({ activeWorkspaceId: id })
-    if (lastConv && lastConv !== curConv) {
-      requestAnimationFrame(() => {
-        useConversationsStore.getState().selectConversation(lastConv, 'workspace-switch')
-      })
-    }
-  }, [updatePrefs])
+  const setActive = useCallback(switchWorkspace, [])
 
   return {
     setActive,
@@ -147,11 +148,10 @@ export function useWorkspaceShortcuts() {
       const digit = Number(e.key)
       if (digit < 1 || digit > 9 || Number.isNaN(digit)) return
       e.preventDefault()
-      const s = useConversationsStore.getState()
-      const ws = s.projectOrder.workspaces ?? []
+      const ws = useConversationsStore.getState().projectOrder.workspaces ?? []
       const target = digit === 1 ? null : (ws[digit - 2]?.id ?? null)
       if (digit > 1 && !ws[digit - 2]) return
-      s.updateControlPanelPrefs({ activeWorkspaceId: target })
+      switchWorkspace(target)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
