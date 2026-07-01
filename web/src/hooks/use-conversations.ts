@@ -1876,7 +1876,7 @@ export async function fetchProjectOrder(): Promise<ProjectOrder> {
   return {
     tree: data.tree,
     ...(Array.isArray(data.workspaces) ? { workspaces: data.workspaces } : {}),
-    ...(data.assignments && typeof data.assignments === 'object' ? { assignments: data.assignments } : {}),
+    ...(data.workspaceTrees && typeof data.workspaceTrees === 'object' ? { workspaceTrees: data.workspaceTrees } : {}),
   }
 }
 

@@ -16,26 +16,28 @@ export function WorkspaceTabs() {
 
   return (
     <div className="flex items-center gap-0.5 px-1 pb-1.5 overflow-x-auto scrollbar-none">
-      {workspaces.length > 0 && <button
-        type="button"
-        onClick={() => {
-          haptic('tick')
-          actions.setActive(null)
-        }}
-        className={cn(
-          'shrink-0 h-5 px-2 rounded text-[10px] font-mono transition-all cursor-pointer',
-          'hover:bg-accent/10 select-none',
-          activeId === null
-            ? 'bg-accent/20 ring-1 ring-accent/30 text-foreground'
-            : 'text-muted-foreground/60 hover:text-muted-foreground',
-        )}
-      >
-        All
-      </button>}
-      {workspaces.map(ws => (
+      {workspaces.length > 0 && (
+        <button
+          type="button"
+          onClick={() => { haptic('tick'); actions.setActive(null) }}
+          title="All (Ctrl+1)"
+          className={cn(
+            'shrink-0 h-5 px-2 rounded text-[10px] font-mono transition-all cursor-pointer flex items-center gap-1',
+            'hover:bg-accent/10 select-none',
+            activeId === null
+              ? 'bg-accent/20 ring-1 ring-accent/30 text-foreground'
+              : 'text-muted-foreground/60 hover:text-muted-foreground',
+          )}
+        >
+          All
+          <span className="text-[8px] text-muted-foreground/40">^1</span>
+        </button>
+      )}
+      {workspaces.map((ws, i) => (
         <WorkspaceTabItem
           key={ws.id}
           ws={ws}
+          shortcutIndex={i + 2}
           active={activeId === ws.id}
           onSelect={() => actions.setActive(ws.id)}
           onRename={name => actions.rename(ws.id, name)}
@@ -46,19 +48,13 @@ export function WorkspaceTabs() {
       {creating ? (
         <InlineNameInput
           initial=""
-          onSubmit={name => {
-            actions.create(name, workspaces.length)
-            setCreating(false)
-          }}
+          onSubmit={name => { actions.create(name, workspaces.length); setCreating(false) }}
           onCancel={() => setCreating(false)}
         />
       ) : (
         <button
           type="button"
-          onClick={() => {
-            haptic('tick')
-            setCreating(true)
-          }}
+          onClick={() => { haptic('tick'); setCreating(true) }}
           className="shrink-0 h-5 px-1.5 rounded text-[10px] font-mono text-muted-foreground/40 hover:text-muted-foreground hover:bg-accent/10 transition-all cursor-pointer select-none"
           title="New workspace"
         >

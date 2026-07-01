@@ -35,14 +35,37 @@ function sanitizeWorkspaces(raw: unknown): Workspace[] | undefined {
   return out.length > 0 ? out : undefined
 }
 
-/** Keep only assignments that point at a real workspace id. */
-function sanitizeAssignments(raw: unknown, validWs: Set<string>): Record<string, string> | undefined {
+/** Sanitize per-workspace trees. Only keeps entries for valid workspace ids. */
+function sanitizeWorkspaceTrees(
+  raw: unknown,
+  validWs: Set<string>,
+  walkFn: (nodes: unknown[]) => ProjectOrderNode[],
+): Record<string, ProjectOrderNode[]> | undefined {
   if (!raw || typeof raw !== 'object') return undefined
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof v === 'string' && validWs.has(v)) out[k] = v
+  const out: Record<string, ProjectOrderNode[]> = {}
+  for (const [wsId, tree] of Object.entries(raw as Record<string, unknown>)) {
+    if (!validWs.has(wsId) || !Array.isArray(tree)) continue
+    const walked = walkFn(tree)
+    if (walked.length > 0) out[wsId] = walked
   }
   return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** Migrate legacy assignments to workspaceTrees. For each assignment, find
+ *  the root node in the global tree and copy it into the workspace tree. */
+function migrateAssignments(
+  assignments: Record<string, string>,
+  globalTree: ProjectOrderNode[],
+): Record<string, ProjectOrderNode[]> {
+  const trees: Record<string, ProjectOrderNode[]> = {}
+  for (const [nodeId, wsId] of Object.entries(assignments)) {
+    const node = globalTree.find(n => n.id === nodeId)
+    if (!node) continue
+    const list = trees[wsId] ?? []
+    list.push(structuredClone(node))
+    trees[wsId] = list
+  }
+  return trees
 }
 
 const KV_KEY = 'project-order'
@@ -66,6 +89,7 @@ function migrateNodeId(id: string): string {
  *   - Legacy node IDs: `cwd:<path>` -> project URI
  * Anything else returns an empty tree.
  */
+// fallow-ignore-next-line complexity
 function normalize(raw: unknown): { order: ProjectOrder; migrated: boolean } {
   if (!raw || typeof raw !== 'object') return { order: { tree: [] }, migrated: false }
   const obj = raw as Record<string, unknown>
@@ -104,14 +128,28 @@ function normalize(raw: unknown): { order: ProjectOrder; migrated: boolean } {
     return out
   }
 
-  // Workspaces tier (additive, migration-safe): old data has neither field.
+  const globalTree = walk(obj.tree)
   const workspaces = sanitizeWorkspaces(obj.workspaces)
-  const assignments = sanitizeAssignments(obj.assignments, new Set((workspaces ?? []).map(w => w.id)))
+  const validWsIds = new Set((workspaces ?? []).map(w => w.id))
+
+  // Migrate legacy assignments -> workspaceTrees
+  let workspaceTrees = sanitizeWorkspaceTrees(obj.workspaceTrees, validWsIds, walk)
+  if (!workspaceTrees && obj.assignments && typeof obj.assignments === 'object') {
+    const legacy: Record<string, string> = {}
+    for (const [k, v] of Object.entries(obj.assignments as Record<string, unknown>)) {
+      if (typeof v === 'string' && validWsIds.has(v)) legacy[k] = v
+    }
+    if (Object.keys(legacy).length > 0) {
+      workspaceTrees = migrateAssignments(legacy, globalTree)
+      migrated = true
+    }
+  }
+
   return {
     order: {
-      tree: walk(obj.tree),
+      tree: globalTree,
       ...(workspaces ? { workspaces } : {}),
-      ...(assignments ? { assignments } : {}),
+      ...(workspaceTrees ? { workspaceTrees } : {}),
     },
     migrated,
   }

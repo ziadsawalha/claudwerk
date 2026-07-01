@@ -42,6 +42,7 @@ export function InlineNameInput({
 // fallow-ignore-next-line complexity
 export function WorkspaceTabItem({
   ws,
+  shortcutIndex,
   active,
   onSelect,
   onRename,
@@ -49,6 +50,7 @@ export function WorkspaceTabItem({
   onRecolor,
 }: {
   ws: Workspace
+  shortcutIndex?: number
   active: boolean
   onSelect: () => void
   onRename: (name: string) => void
@@ -82,6 +84,7 @@ export function WorkspaceTabItem({
             onSelect()
           }}
           onDoubleClick={() => setEditing(true)}
+          title={shortcutIndex && shortcutIndex <= 9 ? `${ws.name} (Ctrl+${shortcutIndex})` : ws.name}
           className={cn(
             'shrink-0 h-5 px-2 rounded text-[10px] font-mono transition-all cursor-pointer flex items-center gap-1',
             'hover:bg-accent/10 select-none',
@@ -91,6 +94,9 @@ export function WorkspaceTabItem({
         >
           <span className={cn('size-1.5 rounded-full shrink-0', colorDot(ws.color))} />
           {ws.name}
+          {shortcutIndex && shortcutIndex <= 9 && (
+            <span className="text-[8px] text-muted-foreground/40">^{shortcutIndex}</span>
+          )}
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>

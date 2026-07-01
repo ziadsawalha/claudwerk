@@ -18,9 +18,9 @@ export interface ProjectOrderProject {
 
 export type ProjectOrderNode = ProjectOrderGroup | ProjectOrderProject
 
-/** A workspace -- the tier ABOVE groups. Root nodes (top-level groups/projects)
- *  are partitioned across workspaces via `ProjectOrder.assignments`; the sidebar
- *  shows one workspace at a time (+ an "All" view). */
+/** A workspace -- each with its OWN group/project tree. The global `tree` is
+ *  the "All" view; each workspace has an independent organizational structure
+ *  in `workspaceTrees[wsId]`. */
 export interface Workspace {
   id: string
   name: string
@@ -31,8 +31,9 @@ export interface ProjectOrder {
   tree: ProjectOrderNode[]
   /** Ordered named workspaces (the sidebar tabs). Absent/empty = only "All". */
   workspaces?: Workspace[]
-  /** Maps a ROOT node id (group id or project URI) -> workspace id. Root nodes
-   *  with no entry appear only in "All" (migration-safe: old data has neither
-   *  field, so nothing changes until a workspace is created). */
+  /** Per-workspace group/project trees. Each workspace has its own independent
+   *  organizational structure. Absent = no workspace-specific trees yet. */
+  workspaceTrees?: Record<string, ProjectOrderNode[]>
+  /** @deprecated -- replaced by workspaceTrees. Migrated on first normalize(). */
   assignments?: Record<string, string>
 }

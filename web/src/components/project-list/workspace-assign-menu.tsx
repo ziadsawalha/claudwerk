@@ -1,7 +1,7 @@
 import { ContextMenu } from 'radix-ui'
 import type { ReactNode } from 'react'
 import { useConversationsStore } from '@/hooks/use-conversations'
-import type { ProjectOrder, Workspace } from '@/lib/types'
+import type { ProjectOrder, ProjectOrderNode, Workspace } from '@/lib/types'
 import { cn, haptic } from '@/lib/utils'
 import { colorDot, useWorkspaceActions } from './workspace-hooks'
 
@@ -10,24 +10,23 @@ const menuItemClass =
 
 const EMPTY_WORKSPACES: Workspace[] = []
 
-// fallow-ignore-next-line complexity
-function findRootNodeId(tree: ProjectOrder['tree'], nodeId: string): string {
-  for (const n of tree) {
-    if (n.id === nodeId) return n.id
-    if (n.type === 'group' && n.children.some(c => c.id === nodeId)) return n.id
+function projectInWorkspace(trees: Record<string, ProjectOrderNode[]>, projectUri: string): string | null {
+  for (const [wsId, wsTree] of Object.entries(trees)) {
+    if (wsTree.some(n => n.id === projectUri)) return wsId
   }
-  return nodeId
+  return null
 }
 
-function useWorkspaceAssignment(nodeId: string) {
+function useWorkspaceState(projectUri: string) {
   const workspaces = useConversationsStore(s => (s.projectOrder as ProjectOrder).workspaces ?? EMPTY_WORKSPACES)
-  const rootId = useConversationsStore(s => findRootNodeId((s.projectOrder as ProjectOrder).tree ?? [], nodeId))
-  const currentWsId = useConversationsStore(s => ((s.projectOrder as ProjectOrder).assignments ?? {})[rootId] ?? null)
-  return { workspaces, currentWsId, rootId }
+  const currentWsId = useConversationsStore(
+    s => projectInWorkspace((s.projectOrder as ProjectOrder).workspaceTrees ?? {}, projectUri),
+  )
+  return { workspaces, currentWsId }
 }
 
-function WorkspaceListItems({ nodeId }: { nodeId: string }) {
-  const { workspaces, currentWsId, rootId } = useWorkspaceAssignment(nodeId)
+function WorkspaceListItems({ projectUri }: { projectUri: string }) {
+  const { workspaces, currentWsId } = useWorkspaceState(projectUri)
   const actions = useWorkspaceActions()
   return (
     <>
@@ -37,7 +36,7 @@ function WorkspaceListItems({ nodeId }: { nodeId: string }) {
           className={cn(menuItemClass, currentWsId === ws.id && 'text-primary')}
           onSelect={() => {
             haptic('tap')
-            actions.assign(rootId, ws.id)
+            actions.assignProject(projectUri, ws.id)
           }}
         >
           <span className={cn('size-2 rounded-full mr-2 shrink-0', colorDot(ws.color))} />
@@ -50,7 +49,7 @@ function WorkspaceListItems({ nodeId }: { nodeId: string }) {
           className={cn(menuItemClass, !currentWsId && 'text-primary')}
           onSelect={() => {
             haptic('tap')
-            actions.assign(rootId, null)
+            actions.removeFromAllWorkspaces(projectUri)
           }}
         >
           None (All only)
@@ -62,7 +61,7 @@ function WorkspaceListItems({ nodeId }: { nodeId: string }) {
           haptic('tap')
           const name = prompt('Workspace name:')
           if (!name?.trim()) return
-          actions.createAndAssign(name.trim(), workspaces.length, rootId)
+          actions.createAndAssign(name.trim(), workspaces.length, projectUri)
         }}
       >
         New workspace…
@@ -79,7 +78,7 @@ export function WorkspaceAssignSub({ nodeId }: { nodeId: string }) {
       </ContextMenu.SubTrigger>
       <ContextMenu.Portal>
         <ContextMenu.SubContent className="min-w-[140px] bg-popover border border-border rounded-md shadow-lg py-1 z-50">
-          <WorkspaceListItems nodeId={nodeId} />
+          <WorkspaceListItems projectUri={nodeId} />
         </ContextMenu.SubContent>
       </ContextMenu.Portal>
     </ContextMenu.Sub>
@@ -92,7 +91,7 @@ export function GroupContextMenu({ groupId, children }: { groupId: string; child
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className="min-w-[140px] bg-popover border border-border rounded-md shadow-lg py-1 z-50">
-          <WorkspaceListItems nodeId={groupId} />
+          <WorkspaceListItems projectUri={groupId} />
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

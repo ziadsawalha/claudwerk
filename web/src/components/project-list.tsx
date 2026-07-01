@@ -97,11 +97,9 @@ export function ProjectList() {
   }, [projectOrder])
 
   // react-doctor-disable-next-line react-doctor/no-derived-state -- already using useMemo, not useState+useEffect
-  // Filter root tree nodes by active workspace. "All" (null) = full tree.
   const filteredTree = useMemo(() => {
     if (!activeWorkspaceId) return projectOrder.tree
-    const assignments = projectOrder.assignments ?? {}
-    return projectOrder.tree.filter(node => assignments[node.id] === activeWorkspaceId)
+    return projectOrder.workspaceTrees?.[activeWorkspaceId] ?? []
   }, [projectOrder, activeWorkspaceId])
 
   // Effective project URI for each conversation: worktree URIs collapse to

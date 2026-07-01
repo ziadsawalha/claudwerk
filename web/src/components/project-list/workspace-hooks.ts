@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { saveProjectOrder, useConversationsStore } from '@/hooks/use-conversations'
-import type { ProjectOrder, Workspace } from '@/lib/types'
+import type { ProjectOrder, ProjectOrderNode, Workspace } from '@/lib/types'
 
 export const WORKSPACE_COLORS = ['emerald', 'blue', 'purple', 'amber', 'rose', 'cyan', 'orange', 'pink'] as const
 
@@ -16,34 +16,24 @@ export const colorClasses: Record<string, { bg: string; ring: string }> = {
 }
 
 const colorDotMap: Record<string, string> = {
-  emerald: 'bg-emerald-400',
-  blue: 'bg-blue-400',
-  purple: 'bg-purple-400',
-  amber: 'bg-amber-400',
-  rose: 'bg-rose-400',
-  cyan: 'bg-cyan-400',
-  orange: 'bg-orange-400',
-  pink: 'bg-pink-400',
+  emerald: 'bg-emerald-400', blue: 'bg-blue-400', purple: 'bg-purple-400',
+  amber: 'bg-amber-400', rose: 'bg-rose-400', cyan: 'bg-cyan-400',
+  orange: 'bg-orange-400', pink: 'bg-pink-400',
 }
 
 export function colorDot(color?: string): string {
   return colorDotMap[color ?? ''] ?? 'bg-muted-foreground/40'
 }
 
-function mutateWorkspaces(
-  fn: (
-    ws: Workspace[],
-    assignments: Record<string, string>,
-  ) => {
-    workspaces: Workspace[]
-    assignments: Record<string, string>
-  },
-) {
+function mutateOrder(fn: (order: ProjectOrder) => ProjectOrder) {
   const cur = useConversationsStore.getState().projectOrder as ProjectOrder
-  const result = fn(cur.workspaces ?? [], cur.assignments ?? {})
-  const next: ProjectOrder = { ...cur, ...result }
+  const next = fn(cur)
   useConversationsStore.getState().setProjectOrder(next)
   saveProjectOrder(next)
+}
+
+function setTrees(o: ProjectOrder, trees: Record<string, ProjectOrderNode[]>): ProjectOrder {
+  return { ...o, workspaceTrees: Object.keys(trees).length > 0 ? trees : undefined }
 }
 
 export function useWorkspaceActions() {
@@ -55,45 +45,69 @@ export function useWorkspaceActions() {
     create(name: string, existingCount: number) {
       const id = `ws-${Date.now().toString(36)}`
       const color = WORKSPACE_COLORS[existingCount % WORKSPACE_COLORS.length]
-      mutateWorkspaces((ws, a) => ({ workspaces: [...ws, { id, name, color }], assignments: a }))
+      mutateOrder(o => ({ ...o, workspaces: [...(o.workspaces ?? []), { id, name, color }] }))
       setActive(id)
     },
     rename(wsId: string, name: string) {
-      mutateWorkspaces((ws, a) => ({
-        workspaces: ws.map(w => (w.id === wsId ? { ...w, name } : w)),
-        assignments: a,
+      mutateOrder(o => ({
+        ...o,
+        workspaces: (o.workspaces ?? []).map(w => (w.id === wsId ? { ...w, name } : w)),
       }))
     },
     remove(wsId: string, activeId: string | null) {
-      mutateWorkspaces((ws, a) => {
-        const filtered: Record<string, string> = {}
-        for (const [k, v] of Object.entries(a)) if (v !== wsId) filtered[k] = v
-        return { workspaces: ws.filter(w => w.id !== wsId), assignments: filtered }
+      mutateOrder(o => {
+        const trees = { ...(o.workspaceTrees ?? {}) }
+        delete trees[wsId]
+        return { ...setTrees(o, trees), workspaces: (o.workspaces ?? []).filter(w => w.id !== wsId) }
       })
       if (activeId === wsId) setActive(null)
     },
     recolor(wsId: string, color: string) {
-      mutateWorkspaces((ws, a) => ({
-        workspaces: ws.map(w => (w.id === wsId ? { ...w, color } : w)),
-        assignments: a,
+      mutateOrder(o => ({
+        ...o,
+        workspaces: (o.workspaces ?? []).map(w => (w.id === wsId ? { ...w, color } : w)),
       }))
     },
-    assign(nodeId: string, wsId: string | null) {
-      mutateWorkspaces((ws, a) => {
-        const next = { ...a }
-        if (wsId) next[nodeId] = wsId
-        else delete next[nodeId]
-        return { workspaces: ws, assignments: next }
+    assignProject(projectUri: string, wsId: string) {
+      mutateOrder(o => {
+        const trees = { ...(o.workspaceTrees ?? {}) }
+        const wsTree = [...(trees[wsId] ?? [])]
+        if (!wsTree.some(n => n.id === projectUri)) {
+          wsTree.push({ id: projectUri, type: 'project' })
+        }
+        trees[wsId] = wsTree
+        return setTrees(o, trees)
       })
     },
-    createAndAssign(name: string, existingCount: number, nodeId: string) {
-      const id = `ws-${Date.now().toString(36)}`
+    removeFromWorkspace(nodeId: string, wsId: string) {
+      mutateOrder(o => {
+        const trees = { ...(o.workspaceTrees ?? {}) }
+        const wsTree = trees[wsId]
+        if (!wsTree) return o
+        trees[wsId] = wsTree.filter(n => n.id !== nodeId)
+        if (trees[wsId].length === 0) delete trees[wsId]
+        return setTrees(o, trees)
+      })
+    },
+    removeFromAllWorkspaces(projectUri: string) {
+      mutateOrder(o => {
+        const trees = { ...(o.workspaceTrees ?? {}) }
+        for (const [wid, wTree] of Object.entries(trees)) {
+          trees[wid] = wTree.filter(n => n.id !== projectUri)
+          if (trees[wid].length === 0) delete trees[wid]
+        }
+        return setTrees(o, trees)
+      })
+    },
+    createAndAssign(name: string, existingCount: number, projectUri: string) {
+      const wsId = `ws-${Date.now().toString(36)}`
       const color = WORKSPACE_COLORS[existingCount % WORKSPACE_COLORS.length]
-      mutateWorkspaces((ws, a) => ({
-        workspaces: [...ws, { id, name, color }],
-        assignments: { ...a, [nodeId]: id },
-      }))
-      setActive(id)
+      mutateOrder(o => {
+        const trees = { ...(o.workspaceTrees ?? {}) }
+        trees[wsId] = [{ id: projectUri, type: 'project' }]
+        return { ...o, workspaces: [...(o.workspaces ?? []), { id: wsId, name, color }], workspaceTrees: trees }
+      })
+      setActive(wsId)
     },
   }
 }
