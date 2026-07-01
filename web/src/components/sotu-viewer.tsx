@@ -181,7 +181,10 @@ export function SotuViewerModal() {
 
   const startTimeout = useCallback(() => {
     clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => setError('No response from broker -- is it deployed with SOTU WS handlers?'), 5000)
+    timeoutRef.current = setTimeout(
+      () => setError('No response from broker -- is it deployed with SOTU WS handlers?'),
+      5000,
+    )
   }, [])
 
   const clearError = useCallback(() => {

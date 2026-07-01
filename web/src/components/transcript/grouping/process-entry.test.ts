@@ -60,7 +60,11 @@ describe('processEntry - Stop hook feedback', () => {
 describe('processEntry - harness nag suppression', () => {
   it('suppresses the "no visible output" nag injected by CC harness', () => {
     const { groups } = group([
-      userEntry(textBlocks('[Your previous response had no visible output. Please continue and produce a user-visible response.]')),
+      userEntry(
+        textBlocks(
+          '[Your previous response had no visible output. Please continue and produce a user-visible response.]',
+        ),
+      ),
     ])
     expect(groups).toHaveLength(0)
   })
