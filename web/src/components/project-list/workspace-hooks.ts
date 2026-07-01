@@ -148,9 +148,10 @@ export function useWorkspaceShortcuts() {
       const digit = Number(e.key)
       if (digit < 1 || digit > 9 || Number.isNaN(digit)) return
       e.preventDefault()
-      const ws = useConversationsStore.getState().projectOrder.workspaces ?? []
-      const target = digit === 1 ? null : (ws[digit - 2]?.id ?? null)
-      if (digit > 1 && !ws[digit - 2]) return
+      const ws = useConversationsStore.getState().projectOrder.workspaces
+      if (!ws || ws.length === 0) return
+      const target = digit === 1 ? null : ws[digit - 2]?.id
+      if (digit > 1 && !target) return
       switchWorkspace(target)
     }
     window.addEventListener('keydown', handler)
