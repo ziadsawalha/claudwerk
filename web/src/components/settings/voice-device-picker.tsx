@@ -55,8 +55,13 @@ export function VoiceDevicePicker({ value, onChange }: VoiceDevicePickerProps) {
         // HFP the moment it connects. Only real hardware ids pin a fixed mic.
         const real = inputs.filter(d => isPinnableDevice(d.deviceId))
         healVirtualSelection(inputs, real, valueRef.current, onChange)
-        // Labels are blank until a grant exists -- if so, keep prompting an unlock.
-        setLabelsHidden(real.length > 0 && !real.some(d => d.label))
+        // No grant yet -> enumerateDevices returns entries with blank deviceId AND
+        // blank label, so `real` is empty (blank ids fail isPinnableDevice). Gate the
+        // unlock on `inputs` (present even without a grant), NOT `real` -- else there's
+        // never a real device to satisfy `real.length > 0`, the click handler stays
+        // undefined, the grant is never requested, and the list stays empty forever
+        // (the "no devices listed / stuck on System default" bug).
+        setLabelsHidden(inputs.length > 0 && !real.some(d => d.label))
         setDevices(real)
         setError('')
       } catch (err) {
