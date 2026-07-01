@@ -553,8 +553,25 @@ export const TranscriptView = memo(function TranscriptView({
   const avgPerEntryRef = useRef(60) // running avg measured group height per entry (px)
   const phantomHeightRef = useRef(0) // current scrollback-spacer height, for the load trigger
   const reserveScrollback = useConversationsStore(state => state.controlPanelPrefs.scrollbackReservation)
+  // AUTO-SPACER for the stuck-short-window case. Infinite scrollback is driven
+  // ONLY by a user scroll-up near the top -- which needs a scroll RANGE. When the
+  // real (non-spacer) content doesn't fill the viewport yet older history exists
+  // (tall screen + the last ~50 entries), scrollHeight == clientHeight, no scroll
+  // event can fire, and the older entries are UNREACHABLE (observed live: a
+  // 50-entry window over a 358-entry conversation stranded ~290 entries, zero
+  // `before=` fetches in the broker log). Reserving phantom height above -- the
+  // SAME mechanism as the pref, but auto-engaged only when stuck -- restores a
+  // scrollbar so the user can scroll up, which detaches follow and drives the
+  // normal backfill. Crucially this is PHANTOM height, not real prepended entries,
+  // so it never trips the follow re-anchor (gated on entries.length) or the live
+  // head-prune -- unlike auto-fetching real entries while following, which
+  // oscillates against both. Latched per-conversation (set true by the measurement
+  // effect below, reset on switch) so the spacer shrinks smoothly with olderCount
+  // as history loads instead of being yanked mid-scrollback.
+  const [fillSpacerActive, setFillSpacerActive] = useState(false)
+  const spacerEnabled = reserveScrollback || fillSpacerActive
   const oldestVisibleSeq = windowed.length > 0 ? (windowed[0].seq ?? 0) : 0
-  const olderCount = reserveScrollback && oldestVisibleSeq > 1 ? oldestVisibleSeq - 1 : 0
+  const olderCount = spacerEnabled && oldestVisibleSeq > 1 ? oldestVisibleSeq - 1 : 0
   const spacerHeight = Math.round(olderCount * avgPerEntryRef.current)
   const spacerBucket = Math.round(spacerHeight / 24)
   // biome-ignore lint/correctness/useExhaustiveDependencies: spacerHeight is intentionally bucketed via spacerBucket to keep the memo identity stable across sub-pixel drift
@@ -577,9 +594,9 @@ export const TranscriptView = memo(function TranscriptView({
   // session shows WHICH layout change drove the scroll events. Bucketed height
   // means this fires on real transitions, not sub-pixel avg drift.
   const prevSpacerHeightRef = useRef(phantomHeightRef.current)
-  if (reserveScrollback && phantomHeightRef.current !== prevSpacerHeightRef.current) {
+  if (spacerEnabled && phantomHeightRef.current !== prevSpacerHeightRef.current) {
     console.debug(
-      `[scrollback] spacer ${prevSpacerHeightRef.current}px -> ${phantomHeightRef.current}px (olderCount=${olderCount} avgPerEntry=${avgPerEntryRef.current.toFixed(1)} windowStart=${windowStart})`,
+      `[scrollback] spacer ${prevSpacerHeightRef.current}px -> ${phantomHeightRef.current}px (olderCount=${olderCount} avgPerEntry=${avgPerEntryRef.current.toFixed(1)} windowStart=${windowStart} auto=${fillSpacerActive})`,
     )
   }
   prevSpacerHeightRef.current = phantomHeightRef.current
@@ -708,7 +725,7 @@ export const TranscriptView = memo(function TranscriptView({
   // earthquake under their feet. While reading history, only olderCount may
   // move the spacer (prepends, compensated by the native anchor); the avg
   // re-calibrates when the user is back at the bottom.
-  if (reserveScrollback && follow) {
+  if (spacerEnabled && follow) {
     let hSum = 0
     let eSum = 0
     for (const g of renderGroups) {
@@ -726,6 +743,26 @@ export const TranscriptView = memo(function TranscriptView({
   // layout effect below -- it changes only when the virtualizer re-measures
   // rows, i.e. on a real measurement delta.
   const totalSize = virtualizer.getTotalSize()
+
+  // AUTO-SPACER latch (see fillSpacerActive above). Measure the REAL content
+  // height -- scrollHeight minus the current phantom -- so engaging the spacer
+  // can't feed back into its own trigger. When real content doesn't fill the
+  // viewport and older history exists, there is no scroll range for the scroll-up
+  // gesture, so reserve phantom height above. Latched ON for the conversation
+  // (reset on switch, below): olderCount then shrinks the spacer smoothly as
+  // history loads, rather than a boolean flip yanking a tall spacer mid-read.
+  useEffect(() => {
+    if (fillSpacerActive) return
+    const el = parentRef.current
+    if (!el) return
+    const realContent = el.scrollHeight - phantomHeightRef.current
+    if (hasMoreOlder && realContent <= el.clientHeight + LOAD_EARLIER_SCROLL_THRESHOLD) {
+      console.debug(
+        `[scrollback] auto-spacer ON: realContent=${realContent.toFixed(0)} <= viewport=${el.clientHeight}+${LOAD_EARLIER_SCROLL_THRESHOLD} (older history unreachable without a scroll range)`,
+      )
+      setFillSpacerActive(true)
+    }
+  }, [totalSize, hasMoreOlder, windowStart, fillSpacerActive])
 
   // Recover from a stale/collapsed scroll-rect on tab return. While the tab is
   // hidden, rAF is suspended and a 0-height resize can get cached (see the
@@ -782,6 +819,9 @@ export const TranscriptView = memo(function TranscriptView({
   useLayoutEffect(() => {
     followSmoothRef.current = false
     prevTotalSizeRef.current = 0
+    // Drop the auto-spacer latch for the new conversation -- the measurement
+    // effect re-evaluates it against the incoming content.
+    setFillSpacerActive(false)
     virtualizer.scrollToEnd()
     onReachedBottom?.()
     console.debug(`[follow] switch-pin cacheKey=${cacheKey?.slice(0, 8) ?? '-'} groups=${renderGroups.length}`)
